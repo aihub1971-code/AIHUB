@@ -1,0 +1,50 @@
+name: AI HUB checks
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-hub-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SCHEDULER_ENABLED: "false"
+      ENABLE_API_DOCS: "false"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Check Python syntax
+        run: python -m compileall -q app scripts tests
+      - name: Run isolated tests
+        run: python -m pytest
+      - name: Validate the Render Blueprint
+        run: python scripts/validate_blueprint.py
+      - name: Build clean source handoff
+        run: python scripts/package_handoff.py --output dist/AI_HUB_Project.zip
+      - name: Upload source handoff
+        uses: actions/upload-artifact@v7
+        with:
+          name: AI-HUB-source-${{ github.sha }}
+          path: dist/AI_HUB_Project.zip
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,247 @@
+{
+  "schema_version": 1,
+  "source_package_snapshot": "2026-10-12",
+  "agent_count": 13,
+  "agents": [
+    {
+      "number": "01",
+      "id": "ubi-research",
+      "name": "Universal Basic Income Analyst",
+      "description": "Compare universal basic income designs, evidence, costs, distributional effects and policy tradeoffs on demand.",
+      "skills": [
+        {
+          "id": "ubi-research",
+          "path": "skills/ubi-research/ubi-research.md",
+          "sha256": "0c69c160f0afb4a436738a1b0e3dc51f4a6973e58920f96c852cc5660d8f5f3c",
+          "source_resource": "skill://plugins_6aca3e6953d08191a5dd4810d63edb3b/ubi-research/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "باحث الدخل الأساسي الشامل"
+    },
+    {
+      "number": "02",
+      "id": "iran-news",
+      "name": "Iran News Briefing",
+      "description": "Prepare neutral, source-grounded Iran news briefs covering domestic, regional, diplomatic, economic and humanitarian developments.",
+      "skills": [
+        {
+          "id": "iran-news",
+          "path": "skills/iran-news/iran-news.md",
+          "sha256": "f2929128c640b9aa611b8f32856f952abf27d00886e45cd0103ccd763a33c85a",
+          "source_resource": "skill://plugins_6aca3e7b1584819193bca53a608892e2/iran-news/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "أخبار إيران"
+    },
+    {
+      "number": "03",
+      "id": "uae-eu-trade-talks",
+      "name": "UAE–EU Trade Talks Briefing",
+      "description": "On-demand UAE–EU trade talks briefing, also searchable as CEPA–EU talks and EU–UAE FTA: verified status, milestones, public positions and conditional implications.",
+      "skills": [
+        {
+          "id": "uae-eu-trade-talks",
+          "path": "skills/uae-eu-trade-talks/uae-eu-trade-talks.md",
+          "sha256": "4ef584322e03a4c7e56bc2e056d12f9204bb4bdd090c87621858b79aeb216435",
+          "source_resource": "skill://plugins_6aca48502ce08191aa7f831cd855b7b6/uae-eu-trade-talks/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "مفاوضات الإمارات والاتحاد الأوروبي"
+    },
+    {
+      "number": "04",
+      "id": "geopolitical-morning",
+      "name": "Geopolitical Morning Briefing",
+      "description": "Prepare an on-demand global geopolitical morning brief with dated developments, multiple perspectives and conditional implications.",
+      "skills": [
+        {
+          "id": "geopolitical-morning",
+          "path": "skills/geopolitical-morning/geopolitical-morning.md",
+          "sha256": "17b5179cc0b6dcf93a3f488afdb61cc30bd3eb6ffdba95e21ab1b59f6b35c340",
+          "source_resource": "skill://plugins_6aca3e8ba7fc819192135a11d8c5db93/geopolitical-morning/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "الأخبار الدولية والجيوسياسية"
+    },
+    {
+      "number": "05",
+      "id": "education-observatory",
+      "name": "Global Education Observatory",
+      "description": "On-demand education intelligence, teaching-practice evaluation, international benchmarks, and evidence-grounded adaptation and gap analysis for Abu Dhabi.",
+      "skills": [
+        {
+          "id": "education-observatory",
+          "path": "skills/education-observatory/education-observatory.md",
+          "sha256": "ceebd85e425a0ad6e06a91f5e63c9796834a85117766226dbdcbedc4be0a7c7a",
+          "source_resource": "skill://plugins_6ac911eee30c8191a7f95f9a8ce35b11/education-observatory/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "مرصد التعليم العالمي"
+    },
+    {
+      "number": "06",
+      "id": "historical-reading-companion",
+      "name": "Historical Reading Companion",
+      "description": "",
+      "skills": [
+        {
+          "id": "historical-reading-companion",
+          "path": "skills/historical-reading-companion/historical-reading-companion.md",
+          "sha256": "f5ece34f7d4a3aced10c723501e460cd7bf1488b136e3e5f993d48dc684554bd",
+          "source_resource": "skill://user/6ac906855f0c8191adfb9644a8db5bec/historical-reading-companion/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "رفيق القراءة التاريخية"
+    },
+    {
+      "number": "07",
+      "id": "story-moodboard",
+      "name": "Story Moodboard",
+      "description": "",
+      "skills": [
+        {
+          "id": "story-moodboard",
+          "path": "skills/story-moodboard/story-moodboard.md",
+          "sha256": "eb3f410a738ea1e7cb4e92a5488b8003dc4c9e6349f718e83e49b211810c8bca",
+          "source_resource": "skill://user/6ac906a796248191934807e7acb0e889/story-moodboard/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "لوحة أفكار القصص"
+    },
+    {
+      "number": "08",
+      "id": "economic-cultural-briefing",
+      "name": "Economic & Cultural Briefing",
+      "description": "On-demand executive briefings connecting economic developments with evidenced cultural context and qualified UAE and Abu Dhabi implications.",
+      "skills": [
+        {
+          "id": "economic-cultural-briefing",
+          "path": "skills/economic-cultural-briefing/economic-cultural-briefing.md",
+          "sha256": "e5b1c524a304c1ae0167c243b060992881bc9396273b4632a16192a938934a85",
+          "source_resource": "skill://plugins_6ac9d3cc95c08191a10275e4b375e43b/economic-cultural-briefing/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "الموجز الاقتصادي والثقافي"
+    },
+    {
+      "number": "09",
+      "id": "decision-briefing",
+      "name": "Decision Briefing Partner",
+      "description": "Prepare a concise executive decision brief from a question and attached sources, with consistent option comparisons, explicit uncertainties and a conditional recommendation.",
+      "skills": [
+        {
+          "id": "decision-briefing",
+          "path": "skills/decision-briefing/decision-briefing.md",
+          "sha256": "eb6ef9cc3b4374ffac3cbb762ddb55d57db9b185a81723628795a195450dfa9d",
+          "source_resource": "skill://plugins_6ac9069d3d6c819182f5032077d5e710/decision-briefing/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "مساعد اتخاذ القرار"
+    },
+    {
+      "number": "10",
+      "id": "mom-agent",
+      "name": "MoM Agent",
+      "description": "You are a project meeting management agent. Your responsibility is to transform meeting transcripts, notes or recordings into accurate minutes, decisions, deliverables and a follow-up email.",
+      "skills": [
+        {
+          "id": "instructions",
+          "path": "skills/mom-agent/instructions.md",
+          "sha256": "9f60c68672d831dd05d1e452cd5f9804000a98cc4bf51b1ab61f448810674c9b",
+          "source_resource": "skill://plugin_0176f1d071688191994f962481c0622e/instructions/SKILL.md"
+        },
+        {
+          "id": "manage-project-meetings",
+          "path": "skills/mom-agent/manage-project-meetings.md",
+          "sha256": "a25a0bb21609e9152b1aab4797bde5ff6d2e46f8b647e090468c1a5381a2a120",
+          "source_resource": "skill://user/6a55344dd05c8191bd28010cd89601f0/manage-project-meetings/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "محاضر الاجتماعات"
+    },
+    {
+      "number": "11",
+      "id": "whatsapp-briefing",
+      "name": "WhatsApp Briefing & Actions",
+      "description": "Private browser-dependent WhatsApp summaries, prioritized suggested actions and unsent reply drafts. No native connector or automatic sending.",
+      "skills": [
+        {
+          "id": "whatsapp-briefing",
+          "path": "skills/whatsapp-briefing/whatsapp-briefing.md",
+          "sha256": "bf05027fcaddfdb72d08f77f0e3de0855e6cc51455f7c21f815e4885b03fc137",
+          "source_resource": "skill://plugins_6aca59bf11ec8191901f9cccf23fdaa9/whatsapp-briefing/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "تلخيص محادثات واتساب"
+    },
+    {
+      "number": "12",
+      "id": "literary-translation",
+      "name": "Literary Translation Companion",
+      "description": "Source-grounded Russian and Chinese literary translation into Arabic with a revisable style guide, glossary and quality review.",
+      "skills": [
+        {
+          "id": "literary-translation",
+          "path": "skills/literary-translation/literary-translation.md",
+          "sha256": "2426508a91e9a526b53ffd279768bec24137a8f32ff16c22acb146afa7143a29",
+          "source_resource": "skill://plugins_6acb3a224e7c8191af2c98b70981553a/literary-translation/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "رفيق الترجمة الأدبية"
+    },
+    {
+      "number": "13",
+      "id": "pre-meeting-briefing",
+      "name": "AI HUB Pre-Meeting Briefing",
+      "description": "Evidence-grounded preparation briefs and counterpart research for the meeting principal specified by the AI HUB owner.",
+      "skills": [
+        {
+          "id": "pre-meeting-briefing",
+          "path": "skills/pre-meeting-briefing/pre-meeting-briefing.md",
+          "sha256": "26a15d79ba49207e2b88ac12fd150005dfa7fe6726a4bb58acfcf3e4d6a5857c",
+          "source_resource": "skill://plugins_6acb65098c9c81918c60a1f1cbd05810/pre-meeting-briefing/SKILL.md"
+        }
+      ],
+      "enabled": true,
+      "tools": [],
+      "external_actions": [],
+      "display_name_ar": "التحضير للاجتماعات"
+    }
+  ]
+}

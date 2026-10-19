@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "default_policy": "deny",
+  "note": "Owner-facing actions are explicit. Model-invoked tools and external actions are denied. Application-managed OpenAI/Groq requests and allowlisted Tavily retrieval are separately bounded by app/runtime.py and the shared quota gate.",
+  "agents": {
+    "ubi-research": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "ubi-research"
+      ]
+    },
+    "iran-news": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "iran-news"
+      ]
+    },
+    "uae-eu-trade-talks": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "uae-eu-trade-talks"
+      ]
+    },
+    "geopolitical-morning": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "geopolitical-morning"
+      ]
+    },
+    "education-observatory": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "education-observatory"
+      ]
+    },
+    "historical-reading-companion": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "historical-reading-companion"
+      ]
+    },
+    "story-moodboard": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "story-moodboard"
+      ]
+    },
+    "economic-cultural-briefing": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "economic-cultural-briefing"
+      ]
+    },
+    "decision-briefing": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "decision-briefing"
+      ]
+    },
+    "mom-agent": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "instructions",
+        "manage-project-meetings"
+      ]
+    },
+    "whatsapp-briefing": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "whatsapp-briefing"
+      ]
+    },
+    "literary-translation": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "literary-translation"
+      ]
+    },
+    "pre-meeting-briefing": {
+      "actions": [
+        "inspect",
+        "read_skill",
+        "submit_task"
+      ],
+      "tools": [],
+      "external_actions": [],
+      "allowed_skill_ids": [
+        "pre-meeting-briefing"
+      ]
+    }
+  }
+}
