@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from app.main import app
 from app import runtime
+from fastapi import HTTPException
 import pytest
 
 
@@ -84,10 +85,48 @@ def test_schedule_crud_and_time_validation(client):
 
 def test_system_status_exposes_configuration_flags_only(client, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-api-key-do-not-output")
-    monkeypatch.setenv("TAVILY_API_KEY", "synthetic-search-key-do-not-output")
     monkeypatch.setattr(runtime, "estimate_reservation", lambda *_: {"estimated_cost_usd": .1})
     response = client.get("/v1/system")
     assert response.status_code == 200, response.text
     assert response.json()["model_configured"] is True
     assert response.json()["search_configured"] is True
-    assert "synthetic-api-key" not in response.text and "synthetic-search-key" not in response.text
+    assert response.json()["provider"] == "openai"
+    assert response.json()["search_provider"] == "openai"
+    assert response.json()["configuration_check_only"] is True
+    assert "synthetic-api-key" not in response.text
+
+
+def test_system_status_requires_only_the_openai_key_for_model_and_search(client):
+    response = client.get("/v1/system")
+    assert response.status_code == 200
+    assert response.json()["model_configured"] is False
+    assert response.json()["search_configured"] is False
+    assert response.json()["provider"] is None
+    assert response.json()["search_provider"] is None
+
+
+def test_system_status_checks_news_budget_configuration_too(client, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-api-key-do-not-output")
+    def estimate(agent_id, task):
+        if agent_id == "geopolitical-morning":
+            raise HTTPException(status_code=503, detail={"code": "pricing_not_configured"})
+        return {"estimated_cost_usd": .1}
+    monkeypatch.setattr(runtime, "estimate_reservation", estimate)
+    response = client.get("/v1/system")
+    assert response.status_code == 200
+    assert response.json()["pricing_configured"] is False
+    assert response.json()["configuration_issue"] == "pricing_not_configured"
+
+
+def test_provider_rejection_keeps_safe_status_without_secret_response_body(client, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-api-key-do-not-output")
+    monkeypatch.setattr(runtime, "estimate_reservation", lambda *_: {"provider": "openai", "model": "fixture", "estimated_cost_usd": .2})
+    def rejected(*args):
+        raise HTTPException(status_code=502, detail={"code": "openai_api_error", "provider_status": 401,
+                                                   "message": "private-provider-response-must-not-leak"})
+    monkeypatch.setattr(runtime, "run_agent", rejected)
+    response = client.post("/v1/agents/iran-news/run", json={"task": "أهم أخبار إيران اليوم"})
+    assert response.status_code == 502
+    assert response.json()["detail"]["provider_status"] == 401
+    assert "private-provider-response" not in response.text
+    assert client.get("/v1/usage").json()["daily"]["estimated_cost_usd"] == .2

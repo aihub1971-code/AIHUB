@@ -17,7 +17,9 @@
         }
       ],
       "enabled": true,
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "display_name_ar": "باحث الدخل الأساسي الشامل"
     },
@@ -35,7 +37,9 @@
         }
       ],
       "enabled": true,
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "display_name_ar": "أخبار إيران"
     },
@@ -53,7 +57,9 @@
         }
       ],
       "enabled": true,
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "display_name_ar": "مفاوضات الإمارات والاتحاد الأوروبي"
     },
@@ -71,7 +77,9 @@
         }
       ],
       "enabled": true,
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "display_name_ar": "الأخبار الدولية والجيوسياسية"
     },
@@ -89,7 +97,9 @@
         }
       ],
       "enabled": true,
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "display_name_ar": "مرصد التعليم العالمي"
     },
@@ -107,7 +117,9 @@
         }
       ],
       "enabled": true,
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "display_name_ar": "رفيق القراءة التاريخية"
     },
@@ -143,7 +155,9 @@
         }
       ],
       "enabled": true,
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "display_name_ar": "الموجز الاقتصادي والثقافي"
     },
@@ -161,7 +175,9 @@
         }
       ],
       "enabled": true,
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "display_name_ar": "مساعد اتخاذ القرار"
     },
@@ -239,7 +255,9 @@
         }
       ],
       "enabled": true,
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "display_name_ar": "التحضير للاجتماعات"
     }

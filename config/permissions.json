@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "default_policy": "deny",
-  "note": "Owner-facing actions are explicit. Model-invoked tools and external actions are denied. Application-managed OpenAI/Groq requests and allowlisted Tavily retrieval are separately bounded by app/runtime.py and the shared quota gate.",
+  "note": "Owner-facing actions are explicit. Only the OpenAI-hosted web_search tool is allowed for research agents. Other model tools and all external actions are denied. OpenAI model and search requests share the bounded runtime, quota gate and cost reservation.",
   "agents": {
     "ubi-research": {
       "actions": [
@@ -9,7 +9,9 @@
         "read_skill",
         "submit_task"
       ],
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "allowed_skill_ids": [
         "ubi-research"
@@ -21,7 +23,9 @@
         "read_skill",
         "submit_task"
       ],
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "allowed_skill_ids": [
         "iran-news"
@@ -33,7 +37,9 @@
         "read_skill",
         "submit_task"
       ],
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "allowed_skill_ids": [
         "uae-eu-trade-talks"
@@ -45,7 +51,9 @@
         "read_skill",
         "submit_task"
       ],
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "allowed_skill_ids": [
         "geopolitical-morning"
@@ -57,7 +65,9 @@
         "read_skill",
         "submit_task"
       ],
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "allowed_skill_ids": [
         "education-observatory"
@@ -69,7 +79,9 @@
         "read_skill",
         "submit_task"
       ],
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "allowed_skill_ids": [
         "historical-reading-companion"
@@ -93,7 +105,9 @@
         "read_skill",
         "submit_task"
       ],
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "allowed_skill_ids": [
         "economic-cultural-briefing"
@@ -105,7 +119,9 @@
         "read_skill",
         "submit_task"
       ],
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "allowed_skill_ids": [
         "decision-briefing"
@@ -154,7 +170,9 @@
         "read_skill",
         "submit_task"
       ],
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "allowed_skill_ids": [
         "pre-meeting-briefing"

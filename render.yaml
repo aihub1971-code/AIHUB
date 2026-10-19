@@ -25,8 +25,6 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      - key: TAVILY_API_KEY
-        sync: false
       - key: OPENAI_MODEL_NAME
         value: gpt-6.1-sol
       - key: OPENAI_REASONING_EFFORT
@@ -37,8 +35,10 @@ services:
         value: "2"
       - key: OPENAI_OUTPUT_USD_PER_MILLION
         value: "10"
-      - key: TAVILY_CREDIT_PRICE_USD
-        value: "0.008"
+      - key: OPENAI_WEB_SEARCH_PRICE_USD_PER_CALL
+        value: "0.01"
+      - key: OPENAI_RESEARCH_MAX_OUTPUT_TOKENS
+        value: "4096"
       - key: MAX_OUTPUT_TOKENS
         value: "4096"
       - key: AI_HUB_DATABASE_PATH

@@ -21,6 +21,7 @@ from app.service import execute_report
 from app.storage import StoreError, get_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
+APP_VERSION = "1.1.0"
 
 
 def runtime_is_ready() -> bool:
@@ -43,7 +44,7 @@ async def lifespan(application: FastAPI):
 
 _docs = docs_enabled()
 app = FastAPI(
-    title="AI HUB", version="1.0.0",
+    title="AI HUB", version=APP_VERSION,
     description="Private Arabic assistant platform with reports, budgets and Dubai schedules.",
     docs_url="/docs" if _docs else None, redoc_url=None,
     openapi_url="/openapi.json" if _docs else None, lifespan=lifespan,
@@ -80,7 +81,7 @@ def root() -> HTMLResponse:
 
 @app.get("/health", tags=["system"])
 def health() -> dict[str, object]:
-    return {"status": "ok", "app": "AI HUB", "version": "1.0.0",
+    return {"status": "ok", "app": "AI HUB", "version": APP_VERSION,
             "stage": "ready" if runtime_is_ready() else "bootstrap"}
 
 
@@ -150,17 +151,17 @@ def system_status(_: str = Depends(require_owner)) -> dict[str, object]:
     if runtime_is_ready():
         try:
             agent_runtime.estimate_reservation("literary-translation", "اختبار إعداد النموذج")
-            if get_setting("TAVILY_API_KEY"):
-                agent_runtime.estimate_reservation("geopolitical-morning", "أهم الأخبار اليوم")
+            agent_runtime.estimate_reservation("geopolitical-morning", "أهم الأخبار اليوم")
             pricing_ready = True
         except HTTPException as exc:
             configuration_issue = exc.detail.get("code") if isinstance(exc.detail, dict) else "configuration_incomplete"
     return {
         "app": "AI HUB", "timezone": "Asia/Dubai", "news_items_per_report": 6,
         "model_configured": runtime_is_ready(),
-        "provider": "openai" if openai else "groq" if get_setting("GROQ_API_KEY") else None,
-        "model": get_setting("OPENAI_MODEL_NAME", "gpt-6.1-sol") if openai else get_setting("MODEL_NAME", "openai/gpt-oss-20b"),
-        "search_configured": bool(get_setting("TAVILY_API_KEY")),
+        "provider": "openai" if openai else None,
+        "model": get_setting("OPENAI_MODEL_NAME", agent_runtime.DEFAULT_OPENAI_MODEL),
+        "search_configured": openai,
+        "search_provider": "openai" if openai else None,
         "pricing_configured": pricing_ready, "configuration_issue": configuration_issue,
         "scheduler_enabled": (get_setting("SCHEDULER_ENABLED", "false") or "").lower() in {"1", "true", "yes"},
         "scheduler_running": bool(scheduler and scheduler.is_running),

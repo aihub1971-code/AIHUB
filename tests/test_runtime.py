@@ -12,10 +12,10 @@ from app import runtime
 
 @pytest.fixture(autouse=True)
 def isolated_runtime(monkeypatch):
-    for name in ("OPENAI_API_KEY", "GROQ_API_KEY", "TAVILY_API_KEY", "OPENAI_MODEL_NAME", "MODEL_NAME",
+    for name in ("OPENAI_API_KEY", "OPENAI_MODEL_NAME",
                  "OPENAI_PRICING_MODEL", "OPENAI_INPUT_USD_PER_MILLION", "OPENAI_OUTPUT_USD_PER_MILLION",
-                 "GROQ_PRICING_MODEL", "GROQ_INPUT_USD_PER_MILLION", "GROQ_OUTPUT_USD_PER_MILLION",
-                 "TAVILY_CREDIT_PRICE_USD", "MAX_OUTPUT_TOKENS", "OPENAI_REASONING_EFFORT"):
+                 "OPENAI_WEB_SEARCH_PRICE_USD_PER_CALL", "OPENAI_RESEARCH_MAX_OUTPUT_TOKENS",
+                 "MAX_OUTPUT_TOKENS", "OPENAI_REASONING_EFFORT"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "fixture-openai-key-no-network")
     monkeypatch.setattr(runtime, "_now_dubai", lambda: datetime(2026, 10, 19, 15, 30, tzinfo=runtime.DUBAI))
@@ -46,8 +46,7 @@ def model_response(text="هذه نتيجة اصطناعية للاختبار ف�
     }
 
 
-def test_openai_selected_when_both_keys_exist_no_model_tools(monkeypatch, mocked_http):
-    monkeypatch.setenv("GROQ_API_KEY", "fixture-groq-key-no-network")
+def test_openai_only_text_request_has_no_model_tools(mocked_http):
     calls = mocked_http(lambda req: httpx.Response(200, json=model_response()))
     result = runtime.run_agent("literary-translation", "ترجم هذا النص الأدبي التجريبي")
     assert len(calls) == 1 and str(calls[0].url) == runtime.OPENAI_RESPONSES_URL
@@ -61,25 +60,21 @@ def test_openai_selected_when_both_keys_exist_no_model_tools(monkeypatch, mocked
     assert result["estimated_cost_usd"] == pytest.approx(0.00155)
 
 
-def test_legacy_groq_only_when_openai_key_absent(monkeypatch, mocked_http):
+@pytest.mark.parametrize("agent_id", ["literary-translation", "iran-news"])
+def test_missing_openai_key_fails_closed_without_any_network(monkeypatch, mocked_http, agent_id):
     monkeypatch.delenv("OPENAI_API_KEY")
-    monkeypatch.setenv("GROQ_API_KEY", "fixture-groq-key-no-network")
-    monkeypatch.setenv("GROQ_PRICING_MODEL", "openai/gpt-oss-20b")
-    monkeypatch.setenv("GROQ_INPUT_USD_PER_MILLION", "0.10")
-    monkeypatch.setenv("GROQ_OUTPUT_USD_PER_MILLION", "0.20")
-    calls = mocked_http(lambda req: httpx.Response(200, json={
-        "choices": [{"finish_reason": "stop", "message": {"content": "نص اصطناعي للاختبار"}}],
-        "usage": {"prompt_tokens": 20, "completion_tokens": 10}}))
-    result = runtime.run_agent("literary-translation", "ترجم النص المرفق")
-    assert len(calls) == 1 and str(calls[0].url) == runtime.GROQ_CHAT_URL
-    assert result["provider"] == "groq"
-    assert result["usage"]["input_tokens"] == 20
-    assert result["cost_tracking_complete"] is True
+    calls = mocked_http(lambda req: pytest.fail("No provider call is allowed without OPENAI_API_KEY"))
+    assert runtime.runtime_is_ready() is False
+    for action in (runtime.estimate_reservation, runtime.run_agent):
+        with pytest.raises(HTTPException) as exc:
+            action(agent_id, "مهمة اختبار")
+        assert exc.value.status_code == 503
+        assert exc.value.detail["code"] == "agent_runtime_not_configured"
+    assert calls == []
 
 
 @pytest.mark.parametrize("status_code", [400, 401, 429, 500])
-def test_no_fallback_or_retry_and_no_upstream_error_leak(monkeypatch, mocked_http, status_code):
-    monkeypatch.setenv("GROQ_API_KEY", "fixture-legacy-not-to-be-called")
+def test_no_retry_and_no_upstream_error_leak(mocked_http, status_code):
     sentinel = "credential-or-request-body-must-not-appear"
     calls = mocked_http(lambda req: httpx.Response(status_code, json={"error": {"message": sentinel}}))
     with pytest.raises(HTTPException) as exc:
@@ -157,22 +152,24 @@ def test_invalid_prices_fail_before_network(monkeypatch, bad_value):
     assert exc.value.detail["code"] == "pricing_not_configured"
 
 
-def test_reservation_covers_whole_bounded_input_output_and_search(monkeypatch, mocked_http):
-    monkeypatch.setenv("TAVILY_API_KEY", "fixture-search-key-no-network")
+def test_reservation_covers_both_model_stages_and_native_search(mocked_http):
     calls = mocked_http(lambda req: pytest.fail("Reservation must not issue paid network requests"))
     estimate = runtime.estimate_reservation("iran-news", "أخبار إيران ١٩ أكتوبر ٢٠٢٦")
     assert calls == []
-    assert estimate["max_search_credits"] == 2
-    assert estimate["max_input_tokens"] < 272000
-    assert estimate["max_output_tokens"] == 4096
+    assert estimate["max_web_search_calls"] == 1
+    assert estimate["max_model_calls"] == 2
+    assert estimate["research_input_tokens_bound"] < 272000
+    assert estimate["report_input_tokens_bound"] < 272000
+    assert estimate["max_input_tokens"] == (estimate["research_input_tokens_bound"]
+                                             + estimate["report_input_tokens_bound"])
+    assert estimate["max_output_tokens"] == 8192
     expected = (Decimal(estimate["max_input_tokens"]) * Decimal("2.5")
-                + Decimal(4096) * Decimal("10")) / Decimal(1000000) + Decimal(".016")
+                + Decimal(8192) * Decimal("10")) / Decimal(1000000) + Decimal(".01")
     assert Decimal(str(estimate["estimated_cost_usd"])) >= expected
     assert runtime.estimate_run_reservation("iran-news", "أخبار إيران ١٩ أكتوبر ٢٠٢٦") == estimate["estimated_cost_usd"]
 
 
-def test_search_free_agents_never_search_even_when_task_asks(monkeypatch, mocked_http):
-    monkeypatch.setenv("TAVILY_API_KEY", "fixture-search-key-no-network")
+def test_search_free_agents_never_search_even_when_task_asks(mocked_http):
     calls = mocked_http(lambda req: httpx.Response(200, json=model_response()))
     result = runtime.run_agent("story-moodboard", "ابحث عن أحدث الأخبار")
     assert len(calls) == 1 and calls[0].url.host == "api.openai.com"

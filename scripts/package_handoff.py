@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = {
     ".env.example", ".gitignore", ".python-version", "README.md", "pyproject.toml",
     "requirements.txt", "requirements-dev.txt", "render.yaml",
+    "AI_HUB_Handoff_AR.md", "START_HERE_NEXT_CHAT.md",
 }
 SOURCE_DIRS = {"app", "config", "docs", "skills", "tests", "scripts", ".github"}
 SUFFIXES = {
