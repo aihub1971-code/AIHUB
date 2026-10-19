@@ -1,0 +1,94 @@
+{
+  "project": "AI HUB",
+  "adapted_from": "User-supplied project handoff; branding and selected instructions adapted for AI HUB.",
+  "source_snapshot_date": "2026-10-12",
+  "handoff_date": "2026-10-19",
+  "agent_count": 13,
+  "skill_file_count": 14,
+  "skills": [
+    {
+      "agent_id": "ubi-research",
+      "skill_id": "ubi-research",
+      "path": "skills/ubi-research/ubi-research.md",
+      "sha256": "0c69c160f0afb4a436738a1b0e3dc51f4a6973e58920f96c852cc5660d8f5f3c"
+    },
+    {
+      "agent_id": "iran-news",
+      "skill_id": "iran-news",
+      "path": "skills/iran-news/iran-news.md",
+      "sha256": "f2929128c640b9aa611b8f32856f952abf27d00886e45cd0103ccd763a33c85a"
+    },
+    {
+      "agent_id": "uae-eu-trade-talks",
+      "skill_id": "uae-eu-trade-talks",
+      "path": "skills/uae-eu-trade-talks/uae-eu-trade-talks.md",
+      "sha256": "4ef584322e03a4c7e56bc2e056d12f9204bb4bdd090c87621858b79aeb216435"
+    },
+    {
+      "agent_id": "geopolitical-morning",
+      "skill_id": "geopolitical-morning",
+      "path": "skills/geopolitical-morning/geopolitical-morning.md",
+      "sha256": "17b5179cc0b6dcf93a3f488afdb61cc30bd3eb6ffdba95e21ab1b59f6b35c340"
+    },
+    {
+      "agent_id": "education-observatory",
+      "skill_id": "education-observatory",
+      "path": "skills/education-observatory/education-observatory.md",
+      "sha256": "ceebd85e425a0ad6e06a91f5e63c9796834a85117766226dbdcbedc4be0a7c7a"
+    },
+    {
+      "agent_id": "historical-reading-companion",
+      "skill_id": "historical-reading-companion",
+      "path": "skills/historical-reading-companion/historical-reading-companion.md",
+      "sha256": "f5ece34f7d4a3aced10c723501e460cd7bf1488b136e3e5f993d48dc684554bd"
+    },
+    {
+      "agent_id": "story-moodboard",
+      "skill_id": "story-moodboard",
+      "path": "skills/story-moodboard/story-moodboard.md",
+      "sha256": "eb3f410a738ea1e7cb4e92a5488b8003dc4c9e6349f718e83e49b211810c8bca"
+    },
+    {
+      "agent_id": "economic-cultural-briefing",
+      "skill_id": "economic-cultural-briefing",
+      "path": "skills/economic-cultural-briefing/economic-cultural-briefing.md",
+      "sha256": "e5b1c524a304c1ae0167c243b060992881bc9396273b4632a16192a938934a85"
+    },
+    {
+      "agent_id": "decision-briefing",
+      "skill_id": "decision-briefing",
+      "path": "skills/decision-briefing/decision-briefing.md",
+      "sha256": "eb6ef9cc3b4374ffac3cbb762ddb55d57db9b185a81723628795a195450dfa9d"
+    },
+    {
+      "agent_id": "mom-agent",
+      "skill_id": "instructions",
+      "path": "skills/mom-agent/instructions.md",
+      "sha256": "9f60c68672d831dd05d1e452cd5f9804000a98cc4bf51b1ab61f448810674c9b"
+    },
+    {
+      "agent_id": "mom-agent",
+      "skill_id": "manage-project-meetings",
+      "path": "skills/mom-agent/manage-project-meetings.md",
+      "sha256": "a25a0bb21609e9152b1aab4797bde5ff6d2e46f8b647e090468c1a5381a2a120"
+    },
+    {
+      "agent_id": "whatsapp-briefing",
+      "skill_id": "whatsapp-briefing",
+      "path": "skills/whatsapp-briefing/whatsapp-briefing.md",
+      "sha256": "bf05027fcaddfdb72d08f77f0e3de0855e6cc51455f7c21f815e4885b03fc137"
+    },
+    {
+      "agent_id": "literary-translation",
+      "skill_id": "literary-translation",
+      "path": "skills/literary-translation/literary-translation.md",
+      "sha256": "2426508a91e9a526b53ffd279768bec24137a8f32ff16c22acb146afa7143a29"
+    },
+    {
+      "agent_id": "pre-meeting-briefing",
+      "skill_id": "pre-meeting-briefing",
+      "path": "skills/pre-meeting-briefing/pre-meeting-briefing.md",
+      "sha256": "26a15d79ba49207e2b88ac12fd150005dfa7fe6726a4bb58acfcf3e4d6a5857c"
+    }
+  ]
+}

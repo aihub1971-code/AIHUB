@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+# AI HUB: one paid, disk-backed Python service. Review Render's price before creation.
+previews:
+  generation: "off"
+
+services:
+  - type: web
+    name: ai-hub
+    runtime: python
+    plan: 0.5c-512mb
+    region: frankfurt
+    numInstances: 1
+    buildCommand: python -m pip install -r requirements.txt
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    disk:
+      name: ai-hub-data
+      mountPath: /var/data/ai-hub
+      sizeGB: 1
+    envVars:
+      - key: APP_USERNAME
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: OPENAI_MODEL_NAME
+        value: gpt-6.1-sol
+      - key: OPENAI_REASONING_EFFORT
+        value: low
+      - key: OPENAI_PRICING_MODEL
+        value: gpt-6.1-sol
+      - key: OPENAI_INPUT_USD_PER_MILLION
+        value: "2"
+      - key: OPENAI_OUTPUT_USD_PER_MILLION
+        value: "10"
+      - key: TAVILY_CREDIT_PRICE_USD
+        value: "0.008"
+      - key: MAX_OUTPUT_TOKENS
+        value: "4096"
+      - key: AI_HUB_DATABASE_PATH
+        value: /var/data/ai-hub/ai-hub.sqlite3
+      - key: MAX_REPORTS_PER_DAY
+        value: "50"
+      - key: DAILY_BUDGET_USD
+        value: "5"
+      - key: MONTHLY_BUDGET_USD
+        value: "100"
+      - key: SCHEDULER_ENABLED
+        value: "false"
+      - key: ENABLE_API_DOCS
+        value: "false"
+      - key: PYTHONUNBUFFERED
+        value: "1"
