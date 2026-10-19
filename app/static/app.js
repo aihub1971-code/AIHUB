@@ -248,7 +248,7 @@
   function prettyError(data,status){
     const detail=data && data.detail;
     const code=detail && typeof detail === "object" ? detail.code : "";
-    const labels={daily_report_limit:"وصلت إلى الحد اليومي للتقارير.",daily_budget_limit:"وصلت إلى ميزانية اليوم.",monthly_budget_limit:"وصلت إلى ميزانية الشهر.",pricing_not_configured:"أسعار النموذج غير مكتملة في إعدادات المنصة.",runtime_not_configured:"مفتاح تشغيل النموذج لم يُضبط بعد.",idempotency_conflict:"رقم الطلب مستخدم لمهمة مختلفة.",report_in_progress:"الطلب نفسه قيد التنفيذ؛ راجع الأرشيف بعد قليل."};
+    const labels={openai_api_error:"رفضت OpenAI الطلب؛ راجع صلاحية المفتاح وإتاحة النموذج ورصيد API.",openai_timeout:"استغرق طلب OpenAI وقتًا أطول من المهلة؛ راجع الأرشيف قبل إنشاء محاولة جديدة.",native_search_not_used:"لم ينفذ النموذج بحث الويب المطلوب؛ لم يُنشأ تقرير من معلومات غير مبحوثة.",daily_report_limit:"وصلت إلى الحد اليومي للتقارير.",daily_budget_limit:"وصلت إلى ميزانية اليوم.",monthly_budget_limit:"وصلت إلى ميزانية الشهر.",pricing_not_configured:"أسعار النموذج غير مكتملة في إعدادات المنصة.",runtime_not_configured:"مفتاح تشغيل النموذج لم يُضبط بعد.",idempotency_conflict:"رقم الطلب مستخدم لمهمة مختلفة.",report_in_progress:"الطلب نفسه قيد التنفيذ؛ راجع الأرشيف بعد قليل."};
     return labels[code] || (detail && typeof detail === "object" ? detail.message || detail.code : typeof detail==="string" ? detail : null) || "تعذّر إكمال الطلب ("+status+").";
   }
   async function apiJson(path,method="GET",body){
@@ -269,8 +269,8 @@
     renderMarkdown($("responseBody"),lastResponse || "لم تتوفر نتيجة نصية لهذا الطلب.");
     $("usage").replaceChildren();
     const u=data.usage || {}, search=data.web_search || {};
-    const searchLabels={used:"تم البحث",empty:"لم تتوفر مصادر مطابقة",missing_key:"البحث غير مهيّأ",failed:"تعذّر البحث",recent_fallback:"سياق سابق للفترة",not_needed:"لم يلزم البحث",disabled_agent:"غير متاح لهذا المساعد"};
-    const cells=[["النموذج",data.model],["البحث",searchLabels[search.status] || search.status],["الأخبار",data.item_count === undefined ? undefined : data.item_count+" / 6"],["رموز الإدخال",u.prompt_tokens],["رموز الإخراج",u.completion_tokens],["التكلفة التقديرية",data.accounting?.estimated_cost_usd === undefined && data.estimated_cost_usd == null ? undefined : money(data.accounting?.estimated_cost_usd ?? data.estimated_cost_usd)]];
+    const searchLabels={used:"تم البحث",empty:"لم تتوفر مصادر مطابقة",missing_key:"البحث غير مهيّأ",failed:"تعذّر البحث",recent_fallback:"سياق سابق للفترة",not_needed:"لم يلزم البحث",disabled_agent:"غير متاح لهذا المساعد",permission_denied:"صلاحية البحث معطلة"};
+    const cells=[["النموذج",data.model],["البحث",searchLabels[search.status] || search.status],["الأخبار",data.item_count === undefined ? undefined : data.item_count+" / 6"],["عمليات البحث",u.web_search_calls],["رموز الإدخال",u.prompt_tokens],["رموز الإخراج",u.completion_tokens],["التكلفة التقديرية",data.accounting?.estimated_cost_usd === undefined && data.estimated_cost_usd == null ? undefined : money(data.accounting?.estimated_cost_usd ?? data.estimated_cost_usd)]];
     cells.forEach(([label,value])=>{if(value===undefined || value===null) return;const span=document.createElement("span");span.textContent=label+": "+value;$("usage").append(span);});
     $("responsePanel").classList.remove("hidden");
     $("downloadBtn").classList.toggle("hidden",!latestReportId);
@@ -346,9 +346,9 @@
       $("dailyCount").textContent=usage.daily.attempts+" / "+usage.daily.limit;$("dailyRemaining").textContent="المتبقي اليوم: "+usage.daily.remaining+" محاولة";
       $("dailyCost").textContent=money(usage.daily.estimated_cost_usd);$("dailyBudget").textContent="الميزانية: "+money(usage.daily.budget_usd);
       $("monthlyCost").textContent=money(usage.monthly.estimated_cost_usd);$("monthlyBudget").textContent="الميزانية: "+money(usage.monthly.budget_usd);
-      $("providerStatus").textContent=system.model_configured?(system.provider==="openai"?"OpenAI":"Groq"):"بانتظار الإعداد";
-      $("scheduleStatus").textContent="البحث: "+(system.search_configured?"مهيّأ":"غير مهيّأ")+" · الأسعار: "+(system.pricing_configured?"مهيّأة":"غير مكتملة");
-      $("schedulerNotice").textContent=system.scheduler_running?"المجدول يعمل. تُشغّل الجداول المفعّلة في مواعيدها، ما دامت الحدود اليومية والميزانية تسمح.":"المجدول العام متوقف حاليًا. يمكنك حفظ الجداول، ثم تفعيل التشغيل من إعدادات الخادم بعد اختبار المفاتيح.";
+      $("providerStatus").textContent=system.model_configured?"OpenAI":"بانتظار الإعداد";
+      $("scheduleStatus").textContent="بحث OpenAI: "+(system.search_configured?"مهيّأ":"غير مهيّأ")+" · الأسعار: "+(system.pricing_configured?"مهيّأة":"غير مكتملة");
+      $("schedulerNotice").textContent=system.scheduler_running?"المجدول يعمل. تُشغّل الجداول المفعّلة في مواعيدها، ما دامت الحدود اليومية والميزانية تسمح.":"المجدول العام متوقف حاليًا. يمكنك حفظ الجداول، ثم تفعيل التشغيل من إعدادات الخادم بعد اختبار مفتاح OpenAI.";
       renderArchive(reports.reports || []);renderSchedules(schedules.schedules || [],occurrences.occurrences || []);
     }catch(e){if(currentSession===sessionVersion)setNotice("dashboardNotice",e.message,"error");}
   }

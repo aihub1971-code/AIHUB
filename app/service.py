@@ -91,14 +91,14 @@ def execute_report(
         if previous is not None:
             return _replay(previous)
         if not runtime.runtime_is_ready():
-            raise HTTPException(status_code=503, detail={"code": "runtime_not_configured", "message": "Configure a model provider before running reports."})
+            raise HTTPException(status_code=503, detail={"code": "runtime_not_configured", "message": "Configure OPENAI_API_KEY before running reports."})
         estimate = runtime.estimate_reservation(agent_id, task)
         # The runtime declares all three bounds as zero only for deterministic
         # local responses with no model/search calls. Free setup checks can be
         # saved without weakening the positive reservation gate for API work.
         no_external_calls = all(
             type(estimate.get(field)) is int and estimate[field] == 0
-            for field in ("max_input_tokens", "max_output_tokens", "max_search_credits")
+            for field in ("max_input_tokens", "max_output_tokens", "max_web_search_calls")
         )
         reservation = database.reserve_run(
             agent_id=agent_id, task=task,
@@ -128,10 +128,14 @@ def execute_report(
         database.fail_run(report_id, error_code=code)
         # Never forward raw provider response bodies, connection strings, task
         # text or credentials in an exception. The stored ID supports review.
-        raise HTTPException(status_code=error.status_code, detail={
+        detail = {
             "code": code, "report_id": report_id,
             "message": "The report could not be completed. The attempt and conservative cost reservation were retained.",
-        }) from None
+        }
+        upstream_status = error.detail.get("provider_status") if isinstance(error.detail, dict) else None
+        if type(upstream_status) is int and 400 <= upstream_status <= 599:
+            detail["provider_status"] = upstream_status
+        raise HTTPException(status_code=error.status_code, detail=detail) from None
     except Exception:
         # A persistence failure after a successful API call is also ambiguous.
         # Do not repeat the external request to reconstruct a lost response.

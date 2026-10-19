@@ -229,20 +229,19 @@ def test_usage_read_recovers_pending_work_without_running_scheduler(store):
     assert store.get_report(reservation.report["report_id"])["status"] == "interrupted"
 
 
-def test_actual_runtime_local_no_search_report_allows_explicit_zero_bound(store, monkeypatch):
-    # The autouse fixture blocks all external HTTP. No Tavily key means this
-    # structured news response can be generated locally with zero API calls.
+def test_openai_key_alone_enables_native_search_with_positive_reservation(monkeypatch):
+    # Preflight must require no secondary search-service credential and must
+    # reserve native tool/model exposure before making any external request.
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-a-real-credential")
-    response = service.execute_report("iran-news", "أهم أخبار إيران اليوم", store=store)
-    assert response["model_called"] is False
-    assert response["item_count"] == 0
-    assert response["accounting"]["reserved_cost_usd"] == 0
-    assert response["accounting"]["estimated_cost_usd"] == 0
-    assert store.usage_summary()["daily"]["attempts"] == 1
+    assert service.runtime.runtime_is_ready() is True
+    estimate = service.runtime.estimate_reservation("iran-news", "أهم أخبار إيران اليوم")
+    assert estimate["provider"] == "openai"
+    assert estimate["estimated_cost_usd"] > 0
+    assert estimate["max_web_search_calls"] == 1
 
 
 def test_zero_estimate_with_billable_bound_is_blocked_before_runtime(store, fake_runtime, monkeypatch):
-    monkeypatch.setattr(service.runtime, "estimate_reservation", lambda *args: {"estimated_cost_usd": 0, "max_input_tokens": 100, "max_output_tokens": 100, "max_search_credits": 0})
+    monkeypatch.setattr(service.runtime, "estimate_reservation", lambda *args: {"estimated_cost_usd": 0, "max_input_tokens": 100, "max_output_tokens": 100, "max_web_search_calls": 0})
     with pytest.raises(HTTPException) as error:
         service.execute_report("iran-news", "Create report", store=store)
     assert error.value.status_code == 503
