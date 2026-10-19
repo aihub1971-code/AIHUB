@@ -21,7 +21,7 @@ from app.service import execute_report
 from app.storage import StoreError, get_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 
 def runtime_is_ready() -> bool:
@@ -156,7 +156,10 @@ def system_status(_: str = Depends(require_owner)) -> dict[str, object]:
         except HTTPException as exc:
             configuration_issue = exc.detail.get("code") if isinstance(exc.detail, dict) else "configuration_incomplete"
     return {
-        "app": "AI HUB", "timezone": "Asia/Dubai", "news_items_per_report": 6,
+        "app": "AI HUB", "version": APP_VERSION, "timezone": "Asia/Dubai",
+        "news_items_per_report": None, "news_count_mode": "available",
+        "news_item_limit": agent_runtime.MAX_NEWS_ITEMS,
+        "allowed_source_domains": list(agent_runtime.ALLOWED_SOURCE_DOMAINS),
         "model_configured": runtime_is_ready(),
         "provider": "openai" if openai else None,
         "model": get_setting("OPENAI_MODEL_NAME", agent_runtime.DEFAULT_OPENAI_MODEL),

@@ -58,14 +58,22 @@ def _print_live_summary(result: dict) -> None:
     if count is None:
         print("News item count: not reported for this response. Review the saved output.")
     else:
-        print(f"News items: {count}/{target if target is not None else 'unknown'}; status={_safe_label(result.get('status'))}.")
+        if target is None:
+            print(f"News items: {count}; coverage=open; status={_safe_label(result.get('status'))}.")
+            limit = _count(result.get("bounded_item_limit"))
+            if limit is not None:
+                print(f"Report item limit: {limit} (a processing ceiling, not a target).")
+        else:
+            print(f"News items: {count}/{target} explicitly requested; status={_safe_label(result.get('status'))}.")
         fresh = _count(result.get("fresh_event_count"))
         if fresh is not None:
             print(f"Fresh-event evidence count: {fresh} (requires source/date review).")
         if count == 0:
             print("Report quality: NO NEWS ACCEPTED. HTTP success does not establish a usable news report.")
-        elif target is None or count < target:
-            print("Report quality: PARTIAL or unconfirmed target. Review the shortfall and sources.")
+        elif target is None:
+            print("Report quality: open coverage with no fixed count target; review source evidence, dates and relevance.")
+        elif count < target:
+            print("Report quality: PARTIAL against the explicitly requested count. Review the shortfall and sources.")
         else:
             print("Report quality: target count reached; evidence, dates and relevance still require review.")
     accounting = result.get("accounting")
@@ -86,7 +94,7 @@ def main() -> int:
     parser.add_argument("--live", action="store_true", help="Request one potentially billable report.")
     parser.add_argument("--agent", default="iran-news")
     parser.add_argument("--request-id", help="Reuse this same ID only when repeating the same live task.")
-    parser.add_argument("--task", default="أعد تقريرًا عربيًا بأهم 6 أخبار موثقة في آخر 24 ساعة.")
+    parser.add_argument("--task", default="أعد تقريرًا عربيًا بالمستجدات الموثقة في آخر 24 ساعة من المصادر المعتمدة، بعدد الأخبار الذي تدعمه الأدلة المتاحة.")
     args = parser.parse_args()
     base = args.base_url.rstrip("/")
     parsed = urlparse(base)
