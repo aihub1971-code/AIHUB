@@ -21,7 +21,7 @@
     <div class="hero-main">
       <div class="eyebrow">EXECUTIVE WORKSPACE</div>
       <h2>أخبار موثّقة. تقارير محفوظة. رؤية أوضح.</h2>
-      <p>اختر من 13 مساعدًا متخصصًا. احصل على أبرز 6 أخبار موثّقة في التقرير الإخباري، واحفظ النتائج وجدولها بتوقيت دبي ضمن حدود الاستخدام التي تضبطها.</p>
+      <p>اختر من 13 مساعدًا متخصصًا. ابحث عبر OpenAI في المصادر التي اخترتها، واحصل على الأخبار المتاحة مع روابطها وتواريخها، ثم احفظ النتائج وجدولها بتوقيت دبي.</p>
     </div>
     <div class="hero-metric">
       <div class="metric-number" id="agentCount">13</div>
@@ -32,10 +32,12 @@
 
   <section class="capability-strip" aria-label="ملخص المنصة">
     <article class="capability-card"><span class="capability-icon">01</span><div><strong>مساعدون متخصصون</strong><p>مهارات محددة لكل مجال</p></div></article>
-    <article class="capability-card"><span class="capability-icon">02</span><div><strong>6 أخبار لكل تقرير</strong><p>مصادر مؤرخة مع توضيح أي نقص</p></div></article>
+    <article class="capability-card"><span class="capability-icon">02</span><div><strong>أخبار دون عدد ثابت</strong><p>النتائج المتاحة من مصادر محددة</p></div></article>
     <article class="capability-card"><span class="capability-icon">03</span><div><strong>حتى 50 تقريرًا يوميًا</strong><p>تشغيل يدوي وجدولة بتوقيت دبي</p></div></article>
     <article class="capability-card"><span class="capability-icon">04</span><div><strong>أرشيف وسجل استهلاك</strong><p>متابعة التقارير والميزانية</p></div></article>
   </section>
+
+  <p class="notice" style="margin:0 0 18px">البحث وإعداد النتائج عبر OpenAI فقط. المصادر المعتمدة: <bdi>Financial Times</bdi>، <bdi>The Atlantic</bdi>، <bdi>Politico</bdi>، <bdi>The Wall Street Journal</bdi>، <bdi>The Daily Telegraph</bdi>، والجزيرة.</p>
 
   <section id="accountOverview" class="account-overview hidden" aria-label="الاستهلاك والإعدادات">
     <article><span>محاولات اليوم</span><strong id="dailyCount">—</strong><small id="dailyRemaining">—</small></article>
@@ -79,7 +81,7 @@
 
         <div class="runner">
           <div class="runner-head"><h3>مساحة تنفيذ المهمة</h3><span>AI TASK WORKSPACE</span></div>
-          <div class="field"><label for="task">المهمة أو السؤال</label><textarea id="task" maxlength="8000" placeholder="مثال: أهم 6 أخبار دولية منشورة اليوم، مع المصادر والتواريخ وسبب أهمية كل خبر."></textarea></div>
+          <div class="field"><label for="task">المهمة أو السؤال</label><textarea id="task" maxlength="8000" aria-describedby="newsCoverageHint" placeholder="مثال: أبرز الأخبار الدولية المنشورة اليوم من المصادر المعتمدة، مع الروابط والتواريخ وسبب أهمية كل خبر."></textarea><small id="newsCoverageHint" class="hint">يعرض التقرير الأخبار المتاحة دون عدد ثابت، حتى 20 خبرًا في المحاولة بحسب المصادر وحدود الاستخدام.</small></div>
           <div class="examples"><button type="button" id="worldNewsPreset" class="textbutton">أخبار دولية اليوم</button><button type="button" id="iranNewsPreset" class="textbutton">أخبار إيران اليوم</button></div>
           <div class="actions"><button id="runBtn" class="primary">تشغيل المساعد <span aria-hidden="true">←</span></button><button id="clearBtn" class="secondary">مسح المخرجات</button><span class="hint" id="runHint">لن تُرسل المهمة إلا بعد الضغط على زر التشغيل.</span></div>
         </div>
@@ -109,7 +111,7 @@
         <form id="scheduleForm">
           <div class="field"><label for="scheduleName">اسم الجدول</label><input id="scheduleName" maxlength="120" placeholder="مثال: الموجز الصباحي"></div>
           <div class="field"><label for="scheduleAgent">المساعد</label><select id="scheduleAgent" required></select></div>
-          <div class="field"><label for="scheduleTask">مهمة التقرير</label><textarea id="scheduleTask" maxlength="8000" required placeholder="أهم 6 أخبار منشورة اليوم، مع المصادر والتواريخ."></textarea></div>
+          <div class="field"><label for="scheduleTask">مهمة التقرير</label><textarea id="scheduleTask" maxlength="8000" required placeholder="أبرز الأخبار المنشورة اليوم من المصادر المعتمدة، مع الروابط والتواريخ."></textarea></div>
           <div class="field"><label for="scheduleTimes">مواعيد يومية، مفصولة بفواصل</label><input id="scheduleTimes" dir="ltr" required placeholder="08:00, 13:00, 18:00" aria-describedby="timesHint"><small id="timesHint" class="hint">نظام 24 ساعة. إجمالي المواعيد النشطة حتى 50 يوميًا، وتشترك مع التشغيل اليدوي في الحد اليومي.</small></div>
           <label class="checkbox-row"><input id="scheduleEnabled" type="checkbox"> تفعيل هذا الجدول</label>
           <div class="actions"><button id="saveSchedule" class="primary" type="submit">حفظ الجدول</button><button id="cancelScheduleEdit" class="secondary hidden" type="button">إلغاء التعديل</button></div>

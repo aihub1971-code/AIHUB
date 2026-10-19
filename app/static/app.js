@@ -270,12 +270,14 @@
     $("usage").replaceChildren();
     const u=data.usage || {}, search=data.web_search || {};
     const searchLabels={used:"تم البحث",empty:"لم تتوفر مصادر مطابقة",missing_key:"البحث غير مهيّأ",failed:"تعذّر البحث",recent_fallback:"سياق سابق للفترة",not_needed:"لم يلزم البحث",disabled_agent:"غير متاح لهذا المساعد",permission_denied:"صلاحية البحث معطلة"};
-    const cells=[["النموذج",data.model],["البحث",searchLabels[search.status] || search.status],["الأخبار",data.item_count === undefined ? undefined : data.item_count+" / 6"],["عمليات البحث",u.web_search_calls],["رموز الإدخال",u.prompt_tokens],["رموز الإخراج",u.completion_tokens],["التكلفة التقديرية",data.accounting?.estimated_cost_usd === undefined && data.estimated_cost_usd == null ? undefined : money(data.accounting?.estimated_cost_usd ?? data.estimated_cost_usd)]];
+    const newsCount=typeof data.item_count === "number" ? (typeof data.target_count === "number" ? data.item_count+" / "+data.target_count : data.item_count) : undefined;
+    const cells=[["النموذج",data.model],["البحث",searchLabels[search.status] || search.status],["الأخبار",newsCount],["عمليات البحث",u.web_search_calls],["رموز الإدخال",u.prompt_tokens],["رموز الإخراج",u.completion_tokens],["التكلفة التقديرية",data.accounting?.estimated_cost_usd === undefined && data.estimated_cost_usd == null ? undefined : money(data.accounting?.estimated_cost_usd ?? data.estimated_cost_usd)]];
     cells.forEach(([label,value])=>{if(value===undefined || value===null) return;const span=document.createElement("span");span.textContent=label+": "+value;$("usage").append(span);});
     $("responsePanel").classList.remove("hidden");
     $("downloadBtn").classList.toggle("hidden",!latestReportId);
-    const partial=typeof data.item_count === "number" && data.item_count<6;
-    setNotice("runNotice",partial?"حُفظ التقرير مع توضيح نقص الأخبار الموثّقة ضمن الفترة المطلوبة.":"حُفظ التقرير ويمكن الرجوع إليه من الأرشيف.",partial?"":"good");
+    const noNews=data.item_count === 0;
+    const partial=typeof data.item_count === "number" && typeof data.target_count === "number" && data.item_count<data.target_count;
+    setNotice("runNotice",noNews?"حُفظت المحاولة؛ لم تتوفر أخبار قابلة للإدراج من المصادر المعتمدة داخل الفترة المطلوبة.":partial?"حُفظ التقرير مع توضيح النقص عن العدد الذي طلبته.":"حُفظ التقرير ويمكن الرجوع إليه من الأرشيف.",noNews || partial?"":"good");
   }
   async function downloadReport(id,format="md"){
     try{
@@ -368,8 +370,8 @@
   $("refreshDashboard").addEventListener("click",syncDashboard);
   $("archivePrev").addEventListener("click",()=>{archiveOffset=Math.max(0,archiveOffset-10);syncDashboard();});
   $("archiveNext").addEventListener("click",()=>{archiveOffset+=10;syncDashboard();});
-  $("worldNewsPreset").addEventListener("click",()=>{chooseAgent("geopolitical-morning");$("task").value="أهم 6 أخبار دولية منشورة اليوم، مع المصادر والتواريخ وسبب أهمية كل خبر.";$("task").focus();});
-  $("iranNewsPreset").addEventListener("click",()=>{chooseAgent("iran-news");$("task").value="أهم 6 أخبار إيران المنشورة اليوم، مع المصادر والتواريخ وسبب أهمية كل خبر.";$("task").focus();});
+  $("worldNewsPreset").addEventListener("click",()=>{chooseAgent("geopolitical-morning");$("task").value="أبرز الأخبار الدولية المنشورة اليوم من المصادر المعتمدة، مع الروابط والتواريخ وسبب أهمية كل خبر.";$("task").focus();});
+  $("iranNewsPreset").addEventListener("click",()=>{chooseAgent("iran-news");$("task").value="أبرز أخبار إيران المنشورة اليوم من المصادر المعتمدة، مع الروابط والتواريخ وسبب أهمية كل خبر.";$("task").focus();});
 
   fetchHealth();
 })();

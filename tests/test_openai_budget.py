@@ -16,7 +16,8 @@ from app.storage import QuotaLimits, Store
 
 
 TASK = "أهم أخبار إيران في 2026-10-19"
-ARTICLE_URL = "https://news.example.test/article/one"
+# Synthetic path on a permitted publisher host; tests never fetch the article.
+ARTICLE_URL = "https://www.ft.com/content/ai-hub-synthetic-test"
 ARTICLE_TITLE = "Iran fictional test article"
 EVENT_NOTE = "A fictional project was announced on 2026-10-19."
 PUBLICATION_NOTE = "Published: 2026-10-19T07:00:00Z."
@@ -115,6 +116,26 @@ def test_two_stage_success_reconciles_both_usage_records_and_one_search_fee(stor
     replay = service.execute_report("iran-news", TASK, idempotency_key="two-stage", store=store)
     assert replay["report_id"] == result["report_id"] and replay["idempotency_replayed"]
     assert len(requests) == 2
+
+
+def test_rejected_publishers_still_account_for_paid_research_without_another_request(store, mock_openai):
+    research = research_reply()
+    rejected_url = "https://unapproved.example.test/article/synthetic-test"
+    research["output"][0]["action"]["sources"][0]["url"] = rejected_url
+    research["output"][1]["content"][0]["annotations"][0]["url"] = rejected_url
+    requests = mock_openai([research])
+    result = service.execute_report("iran-news", TASK, store=store)
+    record = store.get_report(result["report_id"])
+    assert len(requests) == 1
+    assert result["status"] == "no_evidence" and result["item_count"] == 0
+    assert result["report_model_called"] is False
+    assert result["usage"]["input_tokens"] == 300
+    assert result["usage"]["output_tokens"] == 100
+    assert result["usage"]["web_search_calls"] == 1
+    assert result["accounting"]["estimated_cost_usd"] == .01175
+    assert record["cost_basis"] == "usage_estimate"
+    assert record["reserved_cost_usd"] > record["estimated_cost_usd"] > 0
+    assert store.usage_summary()["daily"]["attempts"] == 1
 
 
 def test_bound_covers_hidden_search_context_and_enforces_two_stateless_requests(store, mock_openai, monkeypatch):
