@@ -344,13 +344,13 @@ def _iran_news_window(task: str, as_of: datetime | None = None) -> tuple[datetim
 
 
 def _normalise_publication_timestamp(published: str) -> str:
-    value = re.sub(r"\s+", " ", (published or "").strip())
+    value = re.sub(r"\s+", " ", _normalize_digits(published).strip())
     return re.sub(r"(?:Z|\s+(?:UTC|GMT))$", "+00:00", value, flags=re.IGNORECASE)
 
 
 def _published_day_in_dubai(published: str) -> date | None:
     """Parse common search-provider publication date formats into a Dubai-local date."""
-    value = re.sub(r"\s+", " ", (published or "").strip())
+    value = re.sub(r"\s+", " ", _normalize_digits(published).strip())
     if not value:
         return None
 
@@ -375,6 +375,12 @@ def _published_day_in_dubai(published: str) -> date | None:
     except (TypeError, ValueError, OverflowError):
         pass
 
+    # Reuse the task-date parser for complete Arabic month phrases and common
+    # numeric dates. Explicit malformed timestamps were already rejected above.
+    phrase_day = _parse_date_phrase(value)
+    if phrase_day:
+        return phrase_day
+
     # Date-only values and common human-readable dates.
     for fmt in (
         "%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y",
@@ -397,7 +403,7 @@ def _published_day_in_dubai(published: str) -> date | None:
 
 def _publication_is_future(published: str, as_of: datetime) -> bool:
     """Reject a known future timestamp even when its Dubai calendar date is today."""
-    value = _clean_text(published)
+    value = _normalize_digits(_clean_text(published))
     parsed = None
     try:
         parsed = datetime.fromisoformat(_normalise_publication_timestamp(value))
@@ -1081,14 +1087,28 @@ _PUBLICATION_CUE = re.compile(
     r"(?<!\w)(?:نشر|نشرت|النشر|التحديث)(?!\w)", re.IGNORECASE)
 
 
+def _publication_plaintext(value: str) -> str:
+    """Remove paired strong emphasis for date parsing, without changing words.
+
+    This helper does not establish quote provenance: the original note must
+    already occur exactly in its associated source. Normalize the full source
+    as well so a closing marker cannot hide a following clock or timezone.
+    """
+    return re.sub(r"(\*\*|__)(?=\S)(.+?)(?<=\S)\1", r"\2", value)
+
+
 def _validated_publication(candidate: dict[str, object], source: dict[str, object]) -> tuple[str, date] | None:
     value, note = _clean_text(candidate.get("published_date")), _clean_text(candidate.get("published_date_note"))
     if (not value or len(value) > 100 or not note or len(note) > 300
-            or not _quote_in_source(note, source) or not _PUBLICATION_CUE.search(note)):
+            or not _quote_in_source(note, source)):
         return None
     # Preserve the entire note's date/timestamp. A model cannot hide a future or
     # malformed clock by returning only its YYYY-MM-DD prefix.
-    text = _clean_text(str(source.get("title", "")) + " " + str(source.get("content", "")))
+    text = _publication_plaintext(_clean_text(
+        str(source.get("title", "")) + " " + str(source.get("content", ""))))
+    note = _publication_plaintext(note)
+    if not _PUBLICATION_CUE.search(note):
+        return None
     positions = []
     for inner in re.finditer(re.escape(value), note):
         cues = list(_PUBLICATION_CUE.finditer(note[:inner.start()]))
@@ -1102,8 +1122,10 @@ def _validated_publication(candidate: dict[str, object], source: dict[str, objec
         positions.extend((outer.start() + inner.start(), outer.start() + inner.end())
                          for outer in re.finditer(re.escape(note), text))
     if not positions or not any(
-        not re.match(r"(?:[TtZz]|[+-]\d{2}:?\d{2}|\.\d|\s+(?:\d{1,2}:|UTC\b|GMT\b)|\d)",
-                     text[end:], re.IGNORECASE)
+        # Even an unpaired closing marker must not conceal the source's clock
+        # or timezone from a candidate that quotes only its date prefix.
+        not re.match(r"(?:[TtZz]|UTC\b|GMT\b|[+-]\d{2}:?\d{2}|\.\d|\s+(?:\d{1,2}:|UTC\b|GMT\b)|\d)",
+                     re.sub(r"^(?:\s*(?:\*\*|__))+\s*", "", text[end:]), re.IGNORECASE)
         and (start == 0 or not text[start - 1].isdigit())
         for start, end in positions
     ):

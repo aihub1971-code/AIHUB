@@ -329,6 +329,55 @@ def test_future_publication_time_inside_today_is_excluded(mocked_http, future_ti
     assert result["item_count"] == 1 and result["items"][0]["source_title"] == TITLES[1]
 
 
+@pytest.mark.parametrize("published", [
+    "19 أكتوبر 2026", "١٩ أكتوبر ٢٠٢٦", "۱۹/۱۰/۲۰۲۶", "٢٠٢٦-١٠-١٩T٠٧:٠٠:٠٠Z",
+])
+def test_publication_parser_accepts_unambiguous_arabic_dates_and_digits(published):
+    # A model research note can faithfully retain the publisher's Arabic date.
+    assert runtime._published_day_in_dubai(published) == date(2026, 10, 19)
+
+
+@pytest.mark.parametrize("note", [
+    "**Published:** 2026-10-19.", "Published: **2026-10-19**.",
+    "__Published:__ 2026-10-19.", "Published: __2026-10-19__.",
+])
+def test_publication_emphasis_does_not_reject_an_exact_dated_note(note):
+    source = {"title": "Iran synthetic formatting fixture", "content": note}
+    candidate = {"published_date": "2026-10-19", "published_date_note": note}
+    assert runtime._validated_publication(candidate, source) == ("2026-10-19", date(2026, 10, 19))
+
+
+def test_arabic_timestamp_digits_keep_future_and_malformed_time_guards():
+    assert runtime._publication_is_future("٢٠٢٦-١٠-١٩T١٣:٠٠:٠٠Z", runtime._now_dubai()) is True
+    assert runtime._publication_is_future("Mon, ١٩ Oct ٢٠٢٦ ١٣:٠٠:٠٠ GMT", runtime._now_dubai()) is True
+    assert runtime._published_day_in_dubai("٢٠٢٦-١٠-١٩T٢٥:٩٩:٠٠Z") is None
+
+
+@pytest.mark.parametrize("value,note,continuation", [
+    ("2026-10-19", "Published: **2026-10-19**", "T13:00:00Z."),
+    ("2026-10-19", "Published: **2026-10-19**", " 13:00:00 UTC."),
+    ("2026-10-19T13:00:00", "Published: **2026-10-19T13:00:00**", "Z."),
+    ("2026-10-19", "Published: 2026-10-19", "**T13:00:00Z."),
+    ("2026-10-19T13:00:00", "Published: 2026-10-19T13:00:00", "**+00:00."),
+    ("2026-10-19", "Published: 2026-10-19", " ** T13:00:00Z."),
+    ("2026-10-19T13:00:00", "Published: 2026-10-19T13:00:00", "** UTC."),
+    ("2026-10-19T13:00:00", "Published: 2026-10-19T13:00:00", "** GMT."),
+])
+def test_closing_emphasis_cannot_hide_a_clock_or_timezone(value, note, continuation):
+    source = {"title": "Iran synthetic timing fixture", "content": note + continuation}
+    candidate = {"published_date": value, "published_date_note": note}
+    assert runtime._validated_publication(candidate, source) is None
+
+
+def test_emphasized_full_future_timestamp_is_retained_for_the_future_gate():
+    value = "2026-10-19T13:00:00Z"
+    note = f"**Published:** **{value}**."
+    source = {"title": "Iran synthetic timing fixture", "content": note}
+    publication = runtime._validated_publication({"published_date": value, "published_date_note": note}, source)
+    assert publication == (value, date(2026, 10, 19))
+    assert runtime._publication_is_future(publication[0], runtime._now_dubai()) is True
+
+
 @pytest.mark.parametrize("shortened_value,shortened_note", [
     ("2026-10-19", "Published: 2026-10-19"),
     ("2026-10-19T13:00:00", "Published: 2026-10-19T13:00:00"),
