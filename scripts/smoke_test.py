@@ -108,8 +108,8 @@ def main() -> int:
     if not username or not password:
         parser.error("Set APP_USERNAME and APP_PASSWORD in your private environment or .env.")
     try:
-        # Six news searches run in two groups of three, then one report response.
-        with httpx.Client(base_url=base, timeout=360 if args.live else 180, follow_redirects=False) as client:
+        # One unified news search, then one report response if sources are usable.
+        with httpx.Client(base_url=base, timeout=240 if args.live else 180, follow_redirects=False) as client:
             response = client.get("/health")
             response.raise_for_status()
             print("Health check: passed.")

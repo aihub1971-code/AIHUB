@@ -14,6 +14,8 @@
 
 تستخدم المحادثة مفتاح `OPENAI_API_KEY` والنموذج المضبوطين أصلًا على الخادم. لا تطلب منك إدخال مفتاح آخر. تُحجز تكلفة الدور قبل إرساله وتُسجل بصورة مستقلة، لكنها تشارك التقارير ميزانية اليوم والشهر. رسائل المحادثة لا تدخل في حد 50 محاولة تقرير يوميًا. عند غموض الاتصال يمكن إعادة الطلب نفسه بمعرّفه دون دفعه مرة ثانية؛ طلب دور جديد بمعرّف جديد يظل عملية جديدة.
 
+للبحث الإخباري يبقى `iran-news` مساعدًا واحدًا: ينفذ طلب بحث موحدًا يشمل جميع النطاقات الثمانية المعتمدة، ثم يجمع الأخبار المقبولة في تقرير واحد. لا تُقسم العملية إلى أبحاث متوازية أو تقارير مستقلة لكل ناشر.
+
 ## English
 
 Use the language switch at the top to change the entire interface between Arabic and English. The choice controls the language of new reports and can be stored with a daily schedule. Switching the interface does not make a paid API call or translate an existing report automatically; archived reports retain their original language and reading direction.
@@ -23,6 +25,8 @@ Open **Chat** after signing in. Ask for help choosing an assistant, writing a go
 To discuss a report, open it and explicitly attach it in Chat. You can ask for an explanation, summary or translation while keeping the saved original. The assistant receives bounded context from the selected report and recent completed conversation turns. It cannot browse the live web or operate platform controls from Chat; use the named specialist assistant for new research.
 
 The interface waits for an actual OpenAI response. It does not simulate token streaming. The conversation history is durable, while login state remains in memory and private content is cleared on logout. OpenAI requests use `store:false`; AI HUB keeps its own database history. The server key is never placed in browser JavaScript.
+
+News research stays within one `iran-news` assistant: one unified research request covers all eight approved domains together, followed by one consolidated report when usable evidence exists. There are no publisher-specific research requests, parallel publisher searches or separate publisher reports.
 
 ## Authenticated API
 

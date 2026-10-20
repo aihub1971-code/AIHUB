@@ -1,8 +1,6 @@
 """Native search/news fixtures are fictional; these tests never retrieve real news."""
 import json
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
-from threading import Event, Lock
 from urllib.parse import quote
 
 import httpx
@@ -12,9 +10,9 @@ from fastapi import HTTPException
 from app import runtime
 
 
-NEWS_DOMAIN_GROUPS = [
-    ("ft.com",), ("theatlantic.com",), ("politico.com", "politico.eu"),
-    ("wsj.com",), ("telegraph.co.uk",), ("aljazeera.com", "aljazeera.net"),
+NEWS_SOURCE_DOMAINS = [
+    "ft.com", "theatlantic.com", "politico.com", "politico.eu",
+    "wsj.com", "telegraph.co.uk", "aljazeera.com", "aljazeera.net",
 ]
 
 
@@ -109,20 +107,13 @@ def research_reply(sources, **overrides):
         "usage": {"input_tokens": 300, "output_tokens": 100}, **overrides}
 
 
-def news_handler(sources, report, research_overrides=None, additional_sources=None):
+def news_handler(sources, report, research_overrides=None):
     def handler(request):
         assert str(request.url) == runtime.OPENAI_RESPONSES_URL
         payload = json.loads(request.content)
         if payload["tools"]:
-            domains = tuple(payload["tools"][0]["filters"]["allowed_domains"])
-            if domains == NEWS_DOMAIN_GROUPS[0] or domains == tuple(runtime.ALLOWED_SOURCE_DOMAINS):
-                stage_sources = sources
-            elif domains == NEWS_DOMAIN_GROUPS[-1]:
-                stage_sources = additional_sources or []
-            else:
-                assert domains in NEWS_DOMAIN_GROUPS
-                stage_sources = []
-            return httpx.Response(200, json=research_reply(stage_sources, **(research_overrides or {})))
+            assert payload["tools"][0]["filters"]["allowed_domains"] == NEWS_SOURCE_DOMAINS
+            return httpx.Response(200, json=research_reply(sources, **(research_overrides or {})))
         return httpx.Response(200, json=model_reply(report))
     return handler
 
@@ -148,25 +139,21 @@ def extracted_formatted_sources(text, sources, annotations=None):
     return runtime._native_research_sources(runtime._extract_model_response(reply, research=True), "iran-news")
 
 
-def test_explicit_six_item_request_uses_six_publisher_searches_and_one_report(mocked_http):
+def test_explicit_item_count_uses_one_unified_search_and_one_report(mocked_http):
     sources = [raw_source(index) for index in range(7)]
     report = {"items": [selected_item(index) for index in range(6)], "background_items": []}
     requests = mocked_http(news_handler(sources, report))
     result = runtime.run_agent("iran-news", "أهم ٦ أخبار إيران ١٩ أكتوبر ٢٠٢٦")
-    assert len(requests) == 7
+    assert len(requests) == 2
     payloads = [json.loads(request.content) for request in requests]
-    searches = {tuple(payload["tools"][0]["filters"]["allowed_domains"]): payload
-                for payload in payloads if payload["tools"]}
-    assert set(searches) == set(NEWS_DOMAIN_GROUPS) and len(searches) == 6
-    model_payload = payloads[-1]
-    for domains, search_payload in searches.items():
-        assert search_payload["tools"] == [{"type": "web_search", "search_context_size": "low",
-                                             "return_token_budget": "default",
-                                             "filters": {"allowed_domains": list(domains)}}]
-        assert search_payload["max_tool_calls"] == 1 and search_payload["parallel_tool_calls"] is False
-        assert search_payload["tool_choice"] == "required"
-        assert search_payload["include"] == ["web_search_call.action.sources"]
-        assert len(json.dumps(search_payload, ensure_ascii=False, separators=(",", ":")).encode()) <= 50000
+    search_payload, model_payload = payloads
+    assert search_payload["tools"] == [{"type": "web_search", "search_context_size": "low",
+                                         "return_token_budget": "default",
+                                         "filters": {"allowed_domains": NEWS_SOURCE_DOMAINS}}]
+    assert search_payload["max_tool_calls"] == 1 and search_payload["parallel_tool_calls"] is False
+    assert search_payload["tool_choice"] == "required"
+    assert search_payload["include"] == ["web_search_call.action.sources"]
+    assert len(json.dumps(search_payload, ensure_ascii=False, separators=(",", ":")).encode()) <= 50000
     assert model_payload["tools"] == [] and model_payload["tool_choice"] == "none"
     assert model_payload["text"]["format"]["type"] == "json_schema"
     assert model_payload["text"]["format"]["strict"] is True
@@ -174,12 +161,12 @@ def test_explicit_six_item_request_uses_six_publisher_searches_and_one_report(mo
                for payload in payloads)
     assert result["item_count"] == result["target_count"] == result["fresh_event_count"] == 6
     assert result["shortfall"] == 0 and result["status"] == "complete"
-    assert result["web_search"]["request_count"] == result["web_search"]["tool_call_count"] == 6
-    assert result["web_search"]["search_call_count"] == result["usage"]["web_search_calls"] == 6
-    assert result["usage"]["input_tokens"] == 3000 and result["usage"]["output_tokens"] == 1500
-    assert [stage["stage"] for stage in result["usage_stages"]] == ["research"] + ["research_additional"] * 5 + ["report"]
-    assert result["model_call_count"] == 7 and result["report_model_called"] is True
-    assert result["estimated_cost_usd"] == pytest.approx(.0825)
+    assert result["web_search"]["request_count"] == result["web_search"]["tool_call_count"] == 1
+    assert result["web_search"]["search_call_count"] == result["usage"]["web_search_calls"] == 1
+    assert result["usage"]["input_tokens"] == 1500 and result["usage"]["output_tokens"] == 1000
+    assert [stage["stage"] for stage in result["usage_stages"]] == ["research", "report"]
+    assert result["model_call_count"] == 2 and result["report_model_called"] is True
+    assert result["estimated_cost_usd"] == pytest.approx(.02375)
     assert result["cost_tracking_complete"] is True
     assert all(item["url"].startswith("https://www.ft.com/") for item in result["items"])
     assert "6 من 6" in result["response"] and "AI HUB" in result["response"]
@@ -188,92 +175,76 @@ def test_explicit_six_item_request_uses_six_publisher_searches_and_one_report(mo
                and item["evidence_level"] == "openai_research_notes" for item in result["items"])
 
 
-def test_publisher_requests_are_concurrent_but_never_exceed_three_in_flight(mocked_http):
-    three_entered, release = Event(), Event()
-    lock = Lock()
-    active = peak = 0
-
-    def handler(request):
-        nonlocal active, peak
-        payload = json.loads(request.content)
-        if not payload["tools"]:
-            return httpx.Response(200, json=model_reply({"items": [selected_item()], "background_items": []}))
-        with lock:
-            active += 1
-            peak = max(peak, active)
-            if active >= 3:
-                three_entered.set()
-        assert release.wait(3), "The test did not release its local fixture requests."
-        with lock:
-            active -= 1
-        sources = [raw_source()] if payload["tools"][0]["filters"]["allowed_domains"] == ["ft.com"] else []
-        return httpx.Response(200, json=research_reply(sources))
-
-    calls = mocked_http(handler)
-    with ThreadPoolExecutor(max_workers=1) as caller:
-        result_future = caller.submit(runtime.run_agent, "iran-news", "أخبار إيران اليوم")
-        try:
-            assert three_entered.wait(3), "Independent publisher requests should run concurrently."
-            # Give any incorrectly unbounded additional workers a chance to enter.
-            Event().wait(.03)
-            with lock:
-                assert active == peak == 3
-        finally:
-            release.set()
-        result = result_future.result(timeout=3)
-    assert len(calls) == 7 and result["item_count"] == 1 and peak == 3
-    assert [entry["allowed_source_domains"] for entry in result["web_search"]["research_passes"]] == [list(domains) for domains in NEWS_DOMAIN_GROUPS]
+def test_iran_news_uses_one_all_domain_search_and_one_merged_report_without_fixed_target(mocked_http):
+    sources = [raw_source(), raw_source(1, url="https://www.aljazeera.net/news/synthetic-cultural-archive")]
+    report = {"items": [selected_item(), selected_item(1)], "background_items": []}
+    calls = mocked_http(news_handler(sources, report))
+    result = runtime.run_agent("iran-news", "أخبار إيران اليوم من المصادر المعتمدة")
+    assert len(calls) == 2
+    research_payload, synthesis_payload = [json.loads(call.content) for call in calls]
+    assert research_payload["tools"][0]["filters"]["allowed_domains"] == NEWS_SOURCE_DOMAINS
+    assert research_payload["max_tool_calls"] == 1
+    assert synthesis_payload["tools"] == []
+    assert [source["url"] for source in report_source_pack(calls[1])] == [source["url"] for source in sources]
+    assert result["web_search"]["request_count"] == result["web_search"]["search_call_count"] == 1
+    assert result["model_call_count"] == 2 and result["item_count"] == 2
+    assert result["target_count"] is None and result["shortfall"] is None
+    assert result["count_mode"] == "available" and result["bounded_item_limit"] == 20
+    assert len(result["web_search"]["research_passes"]) == 1
+    assert result["web_search"]["research_passes"][0]["allowed_source_domains"] == NEWS_SOURCE_DOMAINS
+    assert "من 6" not in result["response"]
 
 
 @pytest.mark.parametrize("agent_id", sorted(runtime.NEWS_REPORT_AGENT_IDS))
 def test_all_four_news_briefers_default_to_available_items_without_fixed_target(mocked_http, agent_id):
     requests = mocked_http(news_handler([raw_source()], {"items": [selected_item()], "background_items": []}))
     result = runtime.run_agent(agent_id, "تقرير اليوم")
-    assert len(requests) == 7
+    assert len(requests) == 2
     assert result["item_count"] == 1 and result["status"] == "complete"
     assert result["target_count"] is None and result["shortfall"] is None
     assert result["bounded_item_limit"] == 20 and result["count_mode"] == "available"
     assert "نقص التغطية" not in result["response"] and "من 6" not in result["response"]
 
 
-def test_empty_first_search_recovers_from_the_independent_aljazeera_pass(mocked_http):
+def test_unified_search_can_report_only_aljazeera_evidence_without_other_publisher_results(mocked_http):
     source = raw_source(1, url="https://www.aljazeera.com/news/2026/10/19/synthetic-cultural-archive")
     report = {"items": [selected_item(1, source_id="s1")], "background_items": []}
-    calls = mocked_http(news_handler([], report, additional_sources=[source]))
+    calls = mocked_http(news_handler([source], report))
     result = runtime.run_agent("iran-news", "أخبار إيران اليوم")
-    assert len(calls) == 7 and result["model_call_count"] == 7
+    assert len(calls) == 2 and result["model_call_count"] == 2
     assert result["item_count"] == 1 and result["items"][0]["url"] == source["url"]
     assert result["items"][0]["source_id"] == "s1"
-    assert result["web_search"]["search_call_count"] == 6
-    assert result["estimated_cost_usd"] == pytest.approx(.0825)
+    assert result["web_search"]["search_call_count"] == 1
+    assert result["estimated_cost_usd"] == pytest.approx(.02375)
     assert result["cost_tracking_complete"] is True
 
 
-def test_publisher_research_passes_deduplicate_urls_and_headlines_before_assigning_ids(mocked_http):
+def test_unified_research_deduplicates_urls_and_headlines_before_assigning_ids(mocked_http):
     first = [raw_source(), raw_source(1)]
     additional = [raw_source(), raw_source(1, url="https://www.aljazeera.net/news/synthetic-reprint"),
                   raw_source(2, url="https://www.aljazeera.com/news/synthetic-budget")]
     report = {"items": [selected_item(index) for index in range(3)], "background_items": []}
-    calls = mocked_http(news_handler(first, report, additional_sources=additional))
+    calls = mocked_http(news_handler(first + additional, report))
     result = runtime.run_agent("iran-news", "الأخبار المتاحة عن إيران اليوم")
     pack = report_source_pack(calls[-1])
-    assert len(calls) == 7 and len(pack) == result["item_count"] == 3
+    assert len(calls) == 2 and len(pack) == result["item_count"] == 3
     assert [source["source_id"] for source in pack] == ["s1", "s2", "s3"]
     assert [source["url"] for source in pack] == [first[0]["url"], first[1]["url"], additional[2]["url"]]
     assert [item["url"] for item in result["items"]] == [source["url"] for source in pack]
     assert result["discarded_item_count"] == 0
 
 
-def test_merged_source_pack_fairly_interleaves_publishers_and_keeps_the_twenty_source_bound(mocked_http):
+def test_unified_source_pack_keeps_the_twenty_source_bound_across_publishers(mocked_http):
     first = [raw_source(title=f"Iran fixture {index}", url=f"https://www.ft.com/content/synthetic-{index}")
              for index in range(20)]
     additional = [raw_source(title=f"Tehran fixture {index}",
                              url=f"https://www.aljazeera.net/news/synthetic-{index}") for index in range(20)]
-    calls = mocked_http(news_handler(first, {"items": [], "background_items": []}, additional_sources=additional))
+    mixed_sources = [source for pair in zip(first, additional) for source in pair]
+    calls = mocked_http(news_handler(mixed_sources, {"items": [], "background_items": []}))
     result = runtime.run_agent("iran-news", "أخبار إيران اليوم")
     pack = report_source_pack(calls[-1])
     expected_urls = [source["url"] for pair in zip(first[:10], additional[:10]) for source in pair]
-    assert len(calls) == 7 and len(pack) == 20
+    assert len(calls) == 2 and len(pack) == 20
     assert [source["url"] for source in pack] == expected_urls
     assert [source["source_id"] for source in pack] == [f"s{index}" for index in range(1, 21)]
     assert len(json.dumps(pack, ensure_ascii=False, separators=(",", ":")).encode()) <= runtime.MAX_SEARCH_CONTEXT_BYTES
@@ -282,12 +253,12 @@ def test_merged_source_pack_fairly_interleaves_publishers_and_keeps_the_twenty_s
 
 
 @pytest.mark.parametrize("bad_url", ["https://news.example.test/fictional", "https://ft.com.evil.test/fictional"])
-def test_aljazeera_native_pass_cannot_admit_an_unapproved_publisher(mocked_http, bad_url):
+def test_unified_native_search_cannot_admit_an_unapproved_publisher(mocked_http, bad_url):
     good = raw_source()
     report = {"items": [selected_item()], "background_items": []}
-    calls = mocked_http(news_handler([good], report, additional_sources=[raw_source(1, url=bad_url)]))
+    calls = mocked_http(news_handler([good, raw_source(1, url=bad_url)], report))
     result = runtime.run_agent("iran-news", "أخبار إيران اليوم")
-    assert len(calls) == 7 and result["item_count"] == 1
+    assert len(calls) == 2 and result["item_count"] == 1
     assert [source["url"] for source in report_source_pack(calls[-1])] == [good["url"]]
     assert result["web_search"]["excluded"]["disallowed_domain"] == 1
     assert bad_url not in result["response"]
@@ -298,7 +269,7 @@ def test_open_coverage_can_return_ten_distinct_reports(mocked_http):
     report = {"items": [selected_item(index) for index in range(10)], "background_items": []}
     calls = mocked_http(news_handler(sources, report))
     result = runtime.run_agent("iran-news", "اعرض الأخبار المتاحة عن إيران اليوم")
-    assert len(calls) == 7 and result["item_count"] == 10
+    assert len(calls) == 2 and result["item_count"] == 10
     assert result["target_count"] is None and result["shortfall"] is None and result["status"] == "complete"
     assert result["bounded_item_limit"] == runtime.MAX_NEWS_ITEMS == 20
     assert result["allowed_source_domains"] == list(runtime.ALLOWED_SOURCE_DOMAINS)
@@ -518,6 +489,96 @@ def test_incidental_mentions_and_url_keywords_do_not_establish_iran_article_rele
     assert search["results"] == [] and search["excluded"]["irrelevant"] + search["excluded"]["unassociated_note"] >= 1
 
 
+@pytest.mark.parametrize("title", [
+    "Tehran opens a fictional education centre",
+    "Teheran announces a synthetic cultural programme",
+    "طهران تفتتح مركزًا صحيًا افتراضيًا في سيناريو الاختبار",
+    "Isfahan introduces a fictional library programme",
+    "Esfahan hosts a synthetic cultural exhibition",
+    "أصفهان تعلن مشروعًا تعليميًا اصطناعيًا",
+    "اصفهان تعرض برنامجًا صحيًا افتراضيًا",
+    "Tabriz presents a fictional university curriculum",
+    "تبريز تستضيف معرضًا ثقافيًا اصطناعيًا",
+    "IRGC describes a fictional logistics exercise",
+    "Revolutionary Guards announce a synthetic training exercise",
+    "الحرس الثوري يعرض تدريبًا افتراضيًا في بيانات الاختبار",
+    "Bandar Abbas announces a fictional port education programme",
+    "بندر عباس يفتتح مركزًا صحيًا افتراضيًا",
+    "Fordow receives a fictional technical inspection",
+    "فوردو يشهد فحصًا تقنيًا اصطناعيًا في سيناريو الاختبار",
+])
+def test_named_cities_and_institutions_establish_relevance_without_literal_country_name(title):
+    source = raw_source(title=title)
+    combined = source["title"] + " " + source["content"] + " " + source["url"]
+    assert "iran" not in combined.casefold() and "إيران" not in combined and "ايران" not in combined
+    search = extracted_sources([source])
+    assert len(search["results"]) == 1
+    assert search["results"][0]["title"] == title
+    assert search["results"][0]["url"] == source["url"]
+
+
+def test_tehran_story_without_country_keyword_reaches_the_final_news_report(mocked_http):
+    source = raw_source(title="Tehran announces a fictional health programme")
+    candidate = selected_item(headline_ar="طهران تعلن برنامجًا صحيًا افتراضيًا")
+    report = {"items": [candidate], "background_items": []}
+    calls = mocked_http(news_handler([source], report))
+    result = runtime.run_agent("iran-news", "أخبار طهران اليوم")
+    assert len(calls) == 2 and result["web_search"]["search_call_count"] == 1
+    assert result["item_count"] == 1 and result["target_count"] is None
+    assert result["items"][0]["headline"] == candidate["headline_ar"]
+    assert result["items"][0]["source_title"] == source["title"]
+    assert result["items"][0]["url"] == source["url"]
+
+
+@pytest.mark.parametrize("content", [
+    "Tehran's education department announced a fictional new curriculum for local schools.",
+    "The fictional programme concerns cultural activities organized in Tehran.",
+    "A synthetic health programme expands hospital services in Teheran.",
+    "تتناول الملاحظات الاصطناعية مبادرة تعليمية لمدارس طهران.",
+    "يصف هذا الخبر الاصطناعي برنامجًا ثقافيًا في طهران.",
+    "تشرح الملاحظات الاصطناعية مشروعًا صحيًا جديدًا لمستشفيات طهران.",
+])
+def test_associated_tehran_education_culture_and_health_notes_make_generic_headline_relevant(content):
+    source = raw_source(title="A fictional civic development programme", content=content)
+    combined = source["title"] + " " + source["content"]
+    assert "iran" not in combined.casefold() and "إيران" not in combined and "ايران" not in combined
+    search = extracted_sources([source])
+    assert len(search["results"]) == 1
+    assert content in search["results"][0]["content"]
+
+
+@pytest.mark.parametrize("title", [
+    "مشهد تعليمي في فيلم افتراضي ضمن سيناريو الاختبار",
+    "المرشد السياحي يصف برنامجًا ثقافيًا اصطناعيًا",
+    "البرلمان يناقش موازنة تعليمية في سيناريو افتراضي",
+    "الحكومة تعرض مبادرة صحية في بيانات اختبار اصطناعية",
+])
+def test_ambiguous_arabic_scene_and_generic_roles_do_not_identify_a_country(title):
+    source = raw_source(title=title, content="هذه مادة اصطناعية عن برنامج عام دون تحديد دولة أو مدينة.")
+    search = extracted_sources([source])
+    assert search["results"] == [] and search["excluded"]["irrelevant"] == 1
+
+
+@pytest.mark.parametrize("content", [
+    "The fictional education programme concerns France. An unrelated historical note mentions Tehran's schools.",
+    "The fictional programme is about another country. An unrelated historical note refers to Iran's health system.",
+    "يتناول التقرير الاصطناعي معرضًا في مدينة أخرى. وردت طهران في إشارة عابرة إلى نشاط ثقافي قديم.",
+])
+def test_incidental_historical_city_or_country_mentions_do_not_make_a_generic_story_relevant(content):
+    source = raw_source(title="A fictional civic development programme", content=content)
+    search = extracted_sources([source])
+    assert search["results"] == [] and search["excluded"]["irrelevant"] == 1
+
+
+@pytest.mark.parametrize("slug", ["tehran-education-fixture", "irgc-cultural-fixture", "fordow-health-fixture"])
+def test_city_or_institution_in_url_alone_never_establishes_article_relevance(slug):
+    source = raw_source(title="A fictional civic development programme",
+                        url="https://www.ft.com/content/" + slug,
+                        content="Synthetic education, cultural and health activities in an unspecified community.")
+    search = extracted_sources([source])
+    assert search["results"] == [] and search["excluded"]["irrelevant"] == 1
+
+
 def test_mixed_article_paragraph_has_no_attributable_note():
     reply = research_reply([raw_source(), raw_source(1)])
     part = reply["output"][1]["content"][0]
@@ -720,7 +781,7 @@ def test_prior_day_remains_background_even_if_model_places_in_items(mocked_http)
     report = {"items": [selected_item(event_day="2026-10-18", published=published)], "background_items": []}
     requests = mocked_http(news_handler(sources, report))
     result = runtime.run_agent("iran-news", "أخبار اليوم")
-    assert len(requests) == 7 and result["item_count"] == result["fresh_event_count"] == 0
+    assert len(requests) == 2 and result["item_count"] == result["fresh_event_count"] == 0
     assert len(result["background_items"]) == 1
     assert result["background_items"][0]["classification"] == "prior_day_background"
     assert result["web_search"]["status"] == "recent_fallback"
@@ -807,17 +868,17 @@ def test_reusing_one_source_cannot_increase_the_item_count(mocked_http):
     assert result["item_count"] == 1 and result["discarded_item_count"] == 5
 
 
-def test_six_empty_native_searches_skip_report_model_and_count_every_research_call(mocked_http):
+def test_empty_unified_search_skips_report_model_and_accounts_for_its_one_call(mocked_http):
     requests = mocked_http(news_handler([], {"items": [], "background_items": []}))
     result = runtime.run_agent("iran-news", "أخبار اليوم")
-    assert len(requests) == 6 and result["model_called"] is True and result["report_model_called"] is False
-    assert result["model_call_count"] == 6 and result["item_count"] == 0
+    assert len(requests) == 1 and result["model_called"] is True and result["report_model_called"] is False
+    assert result["model_call_count"] == 1 and result["item_count"] == 0
     assert result["target_count"] is None and result["shortfall"] is None
     assert "من 6" not in result["response"] and "نقص التغطية" not in result["response"]
-    assert result["usage"]["input_tokens"] == 1800 and result["usage"]["output_tokens"] == 600
-    assert result["usage"]["web_search_calls"] == result["web_search"]["request_count"] == 6
+    assert result["usage"]["input_tokens"] == 300 and result["usage"]["output_tokens"] == 100
+    assert result["usage"]["web_search_calls"] == result["web_search"]["request_count"] == 1
     assert result["web_search"]["status"] == "empty" and result["cost_tracking_complete"] is True
-    assert result["estimated_cost_usd"] == pytest.approx(.0705)
+    assert result["estimated_cost_usd"] == pytest.approx(.01175)
     assert result["discarded_item_reasons"] == {}
 
 
@@ -840,31 +901,14 @@ def test_ambiguous_search_timeout_never_retries(mocked_http):
     requests = mocked_http(timeout)
     with pytest.raises(HTTPException) as exc:
         runtime.run_agent("iran-news", "أخبار اليوم")
-    assert len(requests) == 6 and exc.value.detail["code"] == "openai_timeout"
+    assert len(requests) == 1 and exc.value.detail["code"] == "openai_timeout"
 
 
-def test_failed_publishers_preserve_eligible_news_and_disclose_incomplete_research(mocked_http):
-    def handler(request):
-        payload = json.loads(request.content)
-        if not payload["tools"]:
-            return httpx.Response(200, json=model_reply({"items": [selected_item()], "background_items": []}))
-        if payload["tools"][0]["filters"]["allowed_domains"] == ["ft.com"]:
-            return httpx.Response(200, json=research_reply([raw_source()]))
-        raise httpx.ReadTimeout("Private synthetic publisher timeout sentinel", request=request)
-
-    requests = mocked_http(handler)
-    result = runtime.run_agent("iran-news", "أخبار اليوم")
-    assert len(requests) == 7 and result["item_count"] == 1
-    assert result["model_call_count"] == 7 and result["report_model_called"] is True
-    assert result["web_search"]["failed_request_count"] == 5
-    assert result["web_search"]["research_incomplete"] is True
-    assert result["web_search"]["billing_uncertain"] is True
-    assert result["cost_tracking_complete"] is False and result["estimated_cost_usd"] is None
-    assert sum(stage["stage"] == "research_failed" for stage in result["usage_stages"]) == 5
-    assert all(stage["usage"]["usage_reported"] is False and stage["usage"]["input_tokens"] is None
-               for stage in result["usage_stages"] if stage["stage"] == "research_failed")
-    assert "Private synthetic publisher timeout sentinel" not in json.dumps(result)
-    assert "التغطية غير مكتملة" in result["response"]
+def test_collector_rejects_multiple_research_payloads_before_any_provider_request(monkeypatch):
+    payload = runtime._build_research_payloads("gpt-6.1-sol", "iran-news", "أخبار اليوم", None, runtime._now_dubai())[0]
+    monkeypatch.setattr(runtime, "_call_model", lambda *args, **kwargs: pytest.fail("Multiple research payloads must never be executed"))
+    with pytest.raises(HTTPException):
+        runtime._collect_research("fixture-key", "iran-news", [payload, payload])
 
 
 @pytest.mark.parametrize("failure", ["no_search", "two_searches", "unknown_action", "incomplete", "refusal"])
@@ -883,14 +927,14 @@ def test_invalid_native_research_never_reaches_report_stage(mocked_http, failure
     requests = mocked_http(lambda req: httpx.Response(200, json=reply))
     with pytest.raises(HTTPException):
         runtime.run_agent("iran-news", "أخبار اليوم")
-    assert len(requests) == 6
+    assert len(requests) == 1
 
 
-def test_malformed_structured_output_fails_without_an_eighth_request(mocked_http):
+def test_malformed_structured_output_fails_without_a_third_request(mocked_http):
     requests = mocked_http(news_handler([raw_source()], {"items": "not an array", "background_items": []}))
     with pytest.raises(HTTPException) as exc:
         runtime.run_agent("iran-news", "أخبار اليوم")
-    assert exc.value.detail["code"] == "invalid_news_response" and len(requests) == 7
+    assert exc.value.detail["code"] == "invalid_news_response" and len(requests) == 2
 
 
 def test_prompt_injection_in_research_note_stays_data_and_report_has_no_tools(mocked_http):

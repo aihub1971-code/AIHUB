@@ -1,7 +1,7 @@
 """Bounded OpenAI Responses runtime and source-grounded bilingual news reports.
 
-Only OpenAI is called: news uses one bounded research request per publisher,
-then one report response. Budget reservation and persistence belong to
+Only OpenAI is called: news uses one unified bounded research request across
+the approved publishers, then one report response. Budget reservation and persistence belong to
 app.service. Native citations attest source URLs, not independently fetched
 publisher bodies; report evidence is explicitly labelled model research notes.
 """
@@ -11,7 +11,6 @@ import ipaddress
 import json
 import re
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from difflib import SequenceMatcher
@@ -34,15 +33,6 @@ ALLOWED_SOURCE_DOMAINS = (
     "ft.com", "theatlantic.com", "politico.com", "politico.eu", "wsj.com",
     "telegraph.co.uk", "aljazeera.com", "aljazeera.net",
 )
-NEWS_RESEARCH_GROUPS = (
-    ("Financial Times", ("ft.com",)),
-    ("The Atlantic", ("theatlantic.com",)),
-    ("Politico", ("politico.com", "politico.eu")),
-    ("The Wall Street Journal", ("wsj.com",)),
-    ("The Daily Telegraph", ("telegraph.co.uk",)),
-    ("Al Jazeera", ("aljazeera.com", "aljazeera.net")),
-)
-MAX_RESEARCH_CONCURRENCY = 3
 MAX_TASK_CHARS = 8000
 MAX_SKILL_CONTEXT_CHARS = 50000
 MAX_SEARCH_CONTEXT_BYTES = 36000
@@ -426,8 +416,14 @@ def _publication_is_future(published: str, as_of: datetime) -> bool:
 
 
 _IRAN_HEADLINE_TOPIC = re.compile(
-    r"\b(?:iran|iranians?|tehran|araqchi|araghchi|hormuz|islamic republic|irgc)\b|"
-    r"إيران|ايران|ایران|طهران|تهران|عراقجي|عراقچی|هرمز|الحرس الثوري",
+    r"\b(?:iran|iranians?|tehran|teheran|isfahan|esfahan|tabriz|mashhad|qom|"
+    r"ahvaz|bushehr|kermanshah|bandar[ -]abbas|natanz|fordow|fordo|"
+    r"araqchi|araghchi|hormuz|irgc|islamic revolutionary guard corps|"
+    r"revolutionary guards|quds force|basij|guardian council|expediency council)\b|"
+    r"إيران|ايران|ایران|طهران|تهران|أصفهان|إصفهان|اصفهان|تبريز|أهواز|الأهواز|"
+    r"بوشهر|كرمانشاه|بندر عباس|نطنز|فوردو|عراقجي|عراقچی|هرمز|الحرس الثوري|"
+    r"فيلق القدس|الباسيج|باسيج|مجلس صيانة الدستور|مجلس تشخيص مصلحة النظام|"
+    r"مدينة (?:مشهد|قم|شيراز|يزد|كرمان)",
     re.IGNORECASE,
 )
 _TRACKING_PARAMS = frozenset({"fbclid", "gclid", "dclid", "msclkid", "ref", "ref_src"})
@@ -520,26 +516,19 @@ def _is_article_url(title: str, url: str) -> bool:
 def _is_direct_iran_article(title: str, snippet: str, url: str) -> bool:
     if not _is_article_url(title, url):
         return False
-    if _IRAN_HEADLINE_TOPIC.search(title):
-        return True
-    # An article can directly concern Iran without naming it in the headline.
-    # Only use notes already associated with this single native-authorized URL;
-    # a URL keyword or a passing name in unrelated regional coverage is not enough.
-    text = re.sub(r"https?://\S+", "", snippet)
-    relation = re.compile(
-        r"\b(?:war|strikes?|attacks?|sanctions?|negotiations?|talks?|diplomacy|nuclear|"
-        r"military|conflict|economy|economic|oil|shipping|internet|protests?)\b|"
-        r"حرب|ضربات|هجوم|عمليات قتالية|عقوبات|مفاوضات|محادثات|دبلوماسي|نووي|"
-        r"اقتصاد|النفط|الطاقة|الملاحة|الإنترنت|الانترنت|احتجاج", re.IGNORECASE)
+    # OpenAI researches the article's subject and explains its direct connection.
+    # This final recall guard recognizes territorial/institutional names too;
+    # it must not restrict coverage to a literal country name or a topic list.
+    # Only associated native-authorized article notes may provide that context.
     incidental = re.compile(
         r"\b(?:unrelated|incidental|in passing|passing mention|mentioned only|side[ -](?:story|note))\b|"
         r"غير مرتبط|غير ذات صلة|ذكر عابر|ذكرًا عابرًا|ذكرا عابرا|بشكل عابر|"
         r"(?:إشارة|اشارة) (?:عابرة|جانبية)|(?:يذكر|تذكر|ذكر) (?:عرضًا|عرضا)", re.IGNORECASE)
-    for sentence in re.split(r"[.!?؟؛;\n]", text):
-        if incidental.search(sentence):
-            continue
-        for topic in _IRAN_HEADLINE_TOPIC.finditer(sentence):
-            if relation.search(sentence[max(0, topic.start() - 150):topic.end() + 150]):
+    for part in (title, snippet):
+        text = re.sub(r"https?://\S+", "", part)
+        text = re.sub(r"[\u0640\u064b-\u065f\u0670]", "", unicodedata.normalize("NFKC", text))
+        for sentence in re.split(r"[.!?؟؛;\n]", text):
+            if not incidental.search(sentence) and _IRAN_HEADLINE_TOPIC.search(sentence):
                 return True
     return False
 
@@ -727,7 +716,9 @@ def _build_system_prompt(agent: dict[str, object], skills: str, news: bool,
             "If timing is unknown or ambiguous, set both event fields to null; a dated publication "
             "can still be included without claiming a new event. For iran-news the source headline "
             "or its associated article notes must establish a direct Iran connection, Iranian "
-            "actors/territory or a documented direct consequence. "
+            "actors/territory or a documented direct consequence. Tehran/Teheran, other Iranian "
+            "cities, institutions and people can establish that connection without the literal "
+            "word Iran in the article. Include all subject areas relevant to the user's task. "
             "Exclude unrelated regional side stories. Add no count, introduction or extra keys.\n"
         )
         if target_count is not None:
@@ -774,7 +765,13 @@ def _build_research_payload(model: str, agent_id: str, task: str,
                             query_instruction: str = "") -> dict[str, object]:
     domains = allowed_domains or ALLOWED_SOURCE_DOMAINS
     topics = {
-        "iran-news": "Direct Iran news: Iranian government, diplomacy, economy, society and Hormuz.",
+        "iran-news": ("Research all news directly related to Iran across politics, diplomacy, economy, "
+                      "society, health, education, science, culture, sport, environment and local events. "
+                      "Recognize Tehran/Teheran as the capital or a reference to its government, and "
+                      "other Iranian cities, institutions and people, even when the article never "
+                      "uses the literal word Iran. Include direct consequences for Iran and Hormuz; "
+                      "exclude unrelated regional articles. When the connection is not explicit in "
+                      "the headline, explain it in that article's notes using its evidence."),
         "uae-eu-trade-talks": "UAE-European Union trade negotiations and official milestones.",
         "geopolitical-morning": "Important international geopolitical news and official decisions.",
         "economic-cultural-briefing": "Important economic and cultural news and primary data.",
@@ -830,21 +827,18 @@ def _build_research_payload(model: str, agent_id: str, task: str,
 def _build_research_payloads(model: str, agent_id: str, task: str,
                              window: tuple[datetime, datetime] | None,
                              as_of: datetime) -> list[dict[str, object]]:
-    """Use independent bounded discovery passes, never response continuations."""
-    if agent_id not in NEWS_REPORT_AGENT_IDS:
-        return [_build_research_payload(model, agent_id, task, window, as_of)]
-    return [_build_research_payload(
-        model, agent_id, task, window, as_of, allowed_domains=domains,
-        query_instruction=(f"This independent research pass is dedicated to {publisher}. "
-                           + ("Use Arabic and English search terms. " if publisher == "Al Jazeera"
-                              else "Use English search terms. ")
-                           + "Search the main subject and relevant related developments at this publisher. "
-                           "Use the publication period to assess returned articles; avoid a query that "
-                           "requires the exact date spelling to appear in the article title. "
-                           "A new report about an earlier event still qualifies by its publication date. "
-                           "Keep that event's actual timing clear. Return all useful distinct articles "
-                           "you can support within the response budget, without a target count."))
-        for publisher, domains in NEWS_RESEARCH_GROUPS]
+    """One unified discovery request; publishers are sources, not separate jobs."""
+    instruction = (
+        "Research the subject across ALL approved domains together in one unified search. "
+        "Use Arabic and English search terms as relevant to find direct coverage and related developments. "
+        "Do not allocate a quota to individual publishers or split the result into publisher reports. "
+        "Use the publication period to assess returned articles; avoid a query that requires the exact "
+        "date spelling to appear in the article title. A new report about an earlier event still "
+        "qualifies by its publication date. Keep that event's actual timing clear. Return all useful "
+        "distinct articles you can support within the response budget, without a target count."
+    ) if agent_id in NEWS_REPORT_AGENT_IDS else ""
+    return [_build_research_payload(model, agent_id, task, window, as_of,
+                                     query_instruction=instruction)]
 
 
 def _decimal_setting(name: str, default: str | None = None) -> Decimal:
@@ -1687,37 +1681,15 @@ def _stage_record(stage: str, response: dict[str, object], search_calls: int = 0
 
 
 def _collect_research(key: str, agent_id: str, payloads: list[dict[str, object]]) -> tuple[dict[str, object], list[dict[str, object]]]:
-    """Run independent publisher research concurrently and preserve useful results.
-
-    Every attempt is pre-reserved. A failed response has unknown billing, so a
-    partial report retains the whole reservation instead of understating cost.
-    No provider request is automatically repeated.
-    """
-    searches, stages, failures = [], [], []
-    with ThreadPoolExecutor(max_workers=min(MAX_RESEARCH_CONCURRENCY, len(payloads))) as pool:
-        futures = [pool.submit(_call_model, key, payload, research=True) for payload in payloads]
-        for index, (payload, future) in enumerate(zip(payloads, futures)):
-            try:
-                response = future.result()
-                source_pack = _native_research_sources(response, agent_id)
-                stage = "research" if index == 0 else "research_additional"
-                stages.append(_stage_record(stage, response, int(source_pack["search_call_count"])))
-            except HTTPException as error:
-                failures.append(error)
-                raw_code = error.detail.get("code") if isinstance(error.detail, dict) else None
-                code = raw_code if isinstance(raw_code, str) and re.fullmatch(r"[a-z0-9_]{1,80}", raw_code) else "research_request_failed"
-                source_pack = _empty_search("failed", request_count=1, failed_request_count=1,
-                                            billing_uncertain=True, error_code=code)
-                stages.append(_stage_record("research_failed", {
-                    "usage": _normalise_usage(None), "tier_matches": False, "usage_bound_matches": False,
-                }))
-            if agent_id in NEWS_REPORT_AGENT_IDS:
-                source_pack["publisher"] = NEWS_RESEARCH_GROUPS[index][0]
-            source_pack["research_scope_domains"] = payload["tools"][0]["filters"]["allowed_domains"]
-            searches.append(source_pack)
-    if len(failures) == len(payloads):
-        raise failures[0]
-    return _merge_research_sources(searches), stages
+    """Run the single unified search. A failure propagates without another paid call."""
+    if len(payloads) != 1:
+        raise _fail("invalid_research_plan", "A report requires one unified research request.", 503)
+    payload = payloads[0]
+    response = _call_model(key, payload, research=True)
+    source_pack = _native_research_sources(response, agent_id)
+    source_pack["research_scope_domains"] = payload["tools"][0]["filters"]["allowed_domains"]
+    stages = [_stage_record("research", response, int(source_pack["search_call_count"]))]
+    return _merge_research_sources([source_pack]), stages
 
 
 def _aggregate_usage(stages: list[dict[str, object]]) -> dict[str, object]:

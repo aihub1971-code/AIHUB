@@ -38,7 +38,7 @@ def test_english_news_keeps_official_link_and_publication_event_distinction():
     window = runtime._coverage_window("iran-news", "today", as_of)
     report = runtime._validate_news(json.dumps({"items": [item], "background_items": []}),
                                     [source], window, as_of, language="en")
-    text = runtime._render_news("iran-news", report, window, as_of, "used", 6, language="en")
+    text = runtime._render_news("iran-news", report, window, as_of, "used", 1, language="en")
     assert report["item_count"] == 1 and report["fresh_event_count"] == 0
     assert report["items"][0]["event_timing_relative_to_window"] == "before_window"
     assert "Iran news briefing" in text and "Selected reports: 1" in text
@@ -68,11 +68,9 @@ def test_english_run_uses_english_schema_and_returns_english_markdown(monkeypatc
     def provider(_key, payload, *, research=False):
         payloads.append(payload)
         if research:
-            text = "No eligible synthetic articles for this publisher."
-            sources = []
-            if payload["tools"][0]["filters"]["allowed_domains"] == ["ft.com"]:
-                text = f"Title: {source['title']} — {source['url']} {source['content']}"
-                sources = [{"type": "url", "url": source["url"], "title": source["title"]}]
+            assert payload["tools"][0]["filters"]["allowed_domains"] == list(runtime.ALLOWED_SOURCE_DOMAINS)
+            text = f"Title: {source['title']} — {source['url']} {source['content']}"
+            sources = [{"type": "url", "url": source["url"], "title": source["title"]}]
             return {"content": text, "parts": [{"text": text, "annotations": []}],
                     "native_calls": [{"action": {"type": "search", "sources": sources}}],
                     "usage": runtime._normalise_usage({"input_tokens": 100, "output_tokens": 100}),
@@ -87,7 +85,7 @@ def test_english_run_uses_english_schema_and_returns_english_markdown(monkeypatc
     monkeypatch.setattr(runtime, "_call_model", provider)
     result = runtime.run_agent("iran-news", "أخبار اليوم", language="en")
     assert result["language"] == "en" and result["item_count"] == 1
-    assert len(payloads) == 7 and result["model_call_count"] == 7
+    assert len(payloads) == 2 and result["model_call_count"] == 2
     assert result["response"].startswith("## Iran news briefing")
 
 
