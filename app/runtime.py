@@ -46,7 +46,7 @@ APPROVED_PUBLISHERS = (
     ("Al Jazeera", ("aljazeera.com", "aljazeera.net")),
 )
 NEWS_QUERY_GUIDANCE = (
-    "Research the subject across ALL approved domains together in one unified search. "
+    "Research the subject across the approved domains supplied for THIS request together in one unified search. "
     "The native allowed_domains filter already restricts publishers. Use one concise natural-language "
     "query with the main subject and period in ordinary words. Query language is independent of "
     "the requested report language: use English to discover English-language reporting, and Arabic "
@@ -894,6 +894,14 @@ def _build_research_payload(model: str, agent_id: str, task: str,
                    f"{window[1]:%Y-%m-%d} 23:59 Dubai. Treat UTC offsets carefully. "
                    "A prior-day source may be retained as explicitly separate background when "
                    "today's material is sparse. Never call older or future events new today.")
+        if window[0].date() <= as_of.date() <= window[1].date():
+            prompt += (
+                " For this CURRENT-DAY request, keep the calendar date and year OUT of the search "
+                "query completely. Use latest/current news and the subject only. The date above is "
+                "the publication-validation window, not search keywords. Adding a month, day or year "
+                "can overmatch old newspaper files or indexes. Never infer freshness from retrieval "
+                "rank: retain only explicit eligible publication evidence after the search."
+            )
     payload = {**_response_controls(model, _research_output_tokens()), "input": [
         {"role": "system", "content": [{"type": "input_text", "text": prompt}]},
         {"role": "user", "content": [{"type": "input_text", "text": task}]},
@@ -1862,7 +1870,8 @@ def _collect_research(key: str, agent_id: str, payloads: list[dict[str, object]]
 
     Initial/empty-evidence failures propagate. If optional breadth work fails,
     retain first-pass evidence and the full cost reservation, without retrying.
-    Both passes share all publishers and one report.
+    Discovery covers all publishers; a single collective follow-up can focus on
+    missing publisher families, with both passes merged into the same report.
     """
     if len(payloads) != 1:
         raise _fail("invalid_research_plan", "A report requires one unified research request.", 503)

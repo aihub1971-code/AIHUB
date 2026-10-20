@@ -229,6 +229,33 @@
     }else{const unavailable=newsElement("p","news-link-unavailable",t("news.noLink"));unavailable.dir=I18n.getDirection();article.append(unavailable);}
     return article;
   }
+  function renderPublisherCoverage(coverage){
+    const families=[...new Set(newsPublishers.map(([,publisher])=>publisher || "Al Jazeera"))];
+    if(!Array.isArray(coverage) || coverage.length!==families.length) return null;
+    const count=value=>Number.isSafeInteger(value) && value>=0 && value<=20;
+    if(coverage.some(row=>!row || typeof row!=="object" || Array.isArray(row)
+      || !families.includes(row.publisher) || !count(row.item_count) || !count(row.background_count))
+      || new Set(coverage.map(row=>row.publisher)).size!==families.length
+      || coverage.reduce((total,row)=>total+row.item_count+row.background_count,0)>20) return null;
+    const details=newsElement("details","news-source-coverage");
+    details.dir=I18n.getDirection();details.lang=I18n.getLanguage();
+    details.append(newsElement("summary","",t("news.publisherCoverage")),
+      newsElement("p","news-source-coverage-intro",t("news.publisherCoverageNote")));
+    const list=newsElement("ul","news-publisher-list");
+    for(const publisher of families){
+      const entry=coverage.find(row=>row.publisher===publisher),row=newsElement("li","news-publisher-row");
+      const heading=newsElement("div","news-publisher-row-heading");
+      const name=newsElement("bdi","news-publisher-name",publisher==="Al Jazeera" ? t("news.aljazeera") : publisher);
+      const counts=newsElement("div","news-publisher-counts");
+      counts.append(newsElement("span","news-publisher-item-count",t("news.publisherItems",{count:n(entry.item_count)})),
+        newsElement("span","news-publisher-background-count",t("news.publisherBackground",{count:n(entry.background_count)})));
+      heading.append(name,counts);row.append(heading);
+      if(entry.item_count===0 && entry.background_count===0)
+        row.append(newsElement("p","news-publisher-missing",t("news.publisherNotIncluded")));
+      list.append(row);
+    }
+    details.append(list);return details;
+  }
   function renderNewsReport(target,data){
     const valid=item=>item && typeof item==="object" && !Array.isArray(item);
     const items=data.items.filter(valid).slice(0,20), background=data.background_items.filter(valid).slice(0,20-items.length);
@@ -241,6 +268,8 @@
     if(data.generated_at && Number.isFinite(Date.parse(data.generated_at)))intro.append(newsElement("p","news-prepared",t("news.prepared",{date:localDate(data.generated_at)})));
     const requested=Number.isInteger(data.target_count) && data.target_count>0 ? data.target_count : null;
     intro.append(newsElement("p","news-count",t(requested===null ? "news.count" : "news.requestedCount",{count:n(items.length),target:n(requested)})));target.append(intro);
+    const publisherCoverage=renderPublisherCoverage(data.publisher_coverage);
+    if(publisherCoverage)target.append(publisherCoverage);
     if(data.web_search?.research_incomplete){
       const warning=newsElement("p","news-coverage-note news-research-warning",t("news.researchIncomplete",{count:Number.isInteger(data.web_search.failed_request_count) ? n(data.web_search.failed_request_count) : "—"}));warning.dir=I18n.getDirection();target.append(warning);
     }

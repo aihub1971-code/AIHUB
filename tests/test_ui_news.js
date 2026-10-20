@@ -149,6 +149,84 @@ function report(overrides = {}) {
   };
 }
 
+function publisherCoverage(counts = {"Al Jazeera": {item_count: 1}}) {
+  return [
+    ["Financial Times",["ft.com"]],["The Atlantic",["theatlantic.com"]],
+    ["Politico",["politico.com","politico.eu"]],["The Wall Street Journal",["wsj.com"]],
+    ["The Daily Telegraph",["telegraph.co.uk"]],["Al Jazeera",["aljazeera.com","aljazeera.net"]]
+  ].map(([publisher,domains])=>({publisher,domains,item_count:0,background_count:0,...counts[publisher]}));
+}
+
+test("publisher coverage is a collapsed bilingual summary of all six actual counts in one report", async () => {
+  const ui=harness();ui.displayResult(report({publisher_coverage:publisherCoverage()}));
+  const body=ui.elements.get("responseBody");
+  let coverage=byClass(body,"news-source-coverage")[0];
+  assert.equal(coverage.tagName,"DETAILS");assert.equal(coverage.getAttribute("open"),null);
+  assert.equal(coverage.dir,"rtl");assert.equal(coverage.lang,"ar");
+  assert.equal(byTag(coverage,"summary")[0].textContent,"المصادر في هذا التقرير");
+  assert.deepEqual(byClass(coverage,"news-publisher-name").map(el=>el.textContent),
+    ["Financial Times","The Atlantic","Politico","The Wall Street Journal","The Daily Telegraph","الجزيرة"]);
+  assert.equal(byClass(coverage,"news-publisher-row").length,6);
+  assert.equal(byClass(coverage,"news-publisher-item-count").at(-1).textContent,"أخبار الفترة: 1");
+  assert.equal(byClass(coverage,"news-publisher-background-count").at(-1).textContent,"السياق الإضافي: 0");
+  assert.equal(byClass(coverage,"news-publisher-missing").length,5);
+  assert.equal(byClass(coverage,"news-publisher-missing")[0].textContent,"لم يُدرج خبر مستوفٍ للشروط من هذا المصدر في هذا التقرير.");
+  await ui.elements.get("languageEN").click();coverage=byClass(body,"news-source-coverage")[0];
+  assert.equal(coverage.dir,"ltr");assert.equal(coverage.lang,"en");
+  assert.equal(byTag(coverage,"summary")[0].textContent,"Sources in this report");
+  assert.equal(byClass(coverage,"news-publisher-name").at(-1).textContent,"Al Jazeera");
+  assert.equal(byClass(coverage,"news-publisher-item-count").at(-1).textContent,"News in period: 1");
+  assert.equal(byClass(coverage,"news-publisher-missing")[0].textContent,"No eligible article was included for this publisher in this report.");
+  assert.equal(byClass(body,"news-report-title").length,1);
+  assert.equal(byClass(body,"news-item").length,1);assert.equal(byClass(body,"news-source-link").length,1);
+  assert.equal(ui.requests.length,0,"Expanding coverage or changing labels needs no publisher request.");
+});
+
+test("publisher coverage separates background counts from period news and does not claim missing publications", () => {
+  const ui=harness(null,{language:"en"});
+  ui.displayResult(report({items:[],item_count:0,
+    background_items:[item({url:"https://www.ft.com/content/synthetic-previous-day",classification:"prior_day_background",published_day_dubai:"2026-10-19"})],
+    publisher_coverage:publisherCoverage({"Financial Times":{background_count:1}})}));
+  const body=ui.elements.get("responseBody"),coverage=byClass(body,"news-source-coverage")[0];
+  const ft=byClass(coverage,"news-publisher-row")[0];
+  assert.equal(byClass(ft,"news-publisher-item-count")[0].textContent,"News in period: 0");
+  assert.equal(byClass(ft,"news-publisher-background-count")[0].textContent,"Additional context: 1");
+  assert.equal(byClass(ft,"news-publisher-missing").length,0,"An included background article is not absent from the report.");
+  assert.equal(byClass(coverage,"news-publisher-missing").length,5);
+  assert.equal(byClass(body,"news-count")[0].textContent,"News items: 0");
+  assert.equal(byClass(body,"news-background").length,1);
+  assert.doesNotMatch(coverage.textContent,/not searched|did not publish|no articles? (?:exists?|published)/i);
+});
+
+test("legacy and incomplete publisher metadata do not invent coverage or replace the existing report", () => {
+  const ui=harness();
+  for(const coverage of [undefined,null,[],publisherCoverage().slice(0,5),
+    publisherCoverage().map((row,index)=>index===0 ? {...row,item_count:"0"} : row),
+    publisherCoverage().map((row,index)=>index===0 ? {...row,publisher:"<img src=x onerror=alert(1)>"} : row)]){
+    ui.displayResult(report({publisher_coverage:coverage}));
+    const body=ui.elements.get("responseBody");
+    assert.equal(byClass(body,"news-source-coverage").length,0);
+    assert.equal(byClass(body,"news-headline")[0].textContent,item().headline);
+    assert.equal(byClass(body,"news-source-link")[0].href,item().url);
+    assert.equal(byClass(body,"news-notes").length,1);
+  }
+});
+
+test("archived publisher coverage uses the same renderer while copy and download retain the saved report", async () => {
+  const data=report({publisher_coverage:publisherCoverage()});
+  const saved={report_id:data.report_id,agent_id:"iran-news",status:"succeeded",result:data};
+  const ui=harness(saved);ui.setAuthenticated();
+  ui.renderArchive([{...saved,task:"Synthetic archived report",created_at:data.generated_at}]);
+  await byTag(ui.elements.get("archiveList"),"button")[0].click();
+  const coverage=byClass(ui.elements.get("responseBody"),"news-source-coverage")[0];
+  assert.equal(byClass(coverage,"news-publisher-row").length,6);
+  assert.equal(byClass(coverage,"news-publisher-item-count").at(-1).textContent,"أخبار الفترة: 1");
+  await ui.elements.get("copyBtn").click();assert.equal(ui.copied(),data.response);
+  await ui.elements.get("downloadBtn").click();
+  assert.equal(ui.requests[0].url,"/v1/reports/rpt_ui_fixture");
+  assert.equal(ui.requests[1].url,"/v1/reports/rpt_ui_fixture/download?format=md");
+});
+
 test("news presents a headline, summary, publisher, publication date and direct official link", () => {
   const ui = harness();
   ui.displayResult(report());
@@ -355,23 +433,23 @@ test("switching UI language preserves an open Arabic report, its attachment iden
   assert.equal(ui.chatCalls.language,2);
 });
 
-test("partial publisher research and separate event dates are visible and localized", () => {
+test("an incomplete follow-up and separate event dates are visible and localized", () => {
   const ui=harness(null,{language:"en"});
-  ui.displayResult(report({language:"en",items:[item({headline:"A current article about an earlier event",summary:"Synthetic summary.",event_date:"2026-10-18",event_timing_relative_to_window:"before_window"})],web_search:{research_incomplete:true,failed_request_count:2}}));
+  ui.displayResult(report({language:"en",items:[item({headline:"A current article about an earlier event",summary:"Synthetic summary.",event_date:"2026-10-18",event_timing_relative_to_window:"before_window"})],web_search:{research_incomplete:true,failed_request_count:1}}));
   const body=ui.elements.get("responseBody");
-  assert.match(byClass(body,"news-research-warning")[0].textContent,/did not complete.*\(2\)/);
+  assert.match(byClass(body,"news-research-warning")[0].textContent,/additional search could not complete.*coverage remains incomplete/);
   assert.match(byClass(body,"news-event-date")[0].textContent,/Event date reported in research notes: 18 October 2026/);
   assert.equal(byClass(body,"news-list").length,1);
   assert.equal(byClass(body,"news-background").length,0);
   assert.equal(body.dir,"ltr");
   ui.I18n.setLanguage("ar");
-  assert.match(byClass(body,"news-research-warning")[0].textContent,/لم يكتمل البحث/);
+  assert.match(byClass(body,"news-research-warning")[0].textContent,/تعذر إكمال البحث الاستكمالي/);
   assert.equal(body.dir,"ltr");
 });
 
 test("scripts initialize in order without chat requests before authentication; logout clears private state", async () => {
   const sources=[...html.matchAll(/<script src="([^"]+)"/g)].map(match=>match[1]);
-  assert.deepEqual(sources,["/static/i18n.js?v=1.4.2","/static/chat.js?v=1.4.2","/static/app.js?v=1.4.2"]);
+  assert.deepEqual(sources,["/static/i18n.js?v=1.4.3","/static/chat.js?v=1.4.3","/static/app.js?v=1.4.3"]);
   const ui=harness(null,{language:"en",fetch:(url,_options,respond)=>dashboardFixture(url,respond)});
   assert.equal(ui.chatCalls.create,1);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
   assert.equal(ui.chatConfig.getCurrentReport(),null);

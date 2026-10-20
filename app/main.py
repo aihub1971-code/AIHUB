@@ -22,7 +22,7 @@ from app.service import execute_report
 from app.storage import StoreError, get_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.4.3"
 
 
 def runtime_is_ready() -> bool:
