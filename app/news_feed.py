@@ -724,8 +724,9 @@ def get_report_feed(agent_id: str, topic: str = "", research_window: dict[str, A
                     database: Store | None = None) -> dict[str, Any]:
     """Consume the shared snapshot, or synchronously perform its eligible refresh.
 
-    A recent cached cutoff can precede the report cutoff; both are returned. A
-    provider failure is raised when no usable cache exists, rather than being
+    A recent cached cutoff can precede the report cutoff; both are returned.
+    Expired snapshots wait for an eligible shared refresh within one deadline.
+    A provider failure is raised when no usable cache exists, rather than being
     misrepresented as an empty successful news search.
     """
     _key(agent_id)
@@ -737,13 +738,25 @@ def get_report_feed(agent_id: str, topic: str = "", research_window: dict[str, A
         progress("searching")
     deadline = time.monotonic() + MAX_REFRESH_SECONDS
     while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise StoreError("newsdata_timeout", "The shared news refresh did not finish within the report's wait limit.", 504)
         claim = store.claim(agent_id, requested)
         if claim:
-            _refresh(store, agent_id, claim, timeout_seconds=max(.001, deadline - time.monotonic()))
+            _refresh(store, agent_id, claim, timeout_seconds=max(0.0, deadline - time.monotonic()))
         view = _view(store, agent_id, language, requested_window=requested)
-        if view["snapshot_id"] or view["status"] != "loading" or time.monotonic() >= deadline:
+        recent = bool(view["snapshot_id"]) and view["cache_age_seconds"] < REFRESH_INTERVAL_SECONDS
+        next_at = view["next_refresh_at"]
+        due = not next_at or newsdata._moment(next_at) <= store.now()
+        # A dashboard refresh may still be replacing an expired snapshot. A
+        # different topic can also hold the shared provider lease while this
+        # topic remains due. Neither old snapshot is a completed fresh check.
+        # Future retry deadlines retain the existing provider-cooldown behavior.
+        if recent or (view["status"] != "loading" and not due):
             break
-        time.sleep(.2)
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(.2, remaining))
     if not view["snapshot_id"] and (view["error"] or view["status"] == "loading"):
         code = view["error"]["code"] if view["error"] else "newsdata_refresh_in_progress"
         error = StoreError(code, "No usable shared news snapshot is available; see the feed status.", 503)

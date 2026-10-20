@@ -1,6 +1,6 @@
 # AI HUB 2.0.4 — live news, report recovery and active assistants
 
-Updated on **20 October 2026**. **The initial 2.0.4 release is deployed and its recorded live API, report and archive checks are complete.** Current NewsData access still returns delayed articles outside the required 12-hour window, so real-time news coverage remains unresolved. Follow-up work addresses Arabic PDF inline-ISO display, an expired browser snapshot on language changes, and safe diagnostics for a newly observed Story Moodboard schema rejection. Those follow-up deployment and live verification steps remain pending in this source record.
+Updated on **20 October 2026**. **The initial 2.0.4 release and its first follow-up are deployed.** Current NewsData access still returns delayed articles outside the required 12-hour window, so real-time news coverage remains unresolved. The Arabic PDF timestamp correction is now verified in a newly generated live PDF. Further live checks identified an expired-snapshot race during report retrieval and localized the Story Moodboard schema rejection to the publisher-text evidence-quote field. The second correction described below requires its own deployment and live acceptance after this source record is committed.
 
 Historical [2.0.1 validation](VALIDATION_AR.md), [2.0.2](FIXES_2_0_2.md), [2.0.3](FIXES_2_0_3.md) and [validation](VALIDATION_AR.md) records retain their original evidence. Their successful checks must not be relabelled as validation of 2.0.4.
 
@@ -64,7 +64,7 @@ This release does **not** change `MAX_REPORTS_PER_DAY=100`, `DAILY_BUDGET_USD=90
 
 The existing service, disk and database stay in use, with one Uvicorn process and two configured report-job workers. `render.yaml` changes are explanatory comments only. The initial deployment is recorded below; no budget increase, quota reset, provider-plan upgrade or credential change was performed.
 
-`APP_VERSION` and the workspace CSS/JavaScript cache references identify 2.0.4. Historical legacy-page asset references remain tied to their existing assets.
+`APP_VERSION` identifies 2.0.4. The first follow-up uses workspace JavaScript cache query `2.0.4.1`; historical legacy-page asset references remain tied to their existing assets.
 
 ## Validation and release status
 
@@ -78,7 +78,8 @@ The existing service, disk and database stay in use, with one Uvicorn process an
 | Active and retired routes | Nine active profiles matched the shipped defaults and numbering **01–09**; all **12** retired-assistant workspace/news/report-submission checks returned **404**. Historical and Story Moodboard news endpoints also returned **404** |
 | Live reports | Two completed zero-article news reports and one real AI historical report are recorded below; these do not establish successful analysis of fresh news |
 | Preserved reports and PDFs | At **18:45:42.706076 UTC**, all **13 existing reports** retained their original content digests and all **13 PDF SHA-256 hashes** matched their pre-deployment values |
-| Subsequent Arabic PDF correction | Inline ISO timestamp direction correction: **20 focused PDF tests passed in 22.13 seconds**. Two added tests bring the expected hosted full-suite count to **1,043**; that follow-up CI result, deployment and a new live Arabic PDF remain **pending** |
+| First follow-up CI and deployment | [PR #16](https://github.com/aihub1971-code/AIHUB/pull/16), merged as `079af325fe5583dbf13c5d2dbf3ea79de53ab729`: **1,069 Python tests and 96 JavaScript checks** passed, with Blueprint and source-package gates. Render `dep-dbbrvlc9v7es73auhbb0` became **live at 19:25:06.755576 UTC** |
+| New live Arabic PDF | `rpt_50da224235124de78700f4fa636a874f`, created **19:25:57.218747 UTC**, PDF ready **19:25:59.087799 UTC**. The actual downloaded **45,524-byte, one-page PDF** opens and displays the inline ISO timestamp in correct order, readable Arabic and the correct 0 / 100 count |
 
 The automated checks cover feed bounds/cooldowns and credits, empty-versus-error handling, Arabic/English notices, report stages and durable failures, explicit retry behavior, registry enforcement and archive retention. Synthetic tests and the explicitly identified live observations are separate evidence; the initial full-suite result does not substitute for follow-up release validation.
 
@@ -98,11 +99,13 @@ The other five news feeds—basic income, UAE–EU trade talks, education, econo
 
 The public API confirmed seven feed IDs, a maximum of 100 accepted articles, 12-hour coverage and a 900-second refresh interval. Profile checks compared published kinds, retrieval flags and bilingual default topics; the public schema does not expose literal `domain` or `required_inputs` fields. Positive live fresh-article, maximum-inventory and translation behavior remain covered by synthetic tests rather than a successful nonempty live feed in this record.
 
-## Remaining provider action and PDF follow-up
+## Remaining provider action
 
-To supply articles inside the strict 12-hour window, verify the NewsData account's **real-time entitlement** and provide a key authorized for that access through the existing service's private `NEWSDATA_API_KEY` setting; update that secret if a different key is required. Set `NEWSDATA_PLAN=paid` **only when paid access is actually confirmed**. That configuration flag does not grant entitlement or remove a provider-side delay. **No plan upgrade or key change has been performed.** Do not weaken the freshness window or relabel delayed articles as current.
+To supply articles inside the strict 12-hour window, verify the NewsData account's **real-time entitlement** and provide a key authorized for that access through the existing service's private `NEWSDATA_API_KEY` setting; update that secret if a different key is required. Set `NEWSDATA_PLAN=paid` **only when paid access is actually confirmed**, and set `NEWSDATA_PAGE_SIZE=50` to use the larger supported page size. An explicit size of 10 otherwise remains effective. The plan flag does not grant entitlement or remove a provider-side delay. **The user intends to subscribe to Basic, but activation has not been confirmed in this record. No plan upgrade or key change has been performed by the application repair.** Do not weaken the freshness window or relabel delayed articles as current.
 
-The Arabic inline-ISO PDF correction is a subsequent change: its 20 passing focused tests establish local validation only. Record the follow-up commit/deployment and inspect a newly generated live Arabic PDF before marking that remaining step complete. The 13 preserved archive PDFs above were verified unchanged and are not evidence of the new rendering correction.
+NewsData's [official pricing guide](https://newsdata.io/blog/pricing-plan-in-newsdata-io/) lists real-time access and 50 articles per request for Basic. All seven current queries fit its 100-character query limit. The application's existing 200-credit daily ledger, 15-minute refresh interval and provider cooldowns remain applicable after an upgrade; they are not reset by a key or configuration change. A qualifying-article count of 100 is never guaranteed.
+
+The newly generated Arabic PDF's SHA-256 is `5985fcdc52cdf6ea1cfec4dcad90e0725091dbc102fab6005ddaf6f40eb7cb4d`. Its payload retains `previous_report_id=rpt_54a8eaf1388c46aa965cf167e88a05b6`. The live correction is separate from the 13 unchanged archive PDFs verified earlier.
 
 ## Additional live workflow checks and follow-up findings
 
@@ -115,3 +118,18 @@ The sixth submission, Story Moodboard job `job_3abc5948a66742709ccadcc443ee66c1`
 The original PDF-only follow-up head `31eeaee60f2d1dead7ed724cb2b0f8119458f69a` passed hosted CI run **39478903271**: **1,043 Python tests** passed in 52.39 seconds, and the JavaScript, Blueprint and source-package gates passed. Subsequent diagnostic and activation changes require their own exact-head CI gate; these earlier results must not be relabelled as validation of those additions.
 
 The additional diagnostics passed **84 focused Python tests**, including privacy and provider-error classification checks. The language-activation change passed **44 workspace JavaScript tests** (three new regressions); the unchanged other suites contain 29, 10 and 13 tests, for an expected total of 96. Syntax and scoped whitespace checks passed. The workspace script cache query is `2.0.4.1`; the application version remains `2.0.4`.
+
+## First follow-up deployment and newly reproduced failures
+
+The first main-branch CI run for `079af325` passed at **19:10:58 UTC**, but Render recorded no deployment or ignored-commit event. Repository, branch, credentials, root directory and build filters were checked; no applicable exclusion or failed check was found. Re-running the existing CI job once produced a second successful completion at **19:24:02 UTC**. Render then created an automatic `new_commit` deployment at **19:24:05.341501 UTC**, which became live at the time recorded above. This establishes recovery of the trigger path, not the precise upstream cause of the missed initial notification. No deployment gate or service setting was weakened.
+
+At **19:25:40.939196 UTC**, the live root HTML and `/static/workspace.js?v=2.0.4.1` were both HTTP 200 and byte-identical to the checked source. The script's SHA-256 was `97e5b39a4a3cca4c6723640c816b687395e63732c6a19a974837b7ed2f3d39d0`.
+
+Two additional live observations motivated the second correction:
+
+- **Expired snapshot during an active refresh.** Global report `rpt_6a73d087aae845bda43f32d8b73a7a35`, job `job_c144193d18f44af68368869d2a9d785b`, was created at **19:26:42.619125 UTC** while a dashboard refresh was active. Its saved feed had `status=loading`, `stale=true`, a cache age of 2,609 seconds and last success at **18:43:12.866147 UTC**. The new global refresh completed at **19:26:43.252969882 UTC**. The report loop had accepted any existing snapshot before the active refresh finished. The correction waits within the existing 90-second budget for an expired snapshot's eligible refresh, including contention for the shared provider lease. A recent valid cache remains reusable; a wait timeout cannot become a successful empty report from an expired snapshot.
+- **Story request schema rejection.** A single normal-workflow attempt on the first follow-up, job `job_f19175d9c825426aab1b7784a49b1fdc`, failed at **19:29:02.917539 UTC** during `analyzing`, with HTTP 400 `invalid_json_schema`. Its request reference was `req_df22d70800d04b8e8ad595c8924f81a0`. New safe diagnostics localized the rejected schema to `properties.items.items.properties.evidence_quote`. The precise provider validation prose remains unavailable, so no particular enum-size or character-limit explanation is claimed. The correction removes the dynamic publisher-text enum, retains bounded string structure and the existing exact per-source quote membership check on the server, and removes the unused complex news-item schema when no fresh item can be produced. Source-ID, attribution, section and visual-reference validation remain in place.
+
+The most recent provider checks in this record still accepted **zero articles**. Iran's automatic refresh at **19:26:59.637505759 UTC** returned 10 records published **07:21:38–07:24:39 UTC**. Global's refresh at **19:26:43.252969882 UTC** returned 10 records published **07:24:15–07:26:00 UTC**. Each completed successfully with `window_exhausted`; all returned records were outside the required 12-hour window.
+
+The combined second-correction source passed **1,083 Python tests in 40.46 seconds**, all **96 JavaScript checks**, scoped whitespace checks and validation against the official Render Blueprint schema. Focused evidence includes 53 feed tests, 19 news-report tests, 12 offline integration tests, 120 native-research tests and 84 diagnostic tests. The full suite reports one upstream TestClient deprecation warning. These local results precede the exact-head hosted CI gate and deployed verification; they do not establish live Story success or post-upgrade fresh-news coverage.

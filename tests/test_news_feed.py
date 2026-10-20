@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
 import threading
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -415,6 +416,181 @@ def test_report_uses_same_snapshot_and_exact_requested_window_without_second_fet
     assert result["research_window"] != window
     assert not result["freshness"]["coverage_complete"]
     assert progress == ["searching"]
+
+
+@pytest.mark.parametrize("new_items", [[], [article(2)]], ids=["empty", "nonempty"])
+def test_report_waits_for_dashboard_refresh_of_expired_snapshot(monkeypatch, database, new_items):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=page([] if len(calls) == 1 else new_items))
+    mock_http(monkeypatch, handler)
+    old = refresh(database)
+    database.test_clock[0] += timedelta(seconds=901)
+    store = news_feed.FeedStore(database)
+    dashboard_claim = store.claim("iran-news")
+    assert dashboard_claim is not None
+    loading = news_feed.get_feed("iran-news", "en", refresh=False, database=database)
+    assert loading["status"] == "loading" and loading["stale"]
+    assert loading["snapshot_id"] == old["snapshot_id"]
+    waits = []
+    def finish_dashboard(seconds):
+        waits.append(seconds)
+        news_feed._refresh(store, "iran-news", dashboard_claim)
+    monkeypatch.setattr(news_feed, "time", SimpleNamespace(
+        monotonic=news_feed.time.monotonic, sleep=finish_dashboard))
+    result = news_feed.get_report_feed("iran-news", language="en", database=database)
+    assert len(waits) == 1 and len(calls) == 2
+    assert result["snapshot_id"] == dashboard_claim[0] != old["snapshot_id"]
+    assert result["last_successful_refresh_at"] == news_feed._stamp(database.test_clock[0])
+    assert result["actual_count"] == len(new_items)
+    assert result["status"] != "loading" and not result["stale"]
+    with database._connect() as connection:
+        assert news_feed.accounted_credits(connection, local_date="2026-10-20") == 2
+
+
+@pytest.mark.parametrize("prior_failure", [False, True], ids=["expired-cache", "elapsed-error-cooldown"])
+def test_report_waits_for_other_feed_then_claims_its_own_refresh(monkeypatch, database, prior_failure):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        if prior_failure and len(calls) == 2:
+            return httpx.Response(503, json={"status": "error"})
+        return httpx.Response(200, json=page([] if len(calls) == 1 else [article(2)]))
+    mock_http(monkeypatch, handler)
+    old = refresh(database)
+    database.test_clock[0] += timedelta(seconds=901)
+    if prior_failure:
+        failed = refresh(database)
+        assert failed["error"]["code"] == "newsdata_unavailable"
+        database.test_clock[0] += timedelta(seconds=901)
+    store = news_feed.FeedStore(database)
+    other_claim = store.claim("geopolitical-morning")
+    assert other_claim is not None
+    elapsed, waits, budgets = [0.0], [], []
+    original_refresh = news_feed._refresh
+    def finish_other(seconds):
+        waits.append(seconds)
+        elapsed[0] += 30
+        database.test_clock[0] += timedelta(seconds=30)
+        original_refresh(store, "geopolitical-morning", other_claim)
+    def record_refresh(store, agent_id, claim, **kwargs):
+        assert agent_id == "iran-news"
+        budgets.append(kwargs["timeout_seconds"])
+        original_refresh(store, agent_id, claim, **kwargs)
+    monkeypatch.setattr(news_feed, "time", SimpleNamespace(monotonic=lambda: elapsed[0], sleep=finish_other))
+    monkeypatch.setattr(news_feed, "_refresh", record_refresh)
+    result = news_feed.get_report_feed("iran-news", language="en", database=database)
+    assert len(waits) == 1 and budgets == [60]
+    assert result["snapshot_id"] not in {old["snapshot_id"], other_claim[0]}
+    assert result["actual_count"] == 1 and not result["stale"] and result["error"] is None
+    assert [request.url.params["q"] for request in calls[-2:]] == [
+        news_feed.QUERIES["geopolitical-morning"], news_feed.QUERIES["iran-news"]]
+    expected = 4 if prior_failure else 3
+    assert len(calls) == expected
+    with database._connect() as connection:
+        assert news_feed.accounted_credits(connection, local_date="2026-10-20") == expected
+
+
+@pytest.mark.parametrize("holder", ["iran-news", "geopolitical-morning"], ids=["dashboard-refresh", "other-feed"])
+def test_report_wait_timeout_keeps_previous_snapshot_and_never_succeeds_with_old_empty_data(monkeypatch, database, holder):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=page([]))
+    mock_http(monkeypatch, handler)
+    old = refresh(database)
+    database.test_clock[0] += timedelta(seconds=901)
+    store = news_feed.FeedStore(database)
+    held = store.claim(holder)
+    assert held is not None
+    elapsed, waits = [0.0], []
+    def delayed_sleep(seconds):
+        waits.append(seconds)
+        elapsed[0] += 45
+        database.test_clock[0] += timedelta(seconds=45)
+    monkeypatch.setattr(news_feed, "time", SimpleNamespace(monotonic=lambda: elapsed[0], sleep=delayed_sleep))
+    with pytest.raises(StoreError) as error:
+        news_feed.get_report_feed("iran-news", language="en", database=database)
+    assert error.value.code == "newsdata_timeout" and error.value.status_code == 504
+    assert elapsed[0] == news_feed.MAX_REFRESH_SECONDS and len(waits) == 2
+    assert len(calls) == 1
+    row = store.read("iran-news")
+    assert json.loads(row["snapshot_json"])["snapshot_id"] == old["snapshot_id"]
+    assert row["last_successful_refresh_at"] == old["last_successful_refresh_at"]
+    assert store.read(holder)["refresh_id"] == held[0]
+    with database._connect() as connection:
+        assert news_feed.accounted_credits(connection, local_date="2026-10-20") == 1
+
+
+def test_report_wait_preserves_provider_failure_and_shared_cooldown(monkeypatch, database):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=page([])) if len(calls) == 1 else httpx.Response(429, json={"status": "error"})
+    mock_http(monkeypatch, handler)
+    old = refresh(database)
+    database.test_clock[0] += timedelta(seconds=901)
+    store = news_feed.FeedStore(database)
+    held = store.claim("iran-news")
+    assert held is not None
+    monkeypatch.setattr(news_feed, "time", SimpleNamespace(monotonic=news_feed.time.monotonic,
+        sleep=lambda _: news_feed._refresh(store, "iran-news", held)))
+    with pytest.raises(StoreError) as error:
+        news_feed.get_report_feed("iran-news", language="en", database=database)
+    assert error.value.code == "newsdata_rate_limited"
+    cached = news_feed.get_feed("iran-news", "en", refresh=False, database=database)
+    assert error.value.reference == cached["error"]["reference"] == error.value.feed_error_reference
+    assert cached["snapshot_id"] == old["snapshot_id"]
+    assert store.claim("geopolitical-morning") is None
+    assert len(calls) == 2
+
+
+def test_report_claim_that_exhausts_wait_budget_does_not_start_a_provider_page(monkeypatch, database):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=page([]))
+    mock_http(monkeypatch, handler)
+    old = refresh(database)
+    database.test_clock[0] += timedelta(seconds=901)
+    elapsed = [0.0]
+    original_claim = news_feed.FeedStore.claim
+    def delayed_claim(store, agent_id, window=None):
+        claim = original_claim(store, agent_id, window)
+        if claim:
+            elapsed[0] = news_feed.MAX_REFRESH_SECONDS
+        return claim
+    monkeypatch.setattr(news_feed.FeedStore, "claim", delayed_claim)
+    monkeypatch.setattr(news_feed, "time", SimpleNamespace(monotonic=lambda: elapsed[0],
+        sleep=lambda _: pytest.fail("An exhausted report budget must not start another wait.")))
+    with pytest.raises(StoreError) as error:
+        news_feed.get_report_feed("iran-news", language="en", database=database)
+    assert error.value.code == "newsdata_timeout"
+    assert len(calls) == 1
+    row = news_feed.FeedStore(database).read("iran-news")
+    assert row["refresh_id"] is None
+    assert json.loads(row["snapshot_json"])["snapshot_id"] == old["snapshot_id"]
+    with database._connect() as connection:
+        assert news_feed.accounted_credits(connection, local_date="2026-10-20") == 1
+
+
+def test_report_reuses_recent_empty_snapshot_while_other_feed_refreshes(monkeypatch, database):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=page([]))
+    mock_http(monkeypatch, handler)
+    old = refresh(database)
+    database.test_clock[0] += timedelta(minutes=2)
+    store = news_feed.FeedStore(database)
+    assert store.claim("geopolitical-morning") is not None
+    def unexpected_sleep(_):
+        pytest.fail("A recent snapshot must remain reusable without waiting or a second provider call.")
+    monkeypatch.setattr(news_feed, "time", SimpleNamespace(monotonic=news_feed.time.monotonic, sleep=unexpected_sleep))
+    result = news_feed.get_report_feed("iran-news", language="en", database=database)
+    assert result["snapshot_id"] == old["snapshot_id"] and result["actual_count"] == 0
+    assert not result["stale"] and len(calls) == 1
 
 
 def test_dashboard_ages_out_articles_but_report_preserves_its_frozen_cutoff(monkeypatch, database):
