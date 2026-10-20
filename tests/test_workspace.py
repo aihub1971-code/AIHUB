@@ -105,9 +105,9 @@ def test_configuration_and_default_selection_queue_one_job_with_frozen_window(wo
     config = client.get(PREFIX + "/config")
     assert config.status_code == 200
     data = config.json()
-    assert data["agent_count"] == len(data["agents"]) == 13
-    assert data["coverage_hours"] == 12 and data["maximum_news_items"] == 20
-    assert len({profile["id"] for profile in data["agents"]}) == 13
+    assert data["agent_count"] == len(data["agents"]) == 9
+    assert data["coverage_hours"] == 12 and data["maximum_news_items"] == 100
+    assert len({profile["id"] for profile in data["agents"]}) == 9
     assert_workspace_public(data)
 
     selected = client.get(f"{PREFIX}/agents/{AGENT}")

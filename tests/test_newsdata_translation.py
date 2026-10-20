@@ -238,7 +238,7 @@ def test_twelve_articles_use_three_batches_of_at_most_five_and_preserve_all_sour
         assert plan["input_tokens_per_batch_bound"] >= len(request.content) + runtime.PROVIDER_INPUT_OVERHEAD_TOKENS
 
 
-@pytest.mark.parametrize("failure", ["malformed", "refusal", "incomplete", "timeout", "http_error"])
+@pytest.mark.parametrize("failure", ["malformed", "refusal", "incomplete", "timeout"])
 def test_failed_batch_preserves_originals_and_later_distinct_batch_can_finish_without_retry(
         configured, mock_openai, failure):
     items = [article(index) for index in range(6)]
@@ -250,8 +250,6 @@ def test_failed_batch_preserves_originals_and_later_distinct_batch_can_finish_wi
         if index == 0:
             if failure == "timeout":
                 raise httpx.ReadTimeout("Synthetic timeout; PRIVATE_PROVIDER_MARKER", request=request)
-            if failure == "http_error":
-                return httpx.Response(401, json={"error": {"message": "PRIVATE_PROVIDER_MARKER"}})
             if failure == "refusal":
                 reply["output"][0]["content"] = [{"type": "refusal", "refusal": "PRIVATE_PROVIDER_MARKER"}]
             if failure == "incomplete":
@@ -281,6 +279,24 @@ def test_failed_batch_preserves_originals_and_later_distinct_batch_can_finish_wi
     else:
         assert result["cost_tracking_complete"] is False and result["estimated_cost_usd"] is None
         assert result["usage_stages"][0]["usage"]["usage_reported"] is False
+
+
+@pytest.mark.parametrize("status", [401, 403, 429])
+def test_provider_credential_access_or_rate_refusal_stops_all_remaining_batches(
+        configured, mock_openai, status, caplog):
+    items = [article(index) for index in range(100)]
+    originals = deepcopy(items)
+    requests = mock_openai(lambda *_: httpx.Response(status, json={"error": {"message": "PRIVATE_PROVIDER_MARKER"}}))
+    with caplog.at_level("WARNING", logger="app.newsdata_translation"):
+        result = translation.translate_items(items, translation.translation_plan(100))
+    assert len(requests) == 1 and result["translation"]["batch_count"] == 1
+    assert result["translation"]["skipped_batch_count"] == 19
+    assert result["translation"]["stopped_after_provider_refusal"]
+    assert all(item["translation_status"] == "original_only" for item in items)
+    assert_originals_preserved(items, originals)
+    assert not result["cost_tracking_complete"] and result["estimated_cost_usd"] is None
+    assert result["translation"]["error_references"][0] in caplog.text
+    assert "PRIVATE_PROVIDER_MARKER" not in caplog.text
 
 
 @pytest.mark.parametrize("missing_field", ["usage", "service_tier"])

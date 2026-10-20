@@ -9,7 +9,30 @@
     windowFact:["أخبار آخر 12 ساعة","12-hour news window"],pdfFact:["تقارير PDF تلقائية","Automatic report PDFs"],discussFact:["محادثة متصلة بالتقرير","Connected discussion"],
     noteTitle:["اختر. اقرأ. ناقش.","Choose. Read. Discuss."],noteDescription:["بحث عند الطلب، ومصادر واضحة، وتقارير محفوظة بوقت إعدادها. افتح أي مساعد لبدء تقرير جديد.","Research on demand. Clear sources. Reports saved as dated snapshots. Open any assistant to begin a new report."],
     count:["{n} مساعدًا متخصصًا","{n} specialist assistants"],specialists:["اختر مجال البحث","Choose your field of inquiry"],cardsHint:["اختيار المساعد يبدأ إعداد تقريره","Selecting an assistant starts its report"],
-    coverageNote:["تُحدّث التقارير عند الطلب. يُعرض حتى 20 خبرًا بعد التحقق من وقت النشر وإزالة التكرار؛ وقد تقلّ النتائج بحسب الأدلة المتاحة.","Reports refresh on demand. Up to 20 news items are included after publication checks and deduplication; available evidence may yield fewer."],
+    coverageNote:["تُحدّث الأخبار المباشرة تلقائيًا، وتُعد التقارير عند الطلب. يُعرض حتى 100 خبر منشور خلال آخر 12 ساعة بعد التحقق وإزالة التكرار؛ وقد تقلّ النتائج بحسب المصادر المتاحة.","Live news refreshes automatically; analysis reports are generated on demand. Up to 100 articles published within the last 12 hours appear after checks and deduplication; available sources may yield fewer."],
+    liveNews:["الأخبار المباشرة","Live news"],newsTopic:["مجال الأخبار","News topic"],refreshNews:["تحديث الأخبار","Refresh news"],
+    newsFresh:["محدّثة","Fresh"],newsCached:["نسخة محفوظة","Cached"],newsLoading:["جارٍ تحديث الأخبار","Refreshing news"],newsEmpty:["لا أخبار مستوفية للشروط","No qualifying articles"],newsProviderError:["تعذر تحديث الأخبار","News refresh failed"],
+    newsLastSuccess:["آخر تحديث ناجح","Last successful refresh"],newsNeverUpdated:["لم يكتمل تحديث ناجح بعد","No successful refresh yet"],newsNextRefresh:["التحديث التلقائي التالي","Next automatic refresh"],newsAuto:["تحديث تلقائي أثناء عرض هذه الصفحة","Auto-refresh while this view is open"],
+    newsShowing:["{n} خبرًا من آخر 12 ساعة","{n} articles from the last 12 hours"],newsFetched:["{n} سجلًا جُلب من المصدر","{n} provider records fetched"],newsPublishers:["{n} جهة نشر","{n} publishers"],
+    newsAll:["عرض جميع الأخبار ({n})","View all articles ({n})"],newsOriginal:["افتح المصدر الأصلي","Open original source"],newsPublished:["نُشر","Published"],
+    newsLoadingNote:["يجري جلب الأخبار والتحقق من وقت نشرها. تبقى النسخة السابقة ظاهرة إن توفرت.","Fetching articles and checking publication times. The previous cache remains visible when available."],
+    newsEmptyNote:["اكتمل فحص المصدر، ولم توجد أخبار بوقت نشر موثق داخل آخر 12 ساعة. لم تُضف مواد أقدم لاستكمال العدد.","The source check completed without articles with a verified publication time inside the last 12 hours. Older material was not added to fill the list."],
+    newsStale:["آخر تحديث محفوظ قديم. لا نعرضه كتحديث مباشر، وتُستبعد المقالات التي تجاوز نشرها 12 ساعة.","The last successful refresh is stale. It is labelled as cached, and articles older than 12 hours are excluded."],
+    newsPartial:["التغطية جزئية؛ تعرض القائمة الأخبار التي أمكن جلبها والتحقق منها.","Coverage is partial; the list contains the articles that could be retrieved and checked."],
+    newsPending:["يستغرق التحديث وقتًا أطول. يمكنك التحقق من حالته دون بدء طلب جديد.","The refresh is taking longer. Check its status without starting another request."],checkNews:["التحقق من التحديث","Check refresh status"],
+    newsSnapshotNote:["ملف الإحاطة وPDF يخصّان التقرير المحفوظ ووقت بحثه، وقد يختلفان عن تحديث الأخبار المباشرة.","The Briefing Pack and PDF reflect the saved report's research time, which may differ from the live feed's refresh time."],
+    newsTranslationMissing:["يعرض النص بلغة المصدر؛ الترجمة إلى لغة الواجهة غير متاحة لهذا الخبر.","Shown in the source language; translation into the selected language is unavailable for this article."],
+    newsNotConfigured:["مصدر الأخبار غير مهيأ حاليًا. يلزم أن يراجع المشرف إعداد الخدمة.","The news source is not configured. The service administrator needs to check its configuration."],
+    newsAuth:["لم يقبل مصدر الأخبار الاتصال. يلزم أن يراجع المشرف إعداد الوصول.","The news source rejected access. The service administrator needs to check its access settings."],
+    newsRateLimited:["وصل مصدر الأخبار إلى حدّ الطلبات. لن تبدأ محاولات متكررة؛ أعد التحديث بعد المهلة الموضحة.","The news source has reached its request limit. Repeated requests are paused; refresh after the indicated wait."],
+    newsTimeout:["تأخر مصدر الأخبار ولم يكتمل التحديث. تبقى آخر نسخة ناجحة متاحة إن وُجدت.","The news source timed out before the refresh completed. Any previous successful cache remains available."],
+    newsConnection:["تعذر الاتصال بمصدر الأخبار. تبقى آخر نسخة ناجحة متاحة إن وُجدت ويمكن إعادة التحديث لاحقًا.","The news source could not be reached. Any previous successful cache remains available; refresh again later."],
+    newsInvalid:["أعاد مصدر الأخبار بيانات غير قابلة للتحقق. لم تُعامل هذه المحاولة كقائمة أخبار فارغة.","The news source returned data that could not be validated. This failed refresh was not treated as an empty news result."],
+    newsProviderDelay:["أحدث المقالات المتاحة من المصدر تقع خارج نافذة آخر 12 ساعة؛ قد يقدم الوصول الحالي أخبارًا متأخرة بنحو 12 ساعة. يلزم وصول إلى أخبار آنية لتحقيق هذه النافذة. استُبعدت المقالات الأقدم.","The provider's latest available articles are outside the last 12-hour window; current access may have a 12-hour delay. Real-time news access is needed to meet this window. Older articles are excluded."],
+    newsFreePlanDelay:["خطة الأخبار المجانية المؤكدة تؤخر وصول الأخبار 12 ساعة. يلزم مصدر آني أو خطة تدعم الأخبار الآنية لتحقيق نافذة آخر 12 ساعة.","The confirmed free news plan delays delivery by 12 hours. A real-time source or plan is required to support the requested 12-hour window."],
+    newsLatestPublication:["أحدث وقت نشر أعاده المصدر","Latest publication returned by the source"],
+    newsExpiredNote:["لا تتضمن النسخة المحفوظة مقالات مستوفية لنافذة آخر 12 ساعة الآن. تُستبعد المواد القديمة أو ذات وقت نشر غير موثّق.","The saved cache has no articles that qualify for the current 12-hour window. Older material and unverified publication times are excluded."],
+    retryAfter:["يمكن إعادة المحاولة بعد {n} ثانية","Retry after {n} seconds"],errorReference:["مرجع الخطأ","Error reference"],
     allAgents:["جميع المساعدين","All assistants"],chooseAgent:["اختر المساعد","Choose an assistant"],history:["التقارير المحفوظة","Saved reports"],
     discuss:["ناقش التقرير","Discuss report"],backToReading:["العودة للقراءة","Back to report"],
     topicLabel:["تحديد الموضوع · اختياري","Refine the topic · optional"],generate:["إنشاء تقرير حديث","Generate fresh report"],
@@ -24,11 +47,13 @@
     openReport:["ابدأ التقرير","Start report"],opening:["جارٍ فتح مساحة البحث…","Opening the workspace…"],
     connecting:["جارٍ الاتصال بالمنصة…","Connecting to your workspace…"],connectionError:["تعذر الاتصال. حدّث الصفحة للمحاولة مجددًا.","Connection unavailable. Refresh the page to try again."],
     noHistory:["ستظهر تقاريرك المحفوظة هنا.","Your saved reports will appear here."],
-    loadingHistory:["جارٍ فتح الأرشيف…","Opening report history…"],savedVersion:["نسخة محفوظة","Saved snapshot"],latestVersion:["أحدث تقرير محفوظ","Latest saved report"],
+    loadingHistory:["جارٍ فتح الأرشيف…","Opening report history…"],savedVersion:["نسخة محفوظة","Saved snapshot"],latestVersion:["أحدث تقرير محفوظ","Latest saved report"],previousVersion:["التقرير الناجح السابق","Previous successful report"],
     viewLatest:["فتح أحدث تقرير","Open latest report"],reportLanguage:["لغة التقرير","Report language"],language_ar:["العربية","Arabic"],language_en:["الإنجليزية","English"],
-    researchedAt:["وقت البحث","Research cutoff"],coverage:["فترة التغطية","Coverage"],freshCount:["{n} خبرًا مستوفيًا للشروط","{n} qualifying news items"],
+    researchedAt:["وقت البحث","Research cutoff"],generatedAt:["وقت إنشاء التقرير","Generated"],reportIdentifier:["معرّف التقرير","Report ID"],coverage:["فترة التغطية","Coverage"],freshCount:["{n} خبرًا مستوفيًا للشروط","{n} qualifying news items"],
+    articleTarget:["الهدف: حتى {n} خبر","Target: up to {n} articles"],analyzedCount:["{n} خبرًا حُلّل في هذا التقرير","{n} articles analyzed in this report"],
+    reportFeedSnapshot:["وقت نسخة الأخبار المستخدمة في التقرير","News snapshot used for this report"],
     referenceNote:["مراجع تاريخية أو إبداعية؛ لا تُحسب أخبارًا حديثة.","Historical or creative references; not counted as fresh news."],
-    queued:["بانتظار بدء البحث","Queued for research"],searching:["جارٍ البحث","Searching"],checking_sources:["التحقق من المصادر","Checking sources"],analyzing:["التحليل","Analyzing"],preparing_pdf:["تجهيز PDF","Preparing PDF"],ready:["جاهز","Ready"],
+    queued:["بانتظار بدء البحث","Queued for research"],searching:["جارٍ البحث","Searching"],checking_sources:["التحقق من المصادر","Checking sources"],analyzing:["التحليل","Analyzing"],saving:["حفظ التقرير","Saving report"],preparing_pdf:["تجهيز PDF","Preparing PDF"],ready:["جاهز","Ready"],
     backgroundProgress:["يستمر إعداد التقرير حتى عند إغلاق الصفحة. يبقى التقرير السابق متاحًا بوقت إعداده الأصلي.","The report continues even if you close this page. Your previous report remains available with its original timestamp."],
     frozenCutoff:["حدّ التغطية المثبّت","Frozen research cutoff"],
     reportStarting:["مساحتك البحثية جاهزة","Your research workspace is open"],
@@ -42,10 +67,20 @@
     sourceTextNote:["يعمل هذا المساعد على النص الذي تقدمه. لا يتصل بحساباتك أو ملفاتك الخارجية.","This assistant works from the text you provide. It does not connect to your external accounts or files."],
     whyMatters:["لماذا يهمّ","Why it matters"],originalArticle:["افتح المقال الأصلي","Open original article"],eventDate:["تاريخ الحدث المنسوب إلى المصدر","Event date attributed to the source"],
     conflict_diplomacy:["الصراع والدبلوماسية","Conflict and Diplomacy"],major_consequences:["التداعيات الكبرى","Major Consequences"],
-    sourceList:["المصادر والأدلة","Sources and evidence"],limitations:["حدود التحقق","Evidence limits"],background:["خلفية مرجعية","Background reference"],reference:["مرجع","Reference"],fresh:["نشر موثّق داخل الفترة","Publication verified in window"],
+    sourceList:["المصادر والأدلة","Sources and evidence"],limitations:["حدود التحقق","Evidence limits"],background:["خلفية مرجعية","Background reference"],reference:["مرجع","Reference"],fresh:["نشر داخل الفترة","Publication within window"],
     undated:["وقت النشر غير موثّق","Publication time unverified"],
     visualCaption:["تكوينات بصرية أصلية باستخدام لوحة ألوان التقرير. هي تفسير إبداعي، وليست صورًا توثيقية أو صورًا مولدة بالذكاء الاصطناعي.","Original visual compositions using the report's palette. Creative interpretations, not documentary photographs or AI-generated images."],
-    reportError:["تعذر إكمال هذا التقرير. بقيت النسخة السابقة محفوظة. يمكنك بدء محاولة جديدة.","This report could not be completed. Your previous snapshot is preserved. You can start a new attempt."],
+    reportError:["تعذر إكمال التقرير. راجع سبب التعثر وحالة المحاولة أدناه.","The report could not be completed. Review this attempt's status and recovery options below."],
+    previousSnapshot:["يبقى التقرير السابق محفوظًا بوقت بحثه الأصلي.","The previous report remains saved with its original research time."],previousReport:["فتح التقرير السابق","Open previous report"],retryReport:["إعادة محاولة التقرير","Retry report"],reloadWorkspace:["إعادة تحميل الحالة","Reload status"],
+    submitting:["جارٍ إرسال طلب التقرير","Submitting report request"],loadingWorkspace:["جارٍ تحميل التقرير المحفوظ وحالة العمل","Loading the saved report and job status"],reportReady:["التقرير جاهز","Report ready"],statusUpdated:["آخر تحديث للحالة","Status last checked"],failedAtStage:["توقفت المحاولة عند","Attempt stopped at"],
+    providerTimeout:["انتهت مهلة مزود البحث قبل اكتمال التقرير. لم تبدأ إعادة محاولة تلقائية.","The research provider timed out before completing the report. No automatic retry was started."],
+    providerConnection:["تعذر الاتصال بمزود البحث. يمكنك إعادة المحاولة عندما يعود الاتصال.","The research provider could not be reached. You can retry when the connection is restored."],
+    providerRejected:["لم يقبل مزود البحث هذا الطلب. يلزم فحص إعداد الخدمة قبل تكرار المحاولة.","The research provider rejected this request. The service configuration needs checking before another attempt."],
+    invalidReport:["لم يستوفِ رد مزود البحث متطلبات التقرير أو أدلته. لم يُعرض تقرير غير موثّق.","The research provider's response did not satisfy the report or evidence requirements. An unverified report was not displayed."],
+    providerBusy:["مزود البحث مشغول أو يقيّد الطلبات حاليًا. انتظر قليلًا قبل إعادة المحاولة.","The research provider is busy or rate-limiting requests. Wait before retrying."],
+    providerQuota:["استُنفدت حصة الخدمة لدى مزود البحث. يلزم أن يراجع المشرف إتاحة الخدمة؛ تبقى التقارير المحفوظة متاحة.","The research provider's service allowance is exhausted. The administrator needs to restore service availability; saved reports remain accessible."],
+    providerUnavailable:["مزود البحث غير متاح مؤقتًا. أعد المحاولة لاحقًا؛ تبقى التقارير المحفوظة متاحة.","The research provider is temporarily unavailable. Retry later; saved reports remain accessible."],
+    progressFailure:["توقفت الخدمة أثناء تحديث حالة التقرير. لم تبدأ إعادة بحث تلقائية؛ بقي التقرير السابق محفوظًا إن وجد.","The service stopped while updating report progress. No automatic research retry was started; any previous report remains saved."],
     interrupted:["توقفت المهمة أثناء إعادة تشغيل الخدمة. لم يُعد البحث المدفوع تلقائيًا. ابدأ تقريرًا جديدًا للمتابعة.","The job was interrupted by a service restart. Research was not retried automatically. Start a new report to continue."],
     pdfFailed:["التقرير محفوظ ويمكن قراءته. تعذر تجهيز PDF؛ أعد تجهيز الملف دون إعادة البحث.","Your report is saved and readable. PDF creation failed; retry the PDF without researching again."],
     dailyReportLimit:["تم بلوغ حدّ التقارير لهذا اليوم. يتجدد الحد عند منتصف الليل التالي، الساعة 00:00 بتوقيت دبي (UTC+04:00). تبقى التقارير المحفوظة وملفات PDF متاحة؛ إعادة المحاولة قبل ذلك لن تبدأ بحثًا جديدًا.","Today's report limit has been reached. It resets at the next midnight, 00:00 Dubai time (UTC+04:00). Saved reports and PDFs remain available; retrying before then will not start new research."],
@@ -80,7 +115,7 @@
     savedMessages:["رسائل المحادثة المحفوظة","Saved conversation messages"],loadEarlier:["رسائل أقدم","Earlier messages"],
     chatLoading:["جارٍ استعادة المحادثة…","Restoring the conversation…"],sourceMismatch:["تعذر اعتماد مصادر الإجابة. لم تُعرض إجابة غير موثّقة. يمكنك طرح السؤال مجددًا.","The answer's sources could not be validated. No unverified answer was displayed. You can ask again."]
   };
-  const icons={"ubi-research":"◉","iran-news":"⌁","uae-eu-trade-talks":"⇄","geopolitical-morning":"◎","education-observatory":"▤","historical-reading-companion":"◷","story-moodboard":"◇","economic-cultural-briefing":"↗","decision-briefing":"⑂","mom-agent":"≡","whatsapp-briefing":"▱","literary-translation":"A","pre-meeting-briefing":"⊞"};
+  const icons={"ubi-research":"◉","iran-news":"⌁","uae-eu-trade-talks":"⇄","geopolitical-morning":"◎","education-observatory":"▤","historical-reading-companion":"◷","story-moodboard":"◇","economic-cultural-briefing":"↗","decision-briefing":"⑂"};
   function activeJob(job){return Boolean(job && ["queued","running"].includes(job.status));}
   function canAcceptReport(state,report){return Boolean(report && Number.isSafeInteger(report.generation_seq) && report.generation_seq >= (state.latest?.generation_seq || 0));}
   function sameRequest(job,topic,language){return activeJob(job)&&job.topic===topic.trim()&&job.language===language;}
@@ -91,7 +126,8 @@
   const $=id=>document.getElementById(id),el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n;};
   const markdown=global.AIHubMarkdown;
   let lang="ar",ready=false,agents=[],selectedId=null,view="home",navigation=0,mobileChat=false;
-  const states=new Map(),chatStates=new Map(),polls=new Map();
+  let newsAgents=[],homeNewsId=null,feedsReady=false;
+  const states=new Map(),chatStates=new Map(),polls=new Map(),newsStates=new Map(),newsTimers=new Map();
   try{const saved=localStorage.getItem("aihub.language");if(saved==="ar"||saved==="en")lang=saved;}catch(_){}
   const T=(key,params={})=>{let value=words[key]?.[lang==="en"?1:0]||key;for(const [name,text]of Object.entries(params))value=value.replaceAll("{"+name+"}",String(text));return value;};
   const nameOf=a=>a?.[lang==="ar"?"name_ar":"name_en"]||a?.name||"AI HUB";
@@ -99,7 +135,7 @@
   const uuid=()=>global.crypto?.randomUUID?.()||String(Date.now())+"-"+Math.random().toString(16).slice(2);
   const kindKey=a=>a?.kind==="reading"?"kindReading":a?.kind==="moodboard"?"kindMoodboard":a?.kind==="workspace"?"kindWorkspace":"kindBriefing";
   function moment(value){if(!value)return "";const date=new Date(value);if(!Number.isFinite(date.getTime()))return "";return date.toLocaleString(lang==="ar"?"ar-AE":"en-GB",{timeZone:"Asia/Dubai",dateStyle:"medium",timeStyle:"short"});}
-  function state(id){if(!states.has(id))states.set(id,{topic:"",report:null,latest:null,job:null,tab:"evidence",pinned:false,submitting:false,attempt:null,notice:null,history:[],loadEpoch:0});return states.get(id);}
+  function state(id){if(!states.has(id))states.set(id,{topic:"",report:null,latest:null,job:null,tab:"evidence",pinned:false,submitting:false,loadingWorkspace:false,attempt:null,notice:null,error:null,errorScope:null,retryAt:0,retryTimer:null,lastCheckedAt:null,history:[],loadEpoch:0});return states.get(id);}
   function profile(id){return agents.find(agent=>agent.id===id);}
   function current(){return selectedId?state(selectedId):null;}
   function defaultTopic(id){return profile(id)?.["default_topic_"+lang]||"";}
@@ -111,13 +147,28 @@
     if(error?.code==="monthly_budget_limit")return "monthlyUsageLimit";
     if(error?.jobStatus==="interrupted")return "interrupted";
     if(error?.jobStatus==="pdf_failed")return "pdfFailed";
+    if(error?.code==="invalid_report_stage")return "progressFailure";
+    if(error?.code?.startsWith("newsdata_"))return newsErrorKey(error);
+    if(error?.code==="openai_rate_limited")return "providerBusy";
+    if(error?.code==="openai_quota_exceeded")return "providerQuota";
+    if(error?.code==="openai_unavailable")return "providerUnavailable";
+    if(["openai_timeout","provider_timeout"].includes(error?.code))return "providerTimeout";
+    if(["openai_connection_error","provider_connection_error"].includes(error?.code))return "providerConnection";
+    if(["invalid_research_report","invalid_news_analysis","news_analysis_input_too_large","invalid_model_response","invalid_search_response","invalid_news_response","native_search_not_used","search_call_limit_exceeded"].includes(error?.code))return "invalidReport";
+    if(error?.code==="openai_api_error")return error?.status===429?"providerBusy":"providerRejected";
+    if(["runtime_not_configured","agent_runtime_not_configured","openai_not_configured","analysis_configuration_invalid","provider_auth_failed","openai_auth_failed","openai_access_denied","openai_request_rejected"].includes(error?.code))return "providerRejected";
     if(error?.code==="chat_source_mismatch")return "sourceMismatch";
     if(error?.status===401||error?.status===404)return "expired";
     if(["report_queue_full","report_queue_session_limit","owner_job_limit","report_job_limit","owner_queue_full"].includes(error?.code))return "queueFull";
     if(error?.status===429)return "busy";if(error?.status===503)return "unavailable";
     return error?.network?"network":"reportError";
   }
-  function jobFailure(job){return {status:502,code:job?.error_code||"report_generation_failed",jobStatus:job?.status};}
+  function jobFailure(job){const detail=job?.error||{};return {status:detail.status||502,code:detail.code||job?.error_code||"report_generation_failed",jobStatus:job?.status,reference:detail.reference||job?.job_id,stage:detail.stage||job?.stage,retryable:detail.retryable,retry_after_seconds:detail.retry_after_seconds};}
+  function reportFailure(s,error,scope="generation"){
+    s.notice=errorKey(error);s.error=error;s.errorScope=scope;clearTimeout(s.retryTimer);
+    const delay=Math.max(0,Number(error?.retry_after_seconds)||0)*1000;s.retryAt=Date.now()+delay;
+    s.retryTimer=delay?setTimeout(()=>{s.retryTimer=null;if(current()===s)renderWorkspace();},delay):null;
+  }
   async function request(path,{method="GET",body,key}={}){
     if(!path.startsWith("/v1/public/")||/[\u0000-\u0020\u007f\\]/.test(path))throw new Error("Invalid public request");
     const headers={};if(body!==undefined)headers["Content-Type"]="application/json";if(key)headers["Idempotency-Key"]=key;
@@ -125,12 +176,132 @@
     try{
       const response=await fetch(path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),credentials:"same-origin",cache:"no-store",redirect:"error",signal:controller.signal});
       let data;try{data=await response.json();}catch(_){throw {status:502,code:"invalid_response"};}
-      if(!response.ok)throw {status:response.status,code:data?.detail?.code||"request_failed"};
+      if(!response.ok){const detail=data?.detail?.error||data?.detail||{};throw {status:response.status,code:detail.code||"request_failed",reference:detail.reference,retryable:detail.retryable,retry_after_seconds:detail.retry_after_seconds,stage:detail.stage};}
       return data;
     }catch(error){if(error?.status)throw error;throw {network:true,code:"network_error"};}finally{clearTimeout(timeout);}
   }
   function button(text,cls,handler){const node=el("button",cls,text);node.type="button";node.addEventListener("click",handler);return node;}
   function link(text,url,cls){const href=markdown.safeLink(url);if(!href)return el("span",cls,text);const node=el("a",cls,text);node.href=href;node.target="_blank";node.rel="noopener noreferrer";return node;}
+  function newsEnabled(id){return newsAgents.includes(id);}
+  function newsState(id,language=lang){const key=id+":"+language;if(!newsStates.has(key))newsStates.set(key,{key,id,language,data:null,loading:false,pending:null,error:null,retryAt:0,retryTimer:null,pollCount:0,pollPaused:false});return newsStates.get(key);}
+  function newsVisible(n){return feedsReady&&n.language===lang&&!document.hidden&&((view==="home"&&homeNewsId===n.id)||(view==="workspace"&&selectedId===n.id&&current()?.tab==="evidence"));}
+  function visibleNewsItems(data){
+    const now=Date.now(),lower=now-12*60*60*1000,seen=new Set();
+    return (Array.isArray(data?.items)?data.items:[]).filter(item=>{
+      if(!item||typeof item!=="object"||!markdown.safeLink(item.url))return false;
+      const stamp=item.published_at;if(typeof stamp!=="string"||!/(?:Z|[+-]\d{2}:\d{2})$/i.test(stamp))return false;
+      const published=Date.parse(stamp);if(!Number.isFinite(published)||published<lower||published>now)return false;
+      const key="id:"+(item.article_id||item.id||item.url),url="url:"+item.url.split("#")[0];if(seen.has(key)||seen.has(url))return false;seen.add(key);seen.add(url);return true;
+    }).sort((a,b)=>Date.parse(b.published_at)-Date.parse(a.published_at)).slice(0,100);
+  }
+  function newsErrorKey(error){
+    const code=error?.code||"";
+    if(code==="newsdata_not_configured")return "newsNotConfigured";
+    if(["provider_delay","newsdata_plan_delay"].includes(code))return "newsProviderDelay";
+    if(["newsdata_auth_failed","newsdata_access_denied"].includes(code))return "newsAuth";
+    if(["newsdata_rate_limited","newsdata_credit_limit","newsdata_daily_credit_limit","provider_rate_limit"].includes(code)||error?.status===429)return "newsRateLimited";
+    if(code.includes("timeout"))return "newsTimeout";
+    if(code.includes("invalid")||code.includes("response_too_large"))return "newsInvalid";
+    return "newsConnection";
+  }
+  function errorDetails(target,error){
+    const seconds=Number(error?.retry_after_seconds);if(Number.isFinite(seconds)&&seconds>0)target.append(el("p","error-detail",T("retryAfter",{n:Math.ceil(seconds)})));
+    if(typeof error?.reference==="string"&&/^[a-zA-Z0-9:_-]{1,100}$/.test(error.reference)){const line=el("p","error-detail",T("errorReference")+": ");const ref=el("bdi","",error.reference);ref.dir="ltr";line.append(ref);target.append(line);}
+  }
+  function clearNewsTimers(){for(const timer of newsTimers.values())clearTimeout(timer);newsTimers.clear();}
+  function newsRetryAfter(n,seconds){
+    clearTimeout(n.retryTimer);const delay=Math.max(0,Number(seconds)||0)*1000;n.retryAt=Date.now()+delay;
+    n.retryTimer=delay?setTimeout(()=>{n.retryTimer=null;if(n.language===lang)renderVisibleNews(n.id);},delay):null;
+  }
+  function scheduleNews(n){
+    if(newsTimers.has(n.key)){clearTimeout(newsTimers.get(n.key));newsTimers.delete(n.key);}
+    if(!newsVisible(n)||n.loading||n.pollPaused)return;
+    const data=n.data||{},refreshing=!n.error&&data.status==="loading";
+    if(!refreshing&&(n.error?.retryable===false||data.error?.retryable===false))return;
+    const next=Date.parse(data.next_refresh_at||""),retry=Number(data.retry_after_seconds||0);
+    const delay=refreshing?Math.max(1000,Math.min(10000,(retry||2)*1000)):Math.max(60000,n.retryAt-Date.now(),Number.isFinite(next)?next-Date.now():900000);
+    const timer=setTimeout(()=>{newsTimers.delete(n.key);if(newsVisible(n))loadNews(n.id,false,{poll:refreshing});},delay);newsTimers.set(n.key,timer);
+  }
+  function syncNews(){
+    clearNewsTimers();if(!feedsReady||document.hidden)return;
+    const id=view==="home"?homeNewsId:view==="workspace"&&current()?.tab==="evidence"?selectedId:null;
+    if(!newsEnabled(id))return;const n=newsState(id);
+    if(!n.data&&!n.loading&&!n.error)loadNews(id);else scheduleNews(n);
+  }
+  function renderVisibleNews(id){
+    if(view==="home"&&homeNewsId===id)renderHomeNews();
+    if(view==="workspace"&&selectedId===id&&current()?.tab==="evidence")renderReport();
+  }
+  function loadNews(id,manual=false,{poll=false}={}){
+    if(!ready||!newsEnabled(id))return Promise.resolve(null);const n=newsState(id);
+    if(n.loading)return n.pending||Promise.resolve(null);
+    if(manual&&n.retryAt>Date.now())return Promise.resolve(n.data);
+    if(newsTimers.has(n.key)){clearTimeout(newsTimers.get(n.key));newsTimers.delete(n.key);}
+    n.loading=true;n.error=null;n.pollPaused=false;if(!poll)n.pollCount=0;renderVisibleNews(id);
+    const pending=(async()=>{
+      try{
+        const path="/v1/public/workspace/agents/"+encodeURIComponent(id)+"/news";
+        const data=await request(manual?path+"/refresh":path+"?language="+encodeURIComponent(n.language),manual?{method:"POST",body:{language:n.language}}:{});
+        if(!data||typeof data!=="object"||!Array.isArray(data.items)||!["fresh","cached","empty","loading","provider_error"].includes(data.status))throw {status:502,code:"newsdata_invalid_response"};
+        n.data=data;newsRetryAfter(n,data.error?.retry_after_seconds);
+        if(data.status==="loading"){n.pollCount++;if(n.pollCount>=30)n.pollPaused=true;}else n.pollCount=0;
+        return data;
+      }catch(error){n.error=error;newsRetryAfter(n,error?.retry_after_seconds);return null;}
+      finally{n.loading=false;n.pending=null;if(n.language===lang)renderVisibleNews(id);scheduleNews(n);}
+    })();n.pending=pending;return pending;
+  }
+  function renderHomeNews(){
+    const root=$("home-news"),selector=$("home-news-agent");if(!root||!selector)return;
+    root.hidden=!newsAgents.length;if(root.hidden)return;
+    if(!newsEnabled(homeNewsId))homeNewsId=newsAgents.includes("iran-news")?"iran-news":newsAgents[0];
+    selector.replaceChildren();for(const id of newsAgents){const option=el("option","",nameOf(profile(id)));option.value=id;selector.append(option);}selector.value=homeNewsId;
+    renderNewsSurface($("home-news-content"),homeNewsId,true);
+  }
+  function renderNewsSurface(target,id,compact=false){
+    target.replaceChildren();target.dir=lang==="ar"?"rtl":"ltr";target.lang=lang;
+    const n=newsState(id),data=n.data||{},items=visibleNewsItems(data),loading=n.loading||(!n.error&&(!n.data||data.status==="loading"));
+    const error=n.error||(!loading?data.error:null),status=loading?"loading":error||data.status==="provider_error"?"provider_error":data.stale&&data.status==="fresh"?"cached":data.status||"cached";
+    const keys={fresh:"newsFresh",cached:"newsCached",empty:"newsEmpty",loading:"newsLoading",provider_error:"newsProviderError"};
+    const header=el("div","news-feed-toolbar"),statusNode=el("span","news-feed-status "+status,T(keys[status]));statusNode.setAttribute("role","status");
+    const refresh=button(T(n.pollPaused?"checkNews":"refreshNews"),"secondary-button news-refresh",()=>loadNews(id,!n.pollPaused));refresh.disabled=n.loading||(loading&&!n.pollPaused)||n.retryAt>Date.now();
+    header.append(statusNode,refresh);target.append(header);
+    const meta=el("div","news-feed-meta");
+    if(data.last_successful_refresh_at)meta.append(el("p","",T("newsLastSuccess")+": "+moment(data.last_successful_refresh_at)+" · UTC+04:00"));else meta.append(el("p","",T("newsNeverUpdated")));
+    const next=data.next_refresh_at;if(next&&moment(next))meta.append(el("p","",T("newsNextRefresh")+": "+moment(next)));
+    meta.append(el("p","news-auto-note",T("newsAuto")));target.append(meta);
+    if(loading)target.append(el("p","news-feed-note",T(n.pollPaused?"newsPending":"newsLoadingNote")));
+    if(error||status==="provider_error"){const alert=el("div","news-feed-error");alert.setAttribute("role","alert");alert.append(el("p","",T(newsErrorKey(error))));errorDetails(alert,{...error,retry_after_seconds:Math.max(0,(n.retryAt-Date.now())/1000)});target.append(alert);}
+    if(data.stale)target.append(el("p","news-feed-note warning",T("newsStale")));
+    if(data.partial)target.append(el("p","news-feed-note warning",T("newsPartial")));
+    renderNewsDelay(target,data);
+    const counts=el("div","news-feed-counts");counts.append(el("span","",T("newsShowing",{n:items.length})));
+    const fetched=data.counts?.fetched??data.pagination?.raw_count;if(Number.isInteger(fetched)&&fetched>=0)counts.append(el("span","",T("newsFetched",{n:fetched})));
+    if(items.length)counts.append(el("span","",T("newsPublishers",{n:new Set(items.map(item=>item.publisher).filter(Boolean)).size})));target.append(counts);
+    if(!loading&&!error&&status!=="provider_error"&&items.length===0)empty(target,"newsEmpty",data.items?.length?"newsExpiredNote":"newsEmptyNote");
+    const list=el("div",compact?"live-news-list compact":"live-news-list");
+    for(const item of items.slice(0,compact?6:100))renderNewsArticle(list,item);target.append(list);
+    if(compact&&items.length){const all=button(T("newsAll",{n:items.length}),"quiet-button news-view-all",()=>{state(id).tab="evidence";openAgent(id,false);});target.append(all);}
+    if(!compact&&state(id).report)target.append(el("p","news-feed-note",T("newsSnapshotNote")));
+  }
+  function renderNewsDelay(target,data){
+    const limitations=[...(Array.isArray(data.limitations)?data.limitations:[]),...(Array.isArray(data.limitation_codes)?data.limitation_codes:[])];
+    const delay=limitations.find(item=>["provider_delay","newsdata_plan_delay"].includes(typeof item==="string"?item:item?.code));
+    const confirmedFree=(data.provider_plan?.plan_verified===true&&data.provider_plan?.configured_plan==="free")||(data.plan_confirmed===true&&data.provider_plan==="free")||(delay?.plan_confirmed===true&&delay?.plan==="free");
+    if(!delay&&!data.provider_delay&&!data.suspected_provider_delay&&!(confirmedFree&&limitations.includes("free_plan_12_hour_delay")))return;
+    target.append(el("p","news-feed-note warning",T(confirmedFree?"newsFreePlanDelay":"newsProviderDelay")));
+    const latest=data.observed_latest_provider_publication_at||data.observed_latest_publication_at||data.observed_latest_pub||delay?.observed_latest_publication_at;
+    if(latest&&moment(latest))target.append(el("p","news-feed-note",T("newsLatestPublication")+": "+moment(latest)+" · UTC+04:00"));
+  }
+  function renderNewsArticle(target,item){
+    const headline=item["headline_"+lang]||item.headline||item.title||"",summary=item["summary_"+lang]||item.summary||"";
+    const display=item["headline_"+lang]?lang:item.display_language||item.language||item.original_language||"en";
+    const article=el("article","news-item live-news-item");article.dir="auto";article.lang=display;
+    const top=el("div","article-topline"),time=el("time","",T("newsPublished")+": "+moment(item.published_at));time.setAttribute("datetime",item.published_at);
+    top.append(el("span","publisher-name",item.publisher||""),time);const title=el("h3");title.append(link(headline,item.url,""));
+    article.append(top,title);if(summary)article.append(el("p","news-summary",summary));
+    if(display!==lang)article.append(el("p","news-translation-note",T("newsTranslationMissing")));
+    article.append(link(T("newsOriginal")+" ↗",item.url,"article-link"));target.append(article);
+  }
   function setLanguage(value){
     if(!["ar","en"].includes(value))return;
     const previous=lang;lang=value;try{localStorage.setItem("aihub.language",lang);}catch(_){}
@@ -139,7 +310,7 @@
     document.querySelectorAll("[data-text]").forEach(node=>{node.textContent=T(node.dataset.text);});
     $("language-ar").setAttribute("aria-pressed",String(lang==="ar"));$("language-en").setAttribute("aria-pressed",String(lang==="en"));
     $("agent-count").textContent=T("count",{n:agents.length});
-    renderCards();renderSelector();renderWorkspace();renderVisibleChat();renderHistory();
+    renderCards();renderSelector();renderWorkspace();renderVisibleChat();renderHistory();renderHomeNews();syncNews();
   }
   function renderCards(){
     $("agent-grid").replaceChildren();
@@ -162,21 +333,23 @@
     $("home-view").hidden=value!=="home";$("workspace-view").hidden=value!=="workspace";$("main-chat-view").hidden=value!=="chat";
     $("workspace-view").classList.remove("chat-open");
     $("nav-home").classList.toggle("is-current",value!=="chat");$("nav-chat").classList.toggle("is-current",value==="chat");
-    saveNavigation();renderVisibleChat();
+    saveNavigation();renderVisibleChat();renderHomeNews();syncNews();
   }
   async function openAgent(id,generate){
     if(!ready||!profile(id))return;
     selectedId=id;const s=state(id);if(generate)s.topic=defaultTopic(id);else if(!s.topic)s.topic=defaultTopic(id);
-    setView("workspace");renderSelector();renderWorkspace();
+    s.loadingWorkspace=true;s.notice=null;s.error=null;s.errorScope=null;setView("workspace");renderSelector();renderWorkspace();
     const epoch=++s.loadEpoch;
     try{
       const data=await request("/v1/public/workspace/agents/"+encodeURIComponent(id));
       if(epoch!==s.loadEpoch)return;
       if(data.last_successful_report)acceptReport(id,data.last_successful_report);
       if(data.active_job)acceptJob(id,data.active_job);
+      else if(data.last_job){acceptJob(id,data.last_job);if(["failed","interrupted","pdf_failed"].includes(data.last_job.status))reportFailure(s,jobFailure(data.last_job));}
+      s.loadingWorkspace=false;
       if(generate)await generateReport(id);
       else if(activeJob(s.job))pollJob(id,s.job.job_id);
-    }catch(error){s.notice=errorKey(error);if(selectedId===id)renderWorkspace();}
+    }catch(error){reportFailure(s,error,"load");}finally{if(epoch===s.loadEpoch)s.loadingWorkspace=false;if(selectedId===id)renderWorkspace();}
   }
   function acceptReport(id,record){
     const s=state(id);if(!canAcceptReport(s,record))return;
@@ -190,16 +363,16 @@
   }
   async function generateReport(id=selectedId){
     if(!ready||!id)return;const s=state(id);
-    if(s.submitting)return;
+    if(s.submitting||s.retryAt>Date.now())return;
     const topic=(s.topic||defaultTopic(id)).trim(),language=lang;
     if(sameRequest(s.job,topic,language)){s.pinned=false;if(s.latest)s.report=s.latest;renderWorkspace();pollJob(id,s.job.job_id);return;}
     if(!s.attempt||s.attempt.topic!==topic||s.attempt.language!==language)s.attempt={topic,language,key:uuid()};
-    const attempt=s.attempt;s.submitting=true;s.notice=null;s.pinned=false;
+    const attempt=s.attempt;s.submitting=true;s.notice=null;s.error=null;s.errorScope=null;s.retryAt=0;clearTimeout(s.retryTimer);s.retryTimer=null;s.pinned=false;
     if(s.latest)s.report=s.latest;if(selectedId===id)renderWorkspace();
     try{
       const data=await request("/v1/public/workspace/agents/"+encodeURIComponent(id)+"/reports",{method:"POST",body:{topic:attempt.topic,language:attempt.language},key:attempt.key});
       acceptJob(id,data.job);s.attempt=null;pollJob(id,data.job.job_id);
-    }catch(error){s.notice=errorKey(error);if(!error.network)s.attempt=null;}finally{s.submitting=false;if(selectedId===id)renderWorkspace();}
+    }catch(error){reportFailure(s,error);if(!error.network)s.attempt=null;}finally{s.submitting=false;if(selectedId===id)renderWorkspace();}
   }
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   function pollJob(id,jobId){
@@ -211,23 +384,46 @@
           const data=await request("/v1/public/workspace/jobs/"+encodeURIComponent(jobId));errors=0;
           acceptJob(id,data.job);if(data.report)acceptReport(id,data.report);
           const s=state(id);
-          if(["failed","interrupted","pdf_failed"].includes(data.job.status)&&s.job?.job_id===jobId){s.notice=errorKey(jobFailure(data.job));if(selectedId===id)renderWorkspace();}
+          s.lastCheckedAt=new Date().toISOString();
+          if(s.job?.job_id===jobId){
+            if(["failed","interrupted","pdf_failed"].includes(data.job.status))reportFailure(s,jobFailure(data.job));
+            else if(data.job.status==="ready"){s.notice=null;s.error=null;s.errorScope=null;}
+            if(selectedId===id)renderWorkspace();
+          }
           if(!activeJob(data.job))return data;
-        }catch(error){if(++errors>=4){const s=state(id);s.notice=errorKey(error);if(selectedId===id)renderWorkspace();return null;}}
+        }catch(error){if(++errors>=4){const s=state(id);reportFailure(s,error,"poll");if(selectedId===id)renderWorkspace();return null;}}
         await pause(1800);
       }
-      const s=state(id);s.notice="network";if(selectedId===id)renderWorkspace();return null;
+      const s=state(id);reportFailure(s,{network:true},"poll");if(selectedId===id)renderWorkspace();return null;
     })().finally(()=>polls.delete(jobId));
     polls.set(jobId,promise);return promise;
   }
   function renderProgress(){
     const s=current(),target=$("job-progress");target.replaceChildren();
-    if(!s||!activeJob(s.job)){target.hidden=true;return;}
-    target.hidden=false;const stage=s.job.stage==="queued"?"queued":s.job.stage;
+    if(!s){target.hidden=true;return;}
+    if(s.submitting||s.loadingWorkspace){target.hidden=false;target.append(el("p","job-title",T(s.submitting?"submitting":"loadingWorkspace")));if(s.report)target.append(el("p","job-note",T("previousSnapshot")));return;}
+    if(s.job?.status==="ready"){target.hidden=false;target.append(el("p","job-title",T("reportReady")));if(s.job.finished_at)target.append(el("p","job-note",moment(s.job.finished_at)));return;}
+    if(!activeJob(s.job)){target.hidden=true;return;}
+    target.hidden=false;const stages=["searching","checking_sources","analyzing","saving","preparing_pdf","ready"],stage=["queued",...stages].includes(s.job.stage)?s.job.stage:"queued";
     target.append(el("p","job-title",T(stage)),el("p","job-note",T("backgroundProgress")));
     const cutoff=s.job.research_window?.end;if(cutoff)target.append(el("p","job-note",T("frozenCutoff")+": "+moment(cutoff)));
-    const list=el("ol","stage-list"),stages=["searching","checking_sources","analyzing","preparing_pdf","ready"],index=stages.indexOf(stage);
+    if(s.lastCheckedAt)target.append(el("p","job-note",T("statusUpdated")+": "+moment(s.lastCheckedAt)));
+    const list=el("ol","stage-list"),index=stages.indexOf(stage);
     stages.forEach((name,i)=>list.append(el("li",i<index?"done":i===index?"current":"",T(name))));target.append(list);
+  }
+  function renderReportNotice(s){
+    const target=$("report-notice");showNotice(target,s.notice);if(!s.notice)return;
+    if(s.report)target.append(el("p","error-detail",T("previousSnapshot")));
+    if(["queued","searching","checking_sources","analyzing","saving","preparing_pdf"].includes(s.error?.stage))target.append(el("p","error-detail",T("failedAtStage")+": "+T(s.error.stage)));
+    errorDetails(target,{...s.error,retry_after_seconds:Math.max(0,(s.retryAt-Date.now())/1000)});
+    const actions=el("div","notice-actions");
+    if(s.errorScope==="load")actions.append(button(T("reloadWorkspace"),"secondary-button",()=>openAgent(selectedId,false)));
+    else if(s.errorScope==="pdf")actions.append(button(T("retryPdf"),"secondary-button",retryPdf));
+    else if(activeJob(s.job)&&(s.errorScope==="poll"||s.notice==="network"))actions.append(button(T("reconnect"),"secondary-button",()=>{s.notice=null;s.error=null;pollJob(selectedId,s.job.job_id);renderWorkspace();}));
+    else if(s.attempt&&s.notice==="network")actions.append(button(T("reconnect"),"secondary-button",()=>generateReport()));
+    else if(s.error?.retryable===true&&s.notice!=="pdfFailed"){const retry=button(T("retryReport"),"secondary-button",()=>generateReport());retry.disabled=s.retryAt>Date.now();actions.append(retry);}
+    if(s.latest)actions.append(button(T("previousReport"),"quiet-button",()=>{s.report=s.latest;s.pinned=false;s.tab="pack";renderWorkspace();renderVisibleChat();syncNews();}));
+    if(actions.childNodes.length)target.append(actions);
   }
   function empty(target,title,note){const box=el("div","empty-report");box.append(el("span","empty-glyph","▤"),el("h3","",T(title)),el("p","",T(note)));target.append(box);}
   function renderWorkspace(){
@@ -235,28 +431,36 @@
     const s=current(),a=profile(selectedId);
     $("workspace-heading").textContent=nameOf(a);$("workspace-kicker").textContent=T(kindKey(a));
     if(document.activeElement!==$("topic-input"))$("topic-input").value=s.topic||defaultTopic(selectedId);
-    $("generate-button").disabled=!ready||s.submitting;
+    $("generate-button").disabled=!ready||s.submitting||s.loadingWorkspace||s.retryAt>Date.now();
     const views=a.views||[{id:"evidence",title_ar:"الأخبار",title_en:"News"},{id:"pack",title_ar:"ملف الإحاطة",title_en:"Briefing Pack"}];
-    views.forEach(v=>{const tab=$("tab-"+v.id);tab.textContent=v["title_"+lang];tab.setAttribute("aria-selected",String(s.tab===v.id));tab.tabIndex=s.tab===v.id?0:-1;});
+    views.forEach(v=>{const tab=$("tab-"+v.id);tab.textContent=v.id==="evidence"&&newsEnabled(selectedId)?T("liveNews"):v["title_"+lang];tab.setAttribute("aria-selected",String(s.tab===v.id));tab.tabIndex=s.tab===v.id?0:-1;});
     const pdf=$("pdf-download"),retry=$("pdf-retry");pdf.hidden=s.report?.pdf?.status!=="ready";retry.hidden=s.report?.pdf?.status!=="failed";
     if(!pdf.hidden){pdf.href="/v1/public/workspace/reports/"+encodeURIComponent(s.report.report_id)+"/pdf";pdf.setAttribute("download","AI_HUB_Report.pdf");}
     else pdf.removeAttribute("href");
-    showNotice($("report-notice"),s.notice);
-    if(s.notice==="network"&&activeJob(s.job))$("report-notice").append(button(T("reconnect"),"quiet-button",()=>{s.notice=null;pollJob(selectedId,s.job.job_id);renderWorkspace();}));
+    renderReportNotice(s);
     renderProgress();renderReport();$("mobile-chat-toggle").textContent=T(mobileChat?"backToReading":"discuss");$("mobile-chat-toggle").setAttribute("aria-expanded",String(mobileChat));
   }
   function renderReport(){
     const s=current(),target=$("report-content"),meta=$("report-meta");target.replaceChildren();meta.replaceChildren();
+    if(s&&s.tab==="evidence"&&newsEnabled(selectedId)){meta.hidden=true;target.setAttribute("aria-labelledby","tab-evidence");renderNewsSurface(target,selectedId);return;}
     if(!s?.report){meta.hidden=true;target.dir=lang==="ar"?"rtl":"ltr";target.lang=lang;empty(target,activeJob(s?.job)||s?.submitting?"reportStarting":"noReport",activeJob(s?.job)||s?.submitting?"reportStartingNote":"noReportNote");return;}
     meta.hidden=false;const r=s.report,value=r.result||{},window=value.research_window||r.research_window||{};
-    const stamp=el("div","report-stamp");stamp.append(el("span","snapshot-badge"+(s.pinned?" saved-badge":""),T(s.pinned?"savedVersion":"latestVersion")));
+    const previous=!s.pinned&&Number(s.job?.generation_seq)>r.generation_seq&&["queued","running","failed","interrupted"].includes(s.job?.status);
+    const stamp=el("div","report-stamp");stamp.append(el("span","snapshot-badge"+(s.pinned||previous?" saved-badge":""),T(s.pinned?"savedVersion":previous?"previousVersion":"latestVersion")));
     stamp.append(el("span","",T("reportLanguage")+": "+T("language_"+(value.language||r.language||"ar"))));
     meta.append(stamp);
     const title=el("h2","",titleOf(r));title.dir=value.language==="ar"?"rtl":"ltr";title.lang=value.language||r.language;meta.append(title);
     if(window.end)meta.append(el("p","report-window",T("researchedAt")+": "+moment(window.end)+" · UTC+04:00"));
     if(window.start&&window.end)meta.append(el("p","report-window",T("coverage")+": "+moment(window.start)+" — "+moment(window.end)));
-    const note=["reading","moodboard"].includes(value.kind)?T("referenceNote"):value.kind==="workspace"?T("sourceTextNote"):T("freshCount",{n:value.items?.length||0});
+    if(value.created_at||r.created_at)meta.append(el("p","report-window",T("generatedAt")+": "+moment(value.created_at||r.created_at)+" · UTC+04:00"));
+    if(r.report_id){const identifier=el("p","report-window",T("reportIdentifier")+": ");const code=el("bdi","",r.report_id);code.dir="ltr";identifier.append(code);meta.append(identifier);}
+    const articleCount=Number.isInteger(value.actual_article_count)?value.actual_article_count:value.items?.length||0;
+    const note=["reading","moodboard"].includes(value.kind)?T("referenceNote"):value.kind==="workspace"?T("sourceTextNote"):T("freshCount",{n:articleCount});
     meta.append(el("p","report-window",note));
+    if(Number.isInteger(value.requested_article_target))meta.append(el("p","report-window",T("articleTarget",{n:value.requested_article_target})));
+    if(Number.isInteger(value.analyzed_article_count))meta.append(el("p","report-window",T("analyzedCount",{n:value.analyzed_article_count})));
+    if(value.news_feed?.last_successful_refresh_at)meta.append(el("p","report-window",T("reportFeedSnapshot")+": "+moment(value.news_feed.last_successful_refresh_at)+" · UTC+04:00"));
+    renderNewsDelay(meta,{...(value.news_feed||{}),...(value.freshness||{})});
     if(s.pinned&&s.latest?.report_id!==r.report_id)meta.append(button(T("viewLatest"),"quiet-button",()=>{s.pinned=false;s.report=s.latest;renderWorkspace();renderVisibleChat();}));
     target.dir=value.language==="ar"?"rtl":"ltr";target.lang=value.language||r.language;
     target.setAttribute("aria-labelledby","tab-"+s.tab);
@@ -346,7 +550,7 @@
     try{const data=await request("/v1/public/workspace/reports/"+encodeURIComponent(reportId)+"/pdf/retry",{method:"POST",body:{}});s.notice=null;
       if(data.job?.job_id){const result=await pollJob(id,data.job.job_id);if(result?.report&&s.report?.report_id===reportId){s.report=result.report;if(s.latest?.report_id===reportId)s.latest=result.report;}}
       if(selectedId===id)renderWorkspace();
-    }catch(error){s.notice=errorKey(error);if(selectedId===id)renderWorkspace();}finally{$("pdf-retry").disabled=false;}
+    }catch(error){reportFailure(s,error,"pdf");if(selectedId===id)renderWorkspace();}finally{$("pdf-retry").disabled=false;}
   }
   function chatKey(){return view==="chat"?"main":selectedId;}
   function validConversationId(value){return typeof value==="string"&&/^conv_[a-f0-9]{32}$/.test(value);}
@@ -453,23 +657,29 @@
   $("brand-home").addEventListener("click",()=>setView("home"));$("nav-home").addEventListener("click",()=>setView("home"));$("back-home").addEventListener("click",()=>setView("home"));
   $("nav-chat").addEventListener("click",()=>setView("chat"));$("language-ar").addEventListener("click",()=>setLanguage("ar"));$("language-en").addEventListener("click",()=>setLanguage("en"));
   $("agent-selector").addEventListener("change",()=>openAgent($("agent-selector").value,true));
+  $("home-news-agent").addEventListener("change",()=>{const id=$("home-news-agent").value;if(newsEnabled(id)){homeNewsId=id;renderHomeNews();syncNews();}});
   $("topic-input").addEventListener("input",()=>{if(current())current().topic=$("topic-input").value;});
   $("topic-input").addEventListener("keydown",event=>{if(event.key==="Enter"&&!event.shiftKey&&!event.isComposing){event.preventDefault();$("topic-form").requestSubmit();}});
   $("topic-form").addEventListener("submit",event=>{event.preventDefault();if(current())current().topic=$("topic-input").value;generateReport();});
   $("history-menu").addEventListener("toggle",()=>{if($("history-menu").open)loadHistory();});
   for(const id of ["evidence","pack"]){
-    $("tab-"+id).addEventListener("click",()=>{if(!current())return;current().tab=id;renderWorkspace();});
-    $("tab-"+id).addEventListener("keydown",event=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)){event.preventDefault();const next=event.key==="Home"?"evidence":event.key==="End"?"pack":id==="pack"?"evidence":"pack";current().tab=next;renderWorkspace();$("tab-"+next).focus();}});
+    $("tab-"+id).addEventListener("click",()=>{if(!current())return;current().tab=id;renderWorkspace();syncNews();});
+    $("tab-"+id).addEventListener("keydown",event=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)){event.preventDefault();const next=event.key==="Home"?"evidence":event.key==="End"?"pack":id==="pack"?"evidence":"pack";current().tab=next;renderWorkspace();syncNews();$("tab-"+next).focus();}});
   }
   $("mobile-chat-toggle").addEventListener("click",()=>{mobileChat=!mobileChat;$("workspace-view").classList.toggle("chat-open",mobileChat);renderWorkspace();renderVisibleChat();});
   $("pdf-retry").addEventListener("click",retryPdf);
+  document.addEventListener?.("visibilitychange",syncNews);
   async function initialize(){
     setLanguage(lang);showNotice($("global-notice"),"connecting");
     try{
       await request("/v1/public/bootstrap");
-      const data=await request("/v1/public/workspace/config");agents=data.agents||[];ready=true;showNotice($("global-notice"),null);setLanguage(lang);
+      const data=await request("/v1/public/workspace/config");agents=data.agents||[];
+      const enabled=Array.isArray(data.news_enabled_agents)?data.news_enabled_agents:agents.filter(a=>a.news_feed_enabled).map(a=>a.id);
+      newsAgents=enabled.filter(id=>profile(id));homeNewsId=newsAgents.includes("iran-news")?"iran-news":newsAgents[0]||null;
+      ready=true;showNotice($("global-notice"),null);setLanguage(lang);
       let previous=null;try{previous=sessionStorage.getItem("aihub.workspace.agent");}catch(_){}
       if(previous&&profile(previous))await openAgent(previous,false);
+      feedsReady=true;renderHomeNews();syncNews();
     }catch(_){showNotice($("global-notice"),"connectionError");}
   }
   initialize();

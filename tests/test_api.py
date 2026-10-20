@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from app.main import app
 from app import main, runtime
+from app.registry import RETIRED_AGENT_IDS
 from fastapi import HTTPException
 import pytest
 
@@ -16,15 +17,30 @@ def test_health_and_static_ui_are_available_without_credentials():
     assert client.get("/static/app.js").status_code == 200
 
 
-def test_agents_endpoint_preserves_all_13_assistants(client):
+def test_agents_endpoint_exposes_nine_active_assistants(client):
     response = client.get("/v1/agents")
     assert response.status_code == 200
-    assert response.json()["count"] == 13
+    assert response.json()["count"] == 9
+    assert RETIRED_AGENT_IDS.isdisjoint(agent["id"] for agent in response.json()["agents"])
     assert any(a["id"] == "iran-news" and a["name"] == "أخبار حرب إيران" for a in response.json()["agents"])
 
 
 def test_unknown_agent_returns_404(client):
     assert client.get("/v1/agents/no-such-agent").status_code == 404
+
+
+@pytest.mark.parametrize("agent_id", sorted(RETIRED_AGENT_IDS))
+def test_retired_agent_routes_deny_inspection_launch_and_scheduling(client, monkeypatch, agent_id):
+    def unavailable(*args, **kwargs):
+        pytest.fail("A retired assistant must not reach provider preflight or execution.")
+    monkeypatch.setattr(runtime, "estimate_reservation", unavailable)
+    monkeypatch.setattr(runtime, "run_agent", unavailable)
+    assert client.get(f"/v1/agents/{agent_id}").status_code == 404
+    assert client.get(f"/v1/agents/{agent_id}/skills/instructions").status_code == 404
+    assert client.post(f"/v1/agents/{agent_id}/run", json={"task": "Synthetic task"}).status_code == 404
+    assert client.post("/v1/schedules", json={"name": "Retired", "agent_id": agent_id,
+        "task": "Synthetic task", "times": ["08:00"]}).status_code == 404
+    assert client.get("/v1/usage").json()["daily"]["attempts"] == 0
 
 
 def test_run_fails_closed_until_provider_is_configured(client):
@@ -94,7 +110,7 @@ def test_system_status_exposes_configuration_flags_only(client, monkeypatch):
     assert response.json()["provider"] == "openai"
     assert response.json()["search_provider"] == "newsdata"
     assert response.json()["configuration_check_only"] is True
-    assert response.json()["version"] == "2.0.3"
+    assert response.json()["version"] == "2.0.4"
     assert response.json()["news_items_per_report"] is None
     assert response.json()["news_count_mode"] == "provider_page"
     assert response.json()["news_item_limit"] == 20
@@ -134,6 +150,15 @@ def test_system_status_checks_news_budget_configuration_too(client, monkeypatch)
     assert response.status_code == 200
     assert response.json()["pricing_configured"] is False
     assert response.json()["configuration_issue"] == "pricing_not_configured"
+
+
+def test_system_pricing_readiness_uses_active_assistants_without_provider_calls(client, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-readiness-key")
+    response = client.get("/v1/system")
+    assert response.status_code == 200
+    assert response.json()["pricing_configured"] is True
+    assert response.json()["configuration_issue"] is None
+    assert client.get("/v1/usage").json()["daily"]["attempts"] == 0
 
 
 def test_provider_rejection_keeps_safe_status_without_secret_response_body(client, monkeypatch):

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_package_snapshot": "2026-10-12",
-  "agent_count": 13,
+  "agent_count": 9,
   "agents": [
     {
       "number": "01",
@@ -183,86 +183,6 @@
       ],
       "external_actions": [],
       "display_name_ar": "مساعد اتخاذ القرار"
-    },
-    {
-      "number": "10",
-      "id": "mom-agent",
-      "name": "MoM Agent",
-      "description": "You are a project meeting management agent. Your responsibility is to transform meeting transcripts, notes or recordings into accurate minutes, decisions, deliverables and a follow-up email.",
-      "skills": [
-        {
-          "id": "instructions",
-          "path": "skills/mom-agent/instructions.md",
-          "sha256": "9f60c68672d831dd05d1e452cd5f9804000a98cc4bf51b1ab61f448810674c9b",
-          "source_resource": "skill://plugin_0176f1d071688191994f962481c0622e/instructions/SKILL.md"
-        },
-        {
-          "id": "manage-project-meetings",
-          "path": "skills/mom-agent/manage-project-meetings.md",
-          "sha256": "a25a0bb21609e9152b1aab4797bde5ff6d2e46f8b647e090468c1a5381a2a120",
-          "source_resource": "skill://user/6a55344dd05c8191bd28010cd89601f0/manage-project-meetings/SKILL.md"
-        }
-      ],
-      "enabled": true,
-      "tools": [],
-      "external_actions": [],
-      "display_name_ar": "محاضر الاجتماعات"
-    },
-    {
-      "number": "11",
-      "id": "whatsapp-briefing",
-      "name": "WhatsApp Briefing & Actions",
-      "description": "Private browser-dependent WhatsApp summaries, prioritized suggested actions and unsent reply drafts. No native connector or automatic sending.",
-      "skills": [
-        {
-          "id": "whatsapp-briefing",
-          "path": "skills/whatsapp-briefing/whatsapp-briefing.md",
-          "sha256": "bf05027fcaddfdb72d08f77f0e3de0855e6cc51455f7c21f815e4885b03fc137",
-          "source_resource": "skill://plugins_6aca59bf11ec8191901f9cccf23fdaa9/whatsapp-briefing/SKILL.md"
-        }
-      ],
-      "enabled": true,
-      "tools": [],
-      "external_actions": [],
-      "display_name_ar": "تلخيص محادثات واتساب"
-    },
-    {
-      "number": "12",
-      "id": "literary-translation",
-      "name": "Literary Translation Companion",
-      "description": "Source-grounded Russian and Chinese literary translation into Arabic with a revisable style guide, glossary and quality review.",
-      "skills": [
-        {
-          "id": "literary-translation",
-          "path": "skills/literary-translation/literary-translation.md",
-          "sha256": "2426508a91e9a526b53ffd279768bec24137a8f32ff16c22acb146afa7143a29",
-          "source_resource": "skill://plugins_6acb3a224e7c8191af2c98b70981553a/literary-translation/SKILL.md"
-        }
-      ],
-      "enabled": true,
-      "tools": [],
-      "external_actions": [],
-      "display_name_ar": "رفيق الترجمة الأدبية"
-    },
-    {
-      "number": "13",
-      "id": "pre-meeting-briefing",
-      "name": "AI HUB Pre-Meeting Briefing",
-      "description": "Evidence-grounded preparation briefs and counterpart research for the meeting principal specified by the AI HUB owner.",
-      "skills": [
-        {
-          "id": "pre-meeting-briefing",
-          "path": "skills/pre-meeting-briefing/pre-meeting-briefing.md",
-          "sha256": "26a15d79ba49207e2b88ac12fd150005dfa7fe6726a4bb58acfcf3e4d6a5857c",
-          "source_resource": "skill://plugins_6acb65098c9c81918c60a1f1cbd05810/pre-meeting-briefing/SKILL.md"
-        }
-      ],
-      "enabled": true,
-      "tools": [
-        "web_search"
-      ],
-      "external_actions": [],
-      "display_name_ar": "التحضير للاجتماعات"
     }
   ]
 }

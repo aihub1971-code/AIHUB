@@ -12,19 +12,20 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app import public, runtime
+from app import news_feed, public, runtime
 from app.agent_profiles import get_profile, list_profiles
-from app.registry import get_agent
+from app.registry import RETIRED_AGENT_IDS, get_agent
 from app.report_store import get_report_store
 from app.storage import StoreError, get_store
 
 
 router = APIRouter(prefix="/v1/public/workspace", tags=["research workspace"])
 REPORT_FIELDS = ("schema_version", "report_kind", "report_id", "agent_id", "agent_name", "topic", "language",
-                 "kind", "title", "created_at", "previous_report_id", "response", "fresh_item_count")
+                 "kind", "title", "created_at", "previous_report_id", "response", "fresh_item_count",
+                 "actual_article_count", "analyzed_article_count", "requested_article_target")
 JOB_FIELDS = ("job_id", "agent_id", "topic", "language", "generation_seq", "status", "stage", "research_window",
               "research_cutoff", "created_at", "updated_at", "started_at", "finished_at", "report_id",
-              "previous_report_id", "error_code", "pdf_status")
+              "previous_report_id", "error_code", "error", "pdf_status")
 
 
 class GenerateRequest(BaseModel):
@@ -35,6 +36,11 @@ class GenerateRequest(BaseModel):
 
 class EmptyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class NewsRefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    language: Literal["ar", "en"] = "ar"
 
 
 def owner(session_id: str) -> str:
@@ -51,9 +57,11 @@ def _url(value: object) -> str | None:
 
 def profile_view(value: dict[str, Any]) -> dict[str, Any]:
     """Profiles contain editorial instructions; only presentation fields are public."""
-    return _pick(value, ("id", "agent_id", "name", "name_ar", "name_en", "kind", "number", "enabled",
+    result = _pick(value, ("id", "agent_id", "name", "name_ar", "name_en", "kind", "number", "enabled",
                          "description", "description_ar", "description_en", "default_topic_ar", "default_topic_en",
                          "view_labels", "views", "view_labels_ar", "view_labels_en", "uses_retrieval", "primary"))
+    result["news_feed_enabled"] = news_feed.supports_agent(value.get("id", value.get("agent_id", "")))
+    return result
 
 
 def require_agent(agent_id: str) -> dict[str, Any]:
@@ -74,11 +82,12 @@ def result_view(value: object) -> dict[str, Any]:
     result["research_window"] = _pick(value.get("research_window"),
         ("start", "end", "cutoff", "timezone", "display_timezone"))
     result["items"] = []
-    for item in value.get("items", [])[:20]:
+    for item in value.get("items", [])[:100]:
         if not isinstance(item, dict):
             continue
         entry = _pick(item, ("id", "headline", "publisher", "published_at", "published_date", "summary",
-                             "why_it_matters", "source_ids", "section", "event_date", "classification", "source_kind"))
+                             "why_it_matters", "source_ids", "section", "event_date", "classification", "source_kind",
+                             "translation_status", "original_language", "original_headline", "original_summary"))
         entry["url"] = _url(item.get("url"))
         result["items"].append(entry)
     result["sections"] = [_pick(section, ("id", "title", "body", "source_ids", "classification"))
@@ -87,13 +96,14 @@ def result_view(value: object) -> dict[str, Any]:
     for source in value.get("sources", [])[:100]:
         if not isinstance(source, dict):
             continue
-        entry = _pick(source, ("id", "title", "publisher", "published_at", "role", "source_kind", "excerpt"))
+        entry = _pick(source, ("id", "title", "publisher", "published_at", "role", "source_kind", "excerpt",
+                              "publisher_text_verified", "evidence_level", "original_language"))
         entry["url"] = _url(source.get("url"))
         verification = source.get("publication_verification")
         if isinstance(verification, dict):
             entry["publication_verification"] = _pick(verification,
                 ("method", "verified", "timestamp", "published_at", "evidence", "field", "timezone",
-                 "path", "value", "retrieved_at", "label"))
+                 "path", "value", "retrieved_at", "label", "provider_metadata_validated"))
         elif isinstance(verification, str):
             entry["publication_verification"] = verification
         annotations = source.get("citation_annotations", [])
@@ -109,6 +119,25 @@ def result_view(value: object) -> dict[str, Any]:
         for source in result["sources"] if source.get("id") and source.get("url")}
     limitations = value.get("limitations", [])
     result["limitations"] = [text[:3000] for text in limitations[:30] if isinstance(text, str)]
+    result["news_feed"] = _pick(value.get("news_feed"),
+        ("provider", "status", "snapshot_id", "last_successful_refresh_at", "checked_at", "next_refresh_at",
+         "actual_count", "maximum_items", "coverage_hours", "partial", "stale", "cached", "cache_age_seconds",
+         "limitation_codes", "observed_latest_provider_publication_at", "observed_earliest_provider_publication_at", "provider_age_seconds",
+         "suspected_provider_delay", "publication_basis", "publisher_text_verified"))
+    if isinstance(value.get("news_feed"), dict):
+        result["news_feed"]["provider_plan"] = _pick(value["news_feed"].get("provider_plan"),
+            ("configured_plan", "plan_verified", "page_size", "documented_delay_hours", "real_time_confirmed",
+             "configured_delivery_delay_hours", "free_plan_delay_hours", "paid_plan_realtime_supported", "plan_note"))
+        result["news_feed"]["pagination"] = _pick(value["news_feed"].get("pagination"),
+            ("pages_requested", "raw_results", "accepted_results", "stop_reason", "has_more", "page_size",
+             "credits_accounted", "target_reached", "provider_total_results", "raw_count", "accepted_count",
+             "requests", "max_requests", "next_page_available"))
+    result["freshness"] = _pick(value.get("freshness"),
+        ("window_start", "window_end", "coverage_complete", "timestamp_basis", "publisher_text_verified",
+         "observed_latest_provider_publication_at", "provider_age_seconds", "suspected_provider_delay"))
+    if isinstance(value.get("freshness"), dict):
+        result["freshness"]["snapshot_window"] = _pick(value["freshness"].get("snapshot_window"),
+            ("start", "end", "cutoff", "timezone", "display_timezone"))
     visuals = value.get("visuals")
     if isinstance(visuals, dict):
         result["visuals"] = _pick(visuals, ("direction", "reference_source_ids", "caption", "origin"))
@@ -143,8 +172,33 @@ def _wake(request: Request) -> None:
 def configuration(session_id: str = Depends(public.require_session)) -> dict[str, Any]:
     profiles = [profile_view(value) for value in list_profiles()]
     return {"agents": profiles, "agent_count": len(profiles), "languages": ["ar", "en"],
-            "coverage_hours": 12, "maximum_news_items": 20, "display_timezone": "Asia/Dubai",
-            "refresh_mode": "on_demand", "chat_available": runtime.runtime_is_ready()}
+            "coverage_hours": 12, "maximum_news_items": 100, "display_timezone": "Asia/Dubai",
+            "news_enabled_agents": [profile["id"] for profile in profiles if profile["news_feed_enabled"]],
+            "refresh_mode": "automatic_and_manual", "news_refresh_interval_seconds": news_feed.REFRESH_INTERVAL_SECONDS,
+            "chat_available": runtime.runtime_is_ready()}
+
+
+def _news(agent_id: str, language: str, session_id: str, *, force: bool = False) -> dict[str, Any]:
+    require_agent(agent_id)
+    if not news_feed.supports_agent(agent_id):
+        raise HTTPException(404, detail={"code": "news_feed_not_supported"})
+    database = get_store()
+    try:
+        return news_feed.get_feed(agent_id, language, refresh=True, force=force, database=database)
+    except (StoreError, HTTPException) as error:
+        raise public._safe_error(error, database, session_id) from None
+
+
+@router.get("/agents/{agent_id}/news")
+def live_news(agent_id: str, language: Literal["ar", "en"] = "ar",
+              session_id: str = Depends(public.require_session)) -> dict[str, Any]:
+    return _news(agent_id, language, session_id)
+
+
+@router.post("/agents/{agent_id}/news/refresh")
+def refresh_news(agent_id: str, body: NewsRefreshRequest,
+                 session_id: str = Depends(public.require_session)) -> dict[str, Any]:
+    return _news(agent_id, body.language, session_id, force=True)
 
 
 @router.post("/agents/{agent_id}/reports", status_code=202)
@@ -171,13 +225,15 @@ def agent_workspace(agent_id: str, session_id: str = Depends(public.require_sess
     database = get_store()
     reports = get_report_store(database)
     try:
-        jobs = reports.list_jobs(owner(session_id), agent_id=agent_id, active_only=True, limit=20)
+        jobs = reports.list_jobs(owner(session_id), agent_id=agent_id, active_only=False, limit=20)
         if isinstance(jobs, dict):
             jobs = jobs.get("jobs", [])
         jobs = sorted(jobs, key=lambda item: item.get("generation_seq", 0), reverse=True)
+        active = next((job for job in jobs if job["status"] in {"queued", "running"}), None)
         return {"agent": profile_view(get_profile(agent_id)),
                 "last_successful_report": report_view(reports.latest_report(owner(session_id), agent_id)),
-                "active_job": job_view(jobs[0]) if jobs else None}
+                "active_job": job_view(active) if active else None,
+                "last_job": job_view(jobs[0]) if jobs else None}
     except (StoreError, HTTPException) as error:
         raise public._safe_error(error, database, session_id) from None
 
@@ -200,7 +256,7 @@ def job_status(job_id: str, session_id: str = Depends(public.require_session)) -
 def history(agent_id: str | None = None, limit: int = Query(default=30, ge=1, le=100),
             session_id: str = Depends(public.require_session)) -> dict[str, Any]:
     database = get_store()
-    if agent_id is not None:
+    if agent_id is not None and agent_id not in RETIRED_AGENT_IDS:
         require_agent(agent_id)
     try:
         records = get_report_store(database).list_reports(owner(session_id), agent_id=agent_id, limit=limit)

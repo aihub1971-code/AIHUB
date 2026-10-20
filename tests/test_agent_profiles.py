@@ -1,13 +1,17 @@
 """The existing registry remains the sole source of agent identity."""
+import pytest
+from fastapi import HTTPException
+
 from app.agent_profiles import default_topic, get_profile, list_profiles
-from app.registry import get_agents
+from app.registry import RETIRED_AGENT_IDS, get_agents
 
 
-def test_profiles_preserve_all_thirteen_registry_identities():
+def test_profiles_preserve_all_nine_active_registry_identities():
     agents, profiles = get_agents(), list_profiles()
-    assert len(profiles) == len(agents) == 13
+    assert len(profiles) == len(agents) == 9
     assert [(item["id"], item["name"]) for item in profiles] == [(item["id"], item["name"]) for item in agents]
-    assert len({item["id"] for item in profiles}) == 13
+    assert len({item["id"] for item in profiles}) == 9
+    assert [item["number"] for item in profiles] == [f"{number:02}" for number in range(1, 10)]
     for item in profiles:
         assert item["name_ar"] and item["default_topic_ar"] and item["default_topic_en"]
         assert item["views"] == item["view_labels"]
@@ -42,14 +46,19 @@ def test_historical_and_creative_defaults_are_editable_and_views_distinct():
     assert "أرشيف" in default_topic(story["id"], "ar")
 
 
-def test_extra_utilities_never_gain_invented_retrieval_or_account_access():
-    for identifier in ["mom-agent", "whatsapp-briefing", "literary-translation"]:
-        profile = get_profile(identifier)
-        assert profile["uses_retrieval"] is False
-        assert profile["kind"] == "workspace"
-        assert "user" in profile["scope"].lower()
-    assert get_profile("pre-meeting-briefing")["uses_retrieval"]
-    assert get_profile("decision-briefing")["uses_retrieval"]
+@pytest.mark.parametrize("agent_id", sorted(RETIRED_AGENT_IDS))
+def test_retired_assistants_have_no_active_profile_or_launch_default(agent_id):
+    with pytest.raises(HTTPException) as error:
+        get_profile(agent_id)
+    assert error.value.status_code == 404
+    assert error.value.detail["code"] == "unknown_agent"
+    with pytest.raises(HTTPException) as error:
+        default_topic(agent_id)
+    assert error.value.status_code == 404
+
+
+def test_all_remaining_profiles_support_their_research_workspaces():
+    assert all(profile["uses_retrieval"] for profile in list_profiles())
 
 
 def test_returned_profiles_cannot_mutate_global_configuration():

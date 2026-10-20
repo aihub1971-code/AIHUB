@@ -8,6 +8,12 @@ from app.config import PROJECT_ROOT
 AGENTS_PATH = PROJECT_ROOT / "agents.json"
 PERMISSIONS_PATH = PROJECT_ROOT / "config" / "permissions.json"
 
+# Historical reports can retain these identities without re-enabling an
+# assistant, a profile, a skill, or any capability in the active registry.
+RETIRED_AGENT_IDS = frozenset({
+    "mom-agent", "whatsapp-briefing", "literary-translation", "pre-meeting-briefing",
+})
+
 def _load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as file:
         value = json.load(file)

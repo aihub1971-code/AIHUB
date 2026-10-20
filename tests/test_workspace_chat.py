@@ -7,7 +7,8 @@ import json
 from fastapi import HTTPException
 import pytest
 
-from app import public, runtime, workspace_chat
+from app import public, report_store, runtime, workspace_chat
+from app.registry import RETIRED_AGENT_IDS
 from app.report_store import get_report_store
 from app.storage import QuotaLimits, get_store
 from tests.test_report_store import NOW, fake_pdf, reserve_for_job, synthetic_result
@@ -75,6 +76,18 @@ def save_report(state, agent_id=IRAN, *, label="saved", moment=None, owner_id=No
     submitted = state["reports"].submit(owner_id or state["owner"], agent_id, "Synthetic scope " + label,
                                          language, idempotency_key="seed-" + label, now=moment or NOW)
     return complete_job(state, submitted["job"]["job_id"], label=label)
+
+
+def save_retired_report(state, monkeypatch, agent_id):
+    """Seed a historical snapshot while simulating its former admission rules."""
+    original_agent = report_store.get_agent
+    original_capability = report_store.require_capability
+    with monkeypatch.context() as legacy:
+        legacy.setattr(report_store, "get_agent", lambda identifier:
+                       {"id": agent_id, "enabled": True} if identifier == agent_id else original_agent(identifier))
+        legacy.setattr(report_store, "require_capability", lambda identifier, *args:
+                       None if identifier == agent_id else original_capability(identifier, *args))
+        return save_report(state, agent_id, label="archived-" + agent_id)
 
 
 @pytest.fixture
@@ -190,6 +203,68 @@ def test_follow_up_inherits_its_owned_snapshot_without_an_attachment_prompt(disc
     assert attached["report_ids"] == [selected["report_id"]]
     assert response.json()["context"]["history_messages_included"] == 2
     assert len(provider["calls"][1]["input"]) > len(provider["calls"][0]["input"])
+
+
+@pytest.mark.parametrize("agent_id", sorted(RETIRED_AGENT_IDS))
+def test_retired_owned_snapshot_discussion_and_followup_do_not_require_active_profile(
+        discussion, provider, monkeypatch, agent_id):
+    archived = save_retired_report(discussion, monkeypatch, agent_id)
+    original_profile = workspace_chat.get_profile
+    def active_profile(identifier):
+        assert identifier not in RETIRED_AGENT_IDS, "Archive discussion requested a retired active profile."
+        return original_profile(identifier)
+    monkeypatch.setattr(workspace_chat, "get_profile", active_profile)
+    client, cid = discussion["client"], conversation(discussion["client"])
+    response = send(client, cid, "Explain the saved assessment", agent_id=agent_id,
+                    report_id=archived["report_id"])
+    assert response.status_code == 200, response.text
+    assert response.json()["context"]["report_ids"] == [archived["report_id"]]
+    assert response.json()["context"]["agent_ids"] == [agent_id]
+    assert response.json()["context"]["fresh_research"] is False
+    followup = send(client, cid, "Search for the latest developments since this report", key="follow-up",
+                    agent_id=agent_id)
+    assert followup.status_code == 200, followup.text
+    assert followup.json()["context"]["report_id"] == archived["report_id"]
+    assert followup.json()["context"]["fresh_research"] is False
+    assert evidence(provider["calls"][1])["reports"][0]["agent_id"] == agent_id
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
+    assert discussion["database"].usage_summary()["daily"]["attempts"] == 1
+    with second_visitor() as other:
+        denied = send(other, conversation(other), report_id=archived["report_id"], agent_id=agent_id)
+        assert denied.status_code == 404
+    assert len(provider["calls"]) == 2
+
+
+@pytest.mark.parametrize("agent_id", sorted(RETIRED_AGENT_IDS))
+def test_retired_assistant_selection_without_an_owned_snapshot_is_rejected(discussion, provider, agent_id):
+    client = discussion["client"]
+    response = send(client, conversation(client), "Search for the latest information", agent_id=agent_id)
+    assert response.status_code == 404
+    assert provider["calls"] == []
+    assert discussion["reports"].list_jobs(discussion["owner"]) == []
+    assert discussion["database"].usage_summary()["daily"]["attempts"] == 0
+
+
+def test_persisted_fresh_plan_from_retired_assistant_uses_owned_archive_without_new_work(
+        discussion, provider, monkeypatch):
+    agent_id = "pre-meeting-briefing"
+    archived = save_retired_report(discussion, monkeypatch, agent_id)
+    client, cid = discussion["client"], conversation(discussion["client"])
+    body = workspace_chat.WorkspaceMessage(message="Refresh this report with current developments",
+        language="en", agent_id=agent_id, report_id=archived["report_id"])
+    binding, digest = workspace_chat._binding(discussion["database"], discussion["reports"], discussion["owner"],
+                                              cid, "before-retirement", body)
+    old_plan = {**json.loads(binding["plan_json"]), "fresh": True}
+    with discussion["database"]._transaction() as connection:
+        connection.execute("UPDATE workspace_chat_requests SET plan_json=? WHERE owner_id=? AND conversation_id=? AND key_hash=?",
+                           (json.dumps(old_plan), discussion["owner"], cid, digest))
+    response = send(client, cid, body.message, key="before-retirement", agent_id=agent_id,
+                    report_id=archived["report_id"])
+    assert response.status_code == 200, response.text
+    assert response.json()["context"]["fresh_research"] is False
+    assert response.json()["context"]["report_id"] == archived["report_id"]
+    assert len(provider["calls"]) == 1
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
 
 
 def test_comparison_uses_previous_same_agent_and_latest_other_agent_snapshots(discussion, provider):
@@ -358,6 +433,25 @@ def test_genuinely_fresh_questions_request_new_research(message):
 ])
 def test_domain_routing_distinguishes_whole_terms_from_intentional_stems(message, expected):
     assert workspace_chat.route_agents(message) == expected
+
+
+@pytest.mark.parametrize("agent_id,message", [
+    ("mom-agent", "Prepare meeting minutes"), ("whatsapp-briefing", "Summarize WhatsApp messages"),
+    ("literary-translation", "Translate this passage"), ("pre-meeting-briefing", "Prepare for a meeting"),
+])
+def test_retired_assistants_are_never_selected_by_main_chat_routing(agent_id, message):
+    assert workspace_chat.route_agents(message, agent_id) == []
+    assert workspace_chat.needs_fresh_research("Search for the latest developments", agent_id, True) is False
+    assert workspace_chat.needs_fresh_research("Search for the latest developments", agent_id, False) is False
+
+
+def test_workspace_platform_help_uses_active_profiles_and_current_news_cap(monkeypatch):
+    monkeypatch.setattr(workspace_chat.research, "MAX_NEWS_ITEMS", 100)
+    context = workspace_chat.platform_context()
+    assert len(context["agents"]) == 9
+    assert RETIRED_AGENT_IDS.isdisjoint(agent["id"] for agent in context["agents"])
+    assert context["news"]["maximum_items_after_validation_and_dedup"] == 100
+    assert "Retired assistants cannot generate" in context["archives"]
 
 
 def test_platform_help_has_no_research_job_and_does_not_claim_old_manual_attachment_flow(discussion, provider):

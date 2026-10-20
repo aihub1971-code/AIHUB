@@ -10,6 +10,7 @@ import pytest
 
 from app import public, runtime
 from app.main import app
+from app.registry import RETIRED_AGENT_IDS
 from app.storage import QuotaLimits, StoreError, get_store
 
 
@@ -100,7 +101,7 @@ def provider(monkeypatch, database):
     return state
 
 
-def run(client, *, key="same-browser-key", agent_id="literary-translation", **body):
+def run(client, *, key="same-browser-key", agent_id="story-moodboard", **body):
     return client.post(f"/v1/public/agents/{agent_id}/run", json={"task": "Synthetic public task", **body},
                        headers={"Idempotency-Key": key})
 
@@ -122,7 +123,7 @@ def test_bootstrap_is_public_cookie_is_opaque_and_private_metadata_is_omitted(cl
     monkeypatch.setenv("OPENAI_API_KEY", "private-openai-key-sentinel")
     monkeypatch.setenv("NEWSDATA_API_KEY", "private-newsdata-key-sentinel")
     response = client.get("/v1/public/bootstrap")
-    assert response.status_code == 200 and len(response.json()["agents"]) == 13
+    assert response.status_code == 200 and len(response.json()["agents"]) == 9
     assert_public(response.json())
     cookie = response.headers["set-cookie"]
     assert "HttpOnly" in cookie and "SameSite=strict" in cookie and "Path=/" in cookie
@@ -159,7 +160,7 @@ def test_https_and_render_forwarded_https_set_secure_cookie_and_accept_same_orig
     {"Origin": "http://testserver", "Sec-Fetch-Site": "cross-site"},
 ])
 def test_cross_origin_mutations_fail_before_provider_or_reservation(visitor, database, provider, headers):
-    response = visitor.post("/v1/public/agents/literary-translation/run", json={"task": "Synthetic request"},
+    response = visitor.post("/v1/public/agents/story-moodboard/run", json={"task": "Synthetic request"},
                             headers={**headers, "Idempotency-Key": "csrf-fixture"})
     assert response.status_code == 403 and response.json()["detail"]["code"] == "public_origin_rejected"
     assert provider["calls"] == [] and database.usage_summary()["daily"]["attempts"] == 0
@@ -260,7 +261,7 @@ def test_reservation_association_interruption_recovers_only_original_request_wit
 
 
 def test_idempotency_alias_cannot_claim_an_unowned_admin_report(visitor, database, provider):
-    admin = database.reserve_run("literary-translation", "Synthetic public task", ".1",
+    admin = database.reserve_run("story-moodboard", "Synthetic public task", ".1",
                                  idempotency_key="original-admin-key").report
     database.finish_run(admin["report_id"], {"response": "Private admin report content"})
     with database._transaction() as connection:
@@ -273,6 +274,31 @@ def test_idempotency_alias_cannot_claim_an_unowned_admin_report(visitor, databas
     assert provider["calls"] == []
     with database._connect() as connection:
         assert connection.execute("SELECT COUNT(*) FROM public_reports").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("agent_id", sorted(RETIRED_AGENT_IDS))
+def test_retired_public_assistants_deny_launch_without_consuming_attempts(visitor, database, provider, agent_id):
+    response = run(visitor, agent_id=agent_id)
+    assert response.status_code == 404
+    assert provider["calls"] == []
+    assert database.usage_summary()["daily"]["attempts"] == 0
+
+
+def test_owned_retired_saved_report_remains_readable_and_cannot_be_relaunched(visitor, database, provider):
+    archived = database.reserve_run("literary-translation", "Historical saved passage", ".1").report
+    database.finish_run(archived["report_id"], {"response": "Historical translated passage"})
+    with database._connect() as connection:
+        session_id = connection.execute("SELECT session_id FROM public_sessions").fetchone()[0]
+    public._bind_report(database, session_id, archived["report_id"])
+    response = visitor.get(f"/v1/public/reports/{archived['report_id']}")
+    assert response.status_code == 200
+    assert response.json()["agent_id"] == "literary-translation"
+    assert response.json()["result"]["response"] == "Historical translated passage"
+    with other_visitor() as other:
+        assert other.get(f"/v1/public/reports/{archived['report_id']}").status_code == 404
+    assert run(visitor, agent_id="literary-translation").status_code == 404
+    assert provider["calls"] == []
+    assert database.usage_summary()["daily"]["attempts"] == 1
 
 
 def test_public_errors_hide_budget_amounts_and_credential_configuration(visitor, database, provider, monkeypatch):

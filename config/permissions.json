@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "default_policy": "deny",
-  "note": "Deny by default. All research workspace retrieval uses bounded OpenAI web_search with quota and cost reservation. The legacy NewsData adapter remains registered for archived API compatibility; it is not called by the research workspace. Meeting notes, WhatsApp excerpts and literary translation remain tool-free. External actions are denied.",
+  "note": "Deny by default. Seven news briefings use the shared NewsData feed with a 12-hour filter, up to 100 unique relevant articles, and provider-credit accounting; their analysis is tool-free and cost-reserved. Historical and creative research retain bounded OpenAI web_search with quota and cost reservation. Retired assistants have no active capabilities. External actions are denied.",
   "agents": {
     "ubi-research": {
       "actions": [
@@ -10,7 +10,8 @@
         "submit_task"
       ],
       "tools": [
-        "web_search"
+        "web_search",
+        "newsdata"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
@@ -39,7 +40,8 @@
         "submit_task"
       ],
       "tools": [
-        "web_search"
+        "web_search",
+        "newsdata"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
@@ -53,7 +55,8 @@
         "submit_task"
       ],
       "tools": [
-        "web_search"
+        "web_search",
+        "newsdata"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
@@ -67,7 +70,8 @@
         "submit_task"
       ],
       "tools": [
-        "web_search"
+        "web_search",
+        "newsdata"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
@@ -109,7 +113,8 @@
         "submit_task"
       ],
       "tools": [
-        "web_search"
+        "web_search",
+        "newsdata"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
@@ -123,62 +128,12 @@
         "submit_task"
       ],
       "tools": [
-        "web_search"
+        "web_search",
+        "newsdata"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
         "decision-briefing"
-      ]
-    },
-    "mom-agent": {
-      "actions": [
-        "inspect",
-        "read_skill",
-        "submit_task"
-      ],
-      "tools": [],
-      "external_actions": [],
-      "allowed_skill_ids": [
-        "instructions",
-        "manage-project-meetings"
-      ]
-    },
-    "whatsapp-briefing": {
-      "actions": [
-        "inspect",
-        "read_skill",
-        "submit_task"
-      ],
-      "tools": [],
-      "external_actions": [],
-      "allowed_skill_ids": [
-        "whatsapp-briefing"
-      ]
-    },
-    "literary-translation": {
-      "actions": [
-        "inspect",
-        "read_skill",
-        "submit_task"
-      ],
-      "tools": [],
-      "external_actions": [],
-      "allowed_skill_ids": [
-        "literary-translation"
-      ]
-    },
-    "pre-meeting-briefing": {
-      "actions": [
-        "inspect",
-        "read_skill",
-        "submit_task"
-      ],
-      "tools": [
-        "web_search"
-      ],
-      "external_actions": [],
-      "allowed_skill_ids": [
-        "pre-meeting-briefing"
       ]
     }
   }

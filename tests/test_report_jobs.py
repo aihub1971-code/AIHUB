@@ -8,7 +8,7 @@ import pytest
 
 from app.report_jobs import ReportWorker
 from app.report_store import ReportStore
-from app.storage import QuotaLimits, Store
+from app.storage import QuotaLimits, Store, StoreError
 from tests.test_report_store import AGENT, NOW, OWNER, fake_pdf, reserve_for_job, synthetic_result
 
 
@@ -39,7 +39,7 @@ def engine(reports):
         result = synthetic_result({"agent_id": agent_id, "topic": topic, "language": options["language"],
                                    "research_window": options["research_window"]})
         if calls["invalid_result"]:
-            result["items"] = [{} for _ in range(21)]
+            result["items"] = [{} for _ in range(101)]
         return result
     def render(result, path):
         calls["pdf"].append(result)
@@ -117,7 +117,7 @@ def test_failed_paid_research_is_sanitized_retained_and_not_reexecuted_on_restar
     assert not engine["worker"].run_once() and len(engine["generate"]) == 1
 
 
-def test_invalid_over_twenty_result_fails_before_snapshot_or_pdf_and_keeps_reservation(reports, engine):
+def test_invalid_over_one_hundred_result_fails_before_snapshot_or_pdf_and_keeps_reservation(reports, engine):
     engine["invalid_result"] = True
     job = reports.submit(OWNER, AGENT, "Malformed provider result")["job"]
     engine["worker"].run_once()
@@ -177,23 +177,10 @@ def test_lifecycle_worker_completes_without_an_open_browser_and_start_is_idempot
     assert len(engine["generate"]) == 1
 
 
-def test_user_text_starter_uses_real_generator_without_search_claim_or_provider_cost(reports, monkeypatch):
-    from app.agent_profiles import get_profile
-    from app.research import estimate_reservation, generate_report
-
-    stages = []
-    original = reports.set_stage
-    def record_stage(job_id, token, stage):
-        stages.append(stage)
-        original(job_id, token, stage)
-    monkeypatch.setattr(reports, "set_stage", record_stage)
-    job = reports.submit(OWNER, "mom-agent", get_profile("mom-agent")["default_topic_en"], language="en")["job"]
-    worker = ReportWorker(reports, estimate=estimate_reservation, generator=generate_report,
-                          pdf_renderer=lambda result, path: fake_pdf(path))
-    assert worker.run_once()
-    finished = reports.get_job(OWNER, job["job_id"])
-    assert finished["status"] == "ready"
-    assert stages == ["analyzing", "preparing_pdf"]
-    assert reports.get_report(OWNER, finished["report_id"])["result"]["status"] == "awaiting_input"
-    usage = reports.base_store.usage_summary()["daily"]
-    assert usage["attempts"] == 1 and usage["estimated_cost_usd"] == 0
+@pytest.mark.parametrize("agent", ["mom-agent", "whatsapp-briefing", "literary-translation", "pre-meeting-briefing"])
+def test_retired_assistants_cannot_submit_or_reserve_new_jobs(reports, agent):
+    with pytest.raises(StoreError) as error:
+        reports.submit(OWNER, agent, "Retired launch must not run", language="en")
+    assert error.value.status_code == 404
+    assert reports.list_jobs(OWNER) == []
+    assert reports.base_store.usage_summary()["daily"]["attempts"] == 0

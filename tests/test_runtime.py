@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from app import runtime
+from app.registry import RETIRED_AGENT_IDS
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +49,7 @@ def model_response(text="هذه نتيجة اصطناعية للاختبار ف�
 
 def test_openai_only_text_request_has_no_model_tools(mocked_http):
     calls = mocked_http(lambda req: httpx.Response(200, json=model_response()))
-    result = runtime.run_agent("literary-translation", "ترجم هذا النص الأدبي التجريبي")
+    result = runtime.run_agent("story-moodboard", "طوّر فكرة القصة التجريبية")
     assert len(calls) == 1 and str(calls[0].url) == runtime.OPENAI_RESPONSES_URL
     body = json.loads(calls[0].content)
     assert body["model"] == "gpt-6.1-sol"
@@ -60,7 +61,7 @@ def test_openai_only_text_request_has_no_model_tools(mocked_http):
     assert result["estimated_cost_usd"] == pytest.approx(0.00155)
 
 
-@pytest.mark.parametrize("agent_id", ["literary-translation", "geopolitical-morning"])
+@pytest.mark.parametrize("agent_id", ["story-moodboard", "geopolitical-morning"])
 def test_missing_openai_key_fails_closed_without_any_network(monkeypatch, mocked_http, agent_id):
     monkeypatch.delenv("OPENAI_API_KEY")
     calls = mocked_http(lambda req: pytest.fail("No provider call is allowed without OPENAI_API_KEY"))
@@ -78,12 +79,12 @@ def test_no_retry_and_no_upstream_error_leak(mocked_http, status_code):
     sentinel = "credential-or-request-body-must-not-appear"
     calls = mocked_http(lambda req: httpx.Response(status_code, json={"error": {"message": sentinel}}))
     with pytest.raises(HTTPException) as exc:
-        runtime.run_agent("literary-translation", "ترجم النص التجريبي")
+        runtime.run_agent("story-moodboard", "طوّر فكرة القصة التجريبية")
     assert len(calls) == 1
     assert calls[0].url.host == "api.openai.com"
     assert sentinel not in str(exc.value.detail)
     assert exc.value.detail["provider_status"] == status_code
-    assert exc.value.status_code == (429 if status_code == 429 else 502)
+    assert exc.value.status_code == (429 if status_code == 429 else 503 if status_code >= 500 else 502)
 
 
 @pytest.mark.parametrize("reply,expected_code", [
@@ -100,7 +101,7 @@ def test_no_retry_and_no_upstream_error_leak(mocked_http, status_code):
 def test_bad_model_outputs_never_become_reports(mocked_http, reply, expected_code):
     calls = mocked_http(lambda req: httpx.Response(200, json=reply))
     with pytest.raises(HTTPException) as exc:
-        runtime.run_agent("literary-translation", "ترجم هذه المادة")
+        runtime.run_agent("story-moodboard", "طوّر هذه القصة")
     assert len(calls) == 1
     assert exc.value.detail["code"] == expected_code
 
@@ -108,13 +109,13 @@ def test_bad_model_outputs_never_become_reports(mocked_http, reply, expected_cod
 def test_invalid_json_response_is_controlled(mocked_http):
     mocked_http(lambda req: httpx.Response(200, text="not json"))
     with pytest.raises(HTTPException) as exc:
-        runtime.run_agent("literary-translation", "ترجم النص")
+        runtime.run_agent("story-moodboard", "طوّر القصة")
     assert exc.value.detail["code"] == "invalid_model_response"
 
 
 def test_missing_usage_is_not_treated_as_zero_cost(mocked_http):
     mocked_http(lambda req: httpx.Response(200, json=model_response(usage=None)))
-    result = runtime.run_agent("literary-translation", "ترجم النص")
+    result = runtime.run_agent("story-moodboard", "طوّر القصة")
     assert result["usage"]["input_tokens"] is None
     assert result["cost_tracking_complete"] is False
     assert result["estimated_cost_usd"] is None
@@ -122,22 +123,22 @@ def test_missing_usage_is_not_treated_as_zero_cost(mocked_http):
 
 def test_unexpected_paid_tier_retains_conservative_reservation(mocked_http):
     mocked_http(lambda req: httpx.Response(200, json=model_response(service_tier="ultrafast")))
-    result = runtime.run_agent("literary-translation", "ترجم النص")
+    result = runtime.run_agent("story-moodboard", "طوّر القصة")
     assert result["cost_tracking_complete"] is False
 
 
 def test_reservation_requires_model_bound_prices_for_custom_model(monkeypatch):
     monkeypatch.setenv("OPENAI_MODEL_NAME", "fixture-unknown-model")
     with pytest.raises(HTTPException) as exc:
-        runtime.estimate_reservation("literary-translation", "ترجم النص")
+        runtime.estimate_reservation("story-moodboard", "طوّر القصة")
     assert exc.value.detail["code"] == "pricing_not_configured"
     monkeypatch.setenv("OPENAI_PRICING_MODEL", "different-model")
     monkeypatch.setenv("OPENAI_INPUT_USD_PER_MILLION", "1")
     monkeypatch.setenv("OPENAI_OUTPUT_USD_PER_MILLION", "2")
     with pytest.raises(HTTPException):
-        runtime.estimate_reservation("literary-translation", "ترجم النص")
+        runtime.estimate_reservation("story-moodboard", "طوّر القصة")
     monkeypatch.setenv("OPENAI_PRICING_MODEL", "fixture-unknown-model")
-    estimate = runtime.estimate_reservation("literary-translation", "ترجم النص")
+    estimate = runtime.estimate_reservation("story-moodboard", "طوّر القصة")
     assert estimate["pricing_model"] == "fixture-unknown-model"
     assert estimate["conservative_input_usd_per_million"] == "1.25"
 
@@ -148,7 +149,7 @@ def test_invalid_prices_fail_before_network(monkeypatch, bad_value):
     monkeypatch.setenv("OPENAI_INPUT_USD_PER_MILLION", bad_value)
     monkeypatch.setenv("OPENAI_OUTPUT_USD_PER_MILLION", "10")
     with pytest.raises(HTTPException) as exc:
-        runtime.estimate_reservation("literary-translation", "ترجم النص")
+        runtime.estimate_reservation("story-moodboard", "طوّر القصة")
     assert exc.value.detail["code"] == "pricing_not_configured"
 
 
@@ -176,11 +177,11 @@ def test_reservation_covers_unified_research_optional_recovery_and_report(mocked
 
 
 def test_other_search_agents_keep_one_research_request_and_report():
-    estimate = runtime.estimate_reservation("pre-meeting-briefing", "ابحث عن أحدث الأخبار للاجتماع")
+    estimate = runtime.estimate_reservation("decision-briefing", "ابحث عن أدلة ومعايير اتخاذ القرار")
     assert estimate["research_request_count"] == 1
     assert estimate["max_web_search_calls"] == 1 and estimate["max_model_calls"] == 2
     assert len(estimate["research_request_input_tokens_bounds"]) == 1
-    payloads = runtime._build_research_payloads("gpt-6.1-sol", "pre-meeting-briefing", "أخبار اليوم",
+    payloads = runtime._build_research_payloads("gpt-6.1-sol", "decision-briefing", "أخبار اليوم",
                                                None, runtime._now_dubai())
     assert len(payloads) == 1
     assert payloads[0]["tools"][0]["filters"]["allowed_domains"] == list(runtime.ALLOWED_SOURCE_DOMAINS)
@@ -192,6 +193,17 @@ def test_search_free_agents_never_search_even_when_task_asks(mocked_http):
     assert len(calls) == 1 and calls[0].url.host == "api.openai.com"
     assert result["web_search"]["status"] == "disabled_agent"
     assert result["web_search"]["request_count"] == 0
+
+
+@pytest.mark.parametrize("agent_id", sorted(RETIRED_AGENT_IDS))
+def test_retired_assistants_never_reach_provider_execution_or_reservation(mocked_http, agent_id):
+    calls = mocked_http(lambda req: pytest.fail("Retired assistant reached a provider."))
+    for action in (runtime.estimate_reservation, runtime.run_agent):
+        with pytest.raises(HTTPException) as error:
+            action(agent_id, "Search for current information")
+        assert error.value.status_code == 404
+    assert calls == []
+    assert agent_id not in runtime.WEB_SEARCH_AGENT_IDS | runtime.AUTO_SEARCH_AGENT_IDS
 
 
 def test_invalid_reasoning_effort_fails_in_preflight(monkeypatch):

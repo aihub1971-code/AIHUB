@@ -245,6 +245,8 @@ def test_platform_help_distinguishes_newsdata_policy_and_instant_saved_languages
     monkeypatch.setenv("NEWSDATA_API_KEY", "private-newsdata-context-sentinel")
     monkeypatch.setenv("OPENAI_API_KEY", "private-openai-context-sentinel")
     context = chat._platform_context(store)
+    assert context["agent_count"] == len(context["agents"]) == 9
+    assert "Legacy administration API" in context["news_policy"]["scope"]
     iran = context["news_policy"]["iran_news"]
     assert iran["agent_id"] == "iran-news" and iran["provider"] == "newsdata"
     assert iran["query"] == "iran war" and iran["query_semantics"] == "iran AND war"
@@ -266,6 +268,17 @@ def test_platform_help_distinguishes_newsdata_policy_and_instant_saved_languages
     serialized = json.dumps(context)
     assert "private-newsdata-context-sentinel" not in serialized
     assert "private-openai-context-sentinel" not in serialized
+
+
+def test_platform_help_reports_current_workspace_cap_separately_from_legacy_limits(store, monkeypatch):
+    monkeypatch.setattr(chat.research, "MAX_NEWS_ITEMS", 100)
+    context = chat._platform_context(store)
+    workspace = context["research_workspace"]
+    assert workspace["provider"] == "openai"
+    assert workspace["coverage_window_hours"] == 12
+    assert workspace["maximum_news_items_after_validation_and_dedup"] == 100
+    assert context["news_policy"]["iran_news"]["total_item_cap"] == 20
+    assert "retired assistants" in workspace["archives"]
 
 
 def test_newsdata_attachment_uses_saved_translation_and_public_publisher_link_per_chat_language(client, store, mock_openai):
@@ -377,7 +390,7 @@ def test_unknown_or_out_of_bounds_usage_keeps_full_reservation(client, store, mo
      "unexpected_model_tool_call", 502),
     ({"status": "completed", "output": [{"type": "message", "role": "assistant", "status": "completed",
       "content": [{"type": "refusal", "refusal": "private-provider-detail"}]}]}, "model_refusal", 502),
-    ((401, {"error": {"message": "private-provider-detail"}}), "openai_api_error", 502),
+    ((401, {"error": {"message": "private-provider-detail"}}), "openai_auth_failed", 502),
 ])
 def test_failures_are_durable_safe_and_never_automatically_retried(client, store, mock_openai, response, code, status):
     requests = mock_openai([response, reply("A new explicitly requested response")])

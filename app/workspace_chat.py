@@ -16,8 +16,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app import chat, public, runtime
+from app import chat, public, research, runtime
 from app.agent_profiles import get_profile, list_profiles
+from app.registry import RETIRED_AGENT_IDS, get_agent, get_agents
 from app.report_store import ReportStore, get_report_store
 from app.storage import Store, StoreError, get_store
 from app.workspace import job_view, owner, require_agent, _wake
@@ -57,10 +58,6 @@ _DOMAIN_TERMS = {
     "story-moodboard": ["moodboard", "story", "character", "creative brief", "قصة", "قصص", "لوحة إبداعية", "لوحة ابداعية", "شخصيات", "خيال"],
     "economic-cultural-briefing": ["econom", "inflation", "interest rate", "tourism", "culture", "cultural", "creative economy", "اقتصاد", "ثقاف", "سياح", "تضخم", "استثمار", "أسواق", "اسواق"],
     "decision-briefing": ["decision brief", "decision criteria", "اتخاذ القرار", "معايير القرار"],
-    "mom-agent": ["meeting minutes", "minutes of meeting", "محضر", "محاضر"],
-    "whatsapp-briefing": ["whatsapp", "واتساب", "واتس اب"],
-    "literary-translation": ["literary translation", "translate this passage", "ترجمة أدبية", "ترجمة ادبية", "ترجم المقطع"],
-    "pre-meeting-briefing": ["pre-meeting", "prepare for a meeting", "meeting preparation", "التحضير للاجتماع", "تحضير اجتماع"],
 }
 _ENGLISH_DOMAIN_STEMS = {"geopolit", "universit", "econom"}
 
@@ -98,7 +95,10 @@ def _tokens(value: str) -> set[str]:
 def route_agents(message: str, selected_agent: str | None = None) -> list[str]:
     lower = message.casefold()
     matches = []
+    active_ids = {agent["id"] for agent in get_agents() if agent.get("enabled") is True}
     for index, (agent_id, terms) in enumerate(_DOMAIN_TERMS.items()):
+        if agent_id not in active_ids:
+            continue
         # English words must not match inside unrelated words (history/story,
         # Tirana/Iran). The three editorial stems deliberately allow suffixes.
         score = sum(1 for term in terms if (
@@ -107,13 +107,15 @@ def route_agents(message: str, selected_agent: str | None = None) -> list[str]:
         if score:
             matches.append((-score, index, agent_id))
     routed = [value[2] for value in sorted(matches)]
-    if selected_agent:
+    if selected_agent in active_ids:
         routed = [selected_agent] + [value for value in routed if value != selected_agent]
     return routed[:MAX_CONTEXT_REPORTS]
 
 
 def needs_fresh_research(message: str, agent_id: str | None, has_report: bool) -> bool:
-    if not agent_id or _PLATFORM.search(message) or not get_profile(agent_id)["uses_retrieval"]:
+    agent = get_agent(agent_id) if agent_id else None
+    if (agent is None or agent.get("enabled") is not True or _PLATFORM.search(message)
+            or not get_profile(agent_id)["uses_retrieval"]):
         return False
     if not has_report or _SINCE.search(message):
         return True
@@ -139,14 +141,24 @@ def _make_plan(database: Store, reports: ReportStore, owner_id: str, conversatio
     if snapshot["conversation"]["pending_turn_id"]:
         raise StoreError("conversation_busy", "Another message is still being processed.", 409)
     selected_agent = body.agent_id
-    if selected_agent:
-        require_agent(selected_agent)
     selected = reports.get_report(owner_id, body.report_id) if body.report_id else None
+    # A retired identity is valid only as the identity of an owned snapshot.
+    # An inherited conversation binding is checked with the same owner scope.
+    if selected_agent in RETIRED_AGENT_IDS and selected is None:
+        inherited = snapshot["conversation"].get("report_id")
+        if inherited and reports.owns(owner_id, inherited):
+            previous = reports.get_report(owner_id, inherited)
+            if previous["agent_id"] == selected_agent:
+                selected = previous
+    if selected_agent and selected and selected["agent_id"] != selected_agent:
+        raise StoreError("report_agent_mismatch", "The selected report belongs to a different assistant.", 409)
+    if selected_agent and not (selected and selected_agent in RETIRED_AGENT_IDS):
+        require_agent(selected_agent)
     if selected:
-        if selected_agent and selected["agent_id"] != selected_agent:
-            raise StoreError("report_agent_mismatch", "The selected report belongs to a different assistant.", 409)
         selected_agent = selected["agent_id"]
     agents = route_agents(body.message, selected_agent)
+    if selected and selected_agent in RETIRED_AGENT_IDS:
+        agents = [selected_agent, *agents][:MAX_CONTEXT_REPORTS]
     if not agents and not _PLATFORM.search(body.message) and snapshot["conversation"].get("report_id"):
         inherited = snapshot["conversation"]["report_id"]
         if reports.owns(owner_id, inherited):
@@ -164,7 +176,7 @@ def _make_plan(database: Store, reports: ReportStore, owner_id: str, conversatio
         previous = _previous(reports, owner_id, selected)
         if previous and previous["report_id"] not in context_ids:
             context_ids.append(previous["report_id"])
-    profile = get_profile(primary_agent) if primary_agent else None
+    profile = get_profile(primary_agent) if primary_agent and primary_agent not in RETIRED_AGENT_IDS else None
     topic = body.topic or (selected.get("topic") if selected else None) or (
         profile["default_topic_" + body.language] if profile else "")
     return {"agent_ids": agents, "primary_agent_id": primary_agent, "report_ids": context_ids,
@@ -305,10 +317,11 @@ def platform_context() -> dict[str, Any]:
         "supported_languages": ["ar", "en"], "timezone": "Asia/Dubai",
         "agents": [{key: profile[key] for key in ("id", "name_en", "name_ar", "kind")} for profile in list_profiles()],
         "workflow": "Choose an agent card to generate its report. Refine its topic and press Enter or Generate fresh report. Open the two content tabs, Download PDF, or discuss it in the attached chat. History opens saved snapshots without research.",
-        "news": {"coverage_hours": 12, "maximum_items_after_validation_and_dedup": 20,
+        "news": {"coverage_hours": 12, "maximum_items_after_validation_and_dedup": research.MAX_NEWS_ITEMS,
                  "source_scope": "Broad reputable and primary sources through OpenAI live web research, with verified publication times.",
                  "refresh": "On demand; exact cutoff is frozen at job creation. Not continuous monitoring."},
         "chat": "Report context is automatic and scoped to this visitor. Questions about now or since a report can start a fresh research job; saved snapshots remain unchanged.",
+        "archives": "Saved reports from retired assistants remain available for reading, PDF download and discussion. Retired assistants cannot generate new reports or fresh research; discussions use the saved evidence and its original cutoff.",
         "language": "Use the Arabic/English switch in the header. UI switching does not generate or rewrite a report. New reports follow the chosen language. Chat can explain any saved report in either language.",
         "privacy": "Anonymous browser sessions isolate reports and conversations. Credentials, administration, costs and other visitors are unavailable.",
         "pdf": "Generated automatically from each structured report. A failed PDF can be retried without researching again."}
@@ -342,6 +355,12 @@ def send_message(conversation_id: str, body: WorkspaceMessage, request: Request,
         binding, digest = _binding(database, reports, owner_id, conversation_id, idempotency_key, body)
         plan = json.loads(binding["plan_json"])
         answer_report_id = binding["answer_report_id"]
+        # Plans persisted before retirement may still request fresh work. Keep
+        # an owned archived answer usable, without resubmitting its assistant.
+        if plan["primary_agent_id"] in RETIRED_AGENT_IDS:
+            if not answer_report_id or not reports.owns(owner_id, answer_report_id):
+                require_agent(plan["primary_agent_id"])
+            plan["fresh"] = False
         if plan["fresh"]:
             if body.fresh_job_id and not binding["job_id"]:
                 raise StoreError("chat_research_mismatch", "This research job belongs to a different question.", 409)

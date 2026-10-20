@@ -13,7 +13,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from app import newsdata, runtime
+from app import newsdata, research, runtime
 from app.auth import require_owner
 from app.config import get_setting
 from app.registry import get_agents
@@ -64,6 +64,13 @@ def _platform_context(database: Store) -> dict[str, Any]:
     usage = database.usage_summary()
     return {
         "name": "AI HUB", "timezone": "Asia/Dubai", "agents": agents,
+        "agent_count": len(agents),
+        "research_workspace": {
+            "provider": "openai", "coverage_window_hours": 12,
+            "maximum_news_items_after_validation_and_dedup": research.MAX_NEWS_ITEMS,
+            "workflow": "The public research workspace uses the active assistant cards, live web research, saved report history, automatic PDFs and report discussion. The news cap is a maximum, not a promised article count.",
+            "archives": "Saved reports from retired assistants remain available; those assistants cannot launch new work.",
+        },
         "supported_languages": ["ar", "en"], "new_report_language_follows_selection": True,
         "language_control": {"location": "page header at the top of the platform",
                              "buttons": ["العربية", "English"],
@@ -72,8 +79,9 @@ def _platform_context(database: Store) -> dict[str, Any]:
                              "newsdata_pages": "The header buttons instantly select the saved Arabic translation or English original. Switching language does not fetch another page or request another translation; unavailable translations remain in English with a notice."},
         "sections": ["Chat / المحادثة", "Assistants / المساعدون", "Reports / التقارير",
                      "Schedules / الجداول", "Usage / الاستخدام"],
-        "report_workflow": "Open Reports and assistants, choose an assistant, then click Run assistant. For assistants other than Iran War News, write the task and requested publication period in the task box. Iran War News always uses the fixed Iran-war query and latest-48-hour window; task text cannot change its filters. Saved reports can be reopened or downloaded as Markdown or JSON from the report archive below.",
+        "report_workflow": "In the legacy administration panel, open Reports and assistants, choose an active assistant, then click Run assistant. For assistants other than Iran War News, write the task and requested publication period in the task box. That panel's legacy Iran War News path uses the fixed Iran-war query and latest-48-hour window; task text cannot change its filters. Saved reports can be reopened or downloaded as Markdown or JSON from the archive. These legacy API policies differ from the public research workspace.",
         "news_policy": {
+            "scope": "Legacy administration API and its saved reports; see research_workspace for the current public research workspace.",
             "iran_news": {
                 "agent_id": "iran-news", "provider": "newsdata",
                 "query": newsdata.NEWSDATA_QUERY, "query_semantics": "iran AND war",
@@ -103,7 +111,7 @@ def _platform_context(database: Store) -> dict[str, Any]:
                   "report_attempt_limit_excludes_chat": True, "usd_budget_includes_reports_and_chat": True,
                   "newsdata_credits_separate_from_usd": True,
                   "amounts_are_estimates": True},
-        "credentials": "Iran War News requires a NewsData API key on the server. OpenAI is used for its Arabic translations, this chat and the other assistants. Without OpenAI, NewsData can still provide English originals. The owner configures provider keys and login credentials on the server; never ask the owner to paste them into chat.",
+        "credentials": "The public research workspace and this chat use OpenAI. Legacy Iran War News in the administration API requires a NewsData API key on the server. OpenAI is used for its Arabic translations and the other assistants. Without OpenAI, the legacy NewsData path can still provide English originals. The owner configures provider keys and login credentials on the server; never ask the owner to paste them into chat.",
     }
 
 

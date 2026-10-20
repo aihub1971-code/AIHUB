@@ -32,10 +32,12 @@ from fastapi import HTTPException
 from app import runtime
 from app.agent_profiles import get_profile
 from app.permissions import require_capability
+from app.report_errors import safe_diagnostics
 
 
 UTC = timezone.utc
-MAX_NEWS_ITEMS = 20
+MAX_NEWS_ITEMS = 100
+MAX_NATIVE_NEWS_ITEMS = 20
 MAX_NATIVE_ACTIONS = 6
 MAX_DISCOVERY_URLS = 80
 MAX_PUBLISHER_PAGES = 40
@@ -234,6 +236,19 @@ def _research_feedback(response: dict[str, Any], excluded: dict[str, int],
 def estimate_reservation(agent_id: str, topic: str = "", language: str = "ar", *,
                          research_window: dict[str, Any] | None = None,
                          cutoff: datetime | str | None = None, previous_report: dict[str, Any] | None = None) -> dict[str, Any]:
+    from app import news_feed
+    if news_feed.supports_agent(agent_id):
+        from app import news_report
+        return news_report.estimate_reservation(agent_id, topic, language, research_window=research_window,
+                                                cutoff=cutoff, previous_report=previous_report)
+    return _estimate_native_reservation(agent_id, topic, language, research_window=research_window,
+                                        cutoff=cutoff, previous_report=previous_report)
+
+
+def _estimate_native_reservation(agent_id: str, topic: str = "", language: str = "ar", *,
+                                research_window: dict[str, Any] | None = None,
+                                cutoff: datetime | str | None = None,
+                                previous_report: dict[str, Any] | None = None) -> dict[str, Any]:
     profile = get_profile(agent_id)
     require_capability(agent_id, "actions", "submit_task")
     if not profile["enabled"]:
@@ -295,6 +310,83 @@ def estimate_reservation(agent_id: str, topic: str = "", language: str = "ar", *
 estimate_report = estimate_reservation
 
 
+def _response_retry_after(response: httpx.Response) -> int | None:
+    value = response.headers.get("retry-after", "")
+    if not value or len(value) > 100:
+        return None
+    try:
+        if re.fullmatch(r"\d{1,5}(?:\.\d{1,6})?", value):
+            seconds = Decimal(value)
+        else:
+            retry_at = parsedate_to_datetime(value)
+            if retry_at.tzinfo is None:
+                return None
+            try:
+                now = parsedate_to_datetime(response.headers.get("date", ""))
+            except (ValueError, TypeError, OverflowError):
+                now = datetime.now(UTC)
+            if now.tzinfo is None:
+                now = datetime.now(UTC)
+            seconds = Decimal(str((retry_at - now).total_seconds()))
+        if 0 <= seconds <= 86400:
+            return int(seconds.to_integral_value(rounding="ROUND_CEILING"))
+    except (ValueError, TypeError, OverflowError):
+        pass
+    return None
+
+
+def _response_diagnostics(response: httpx.Response, key: str, data: Any = None,
+                          **counts: int) -> dict[str, Any]:
+    """Retain only bounded diagnostic tokens, never error prose or credentials."""
+    body = data if isinstance(data, dict) else {}
+    provider_error = body.get("error") if isinstance(body.get("error"), dict) else {}
+    incomplete = body.get("incomplete_details") if isinstance(body.get("incomplete_details"), dict) else {}
+    fields = {"provider_status": response.status_code, "request_id": response.headers.get("x-request-id"),
+              "response_id": body.get("id"), "provider_code": provider_error.get("code"),
+              "provider_type": provider_error.get("type"), "provider_param": provider_error.get("param"),
+              "reason": incomplete.get("reason"), "retry_after_seconds": _response_retry_after(response), **counts}
+    fields = {name: value for name, value in fields.items() if not isinstance(value, str)
+              or not ((key and key in value) or re.search(r"sk-[A-Za-z0-9_-]{8,}", value))}
+    allowed = safe_diagnostics(HTTPException(502, detail=fields), "")
+    return {name: value for name, value in allowed.items() if name not in {"stage", "exception_type"}}
+
+
+def _response_failure(code: str, message: str, response: httpx.Response, key: str, *,
+                      status: int = 502, data: Any = None, **counts: int) -> HTTPException:
+    error = _fail(code, message, status)
+    error.detail.update(_response_diagnostics(response, key, data, **counts))
+    return error
+
+
+def _provider_http_failure(response: httpx.Response, key: str) -> HTTPException:
+    data = None
+    if len(response.content) <= MAX_MODEL_RESPONSE_BYTES:
+        try:
+            data = response.json()
+        except (ValueError, TypeError):
+            pass
+    details = _response_diagnostics(response, key, data)
+    quota_codes = {"insufficient_quota", "credit_balance_exhausted", "organization_spend_limit_exceeded",
+                   "project_spend_limit_exceeded", "organization_usage_limit_exceeded", "billing_hard_limit_reached"}
+    if response.status_code == 401:
+        code, message, status = "openai_auth_failed", "The research provider rejected the server credentials.", 502
+    elif response.status_code == 403:
+        code, message, status = "openai_access_denied", "The research provider denied access to this request.", 502
+    elif any(details.get(field) in quota_codes for field in ("provider_code", "provider_type")):
+        code, message, status = "openai_quota_exceeded", "The research provider account quota is exhausted.", 429
+    elif response.status_code == 429:
+        code, message, status = "openai_rate_limited", "The research provider temporarily limited request traffic.", 429
+    elif response.status_code == 408:
+        code, message, status = "openai_timeout", "The research provider timed out; no retry was made.", 504
+    elif response.status_code >= 500:
+        code, message, status = "openai_unavailable", "The research provider is temporarily unavailable.", 503
+    else:
+        code, message, status = "openai_request_rejected", "The research provider rejected this request.", 502
+    error = _fail(code, message, status)
+    error.detail.update(details)
+    return error
+
+
 def _call_response(key: str, payload: dict[str, Any], *, actions: int = 0) -> dict[str, Any]:
     try:
         with httpx.Client(timeout=httpx.Timeout(180 if actions else 90, connect=15), follow_redirects=False) as client:
@@ -305,33 +397,43 @@ def _call_response(key: str, payload: dict[str, Any], *, actions: int = 0) -> di
     except httpx.RequestError:
         raise _fail("openai_connection_error", "The research provider could not be reached.") from None
     if response.status_code >= 300:
-        error = _fail("openai_api_error", "The research provider rejected this request.", 429 if response.status_code == 429 else 502)
-        error.detail["provider_status"] = response.status_code
-        raise error
+        raise _provider_http_failure(response, key)
     if len(response.content) > MAX_MODEL_RESPONSE_BYTES:
-        raise _fail("invalid_model_response", "The research response exceeded its size bound.")
+        raise _response_failure("invalid_model_response", "The research response exceeded its size bound.", response, key)
+    data = None
     try:
         data = response.json()
         if not isinstance(data, dict) or not isinstance(data.get("output"), list):
             raise ValueError
     except (ValueError, TypeError):
-        raise _fail("invalid_model_response", "The research provider returned invalid JSON.") from None
+        raise _response_failure("invalid_model_response", "The research provider returned invalid JSON.",
+                                response, key, data=data) from None
     native = [item for item in data["output"] if isinstance(item, dict) and item.get("type") == "web_search_call"]
+    counts = {"native_action_count": len(native), "search_call_count": sum(
+        isinstance(call.get("action"), dict) and call["action"].get("type") == "search" for call in native),
+        "allowed_native_actions": actions}
     if len(native) > actions:
-        raise _fail("search_call_limit_exceeded", "The native tool action limit was exceeded.")
+        raise _response_failure("search_call_limit_exceeded", "The native tool action limit was exceeded.",
+                                response, key, data=data, **counts)
     for call in native:
         if (call.get("status") != "completed" or not isinstance(call.get("action"), dict)
                 or call["action"].get("type") not in {"search", "open_page", "find_in_page"}):
-            raise _fail("invalid_search_response", "A native research action was incomplete.")
+            raise _response_failure("invalid_search_response", "A native research action was incomplete.",
+                                    response, key, data=data, **counts)
     if actions and not any(call["action"]["type"] == "search" for call in native):
-        raise _fail("native_search_not_used", "The required live search was not performed.")
+        raise _response_failure("native_search_not_used", "The required live search was not performed.",
+                                response, key, data=data, **counts)
     # Reuse the legacy strict completion/refusal/message parser without its K1
     # tool bound; this module has just checked its own per-payload native cap.
     plain = {**data, "output": [item for item in data["output"] if item not in native]}
     if actions and not any(item.get("type") == "message" for item in plain["output"] if isinstance(item, dict)):
         plain["output"].append({"type": "message", "role": "assistant", "status": "completed",
                                 "content": [{"type": "output_text", "text": "No source notes returned."}]})
-    result = runtime._extract_model_response(plain)
+    try:
+        result = runtime._extract_model_response(plain)
+    except HTTPException as error:
+        error.detail.update(_response_diagnostics(response, key, data, **counts))
+        raise error from None
     result["native_calls"] = native
     result["search_calls"] = sum(call["action"]["type"] == "search" for call in native)
     bound = _input_bound(payload, actions) if actions else runtime._json_bytes(payload) + runtime.PROVIDER_INPUT_OVERHEAD_TOKENS
@@ -1105,11 +1207,11 @@ def _validated_pack(raw: str, profile: dict[str, Any], sources: list[dict[str, A
         except (ValueError, TypeError, KeyError) as error:
             reason = str(error)
             rejected[reason if re.fullmatch(r"[a-z_]{1,60}", reason) else "invalid_item_schema"] += 1
-    if len(items) > MAX_NEWS_ITEMS:
-        rejected["after_validation_item_limit"] += len(items) - MAX_NEWS_ITEMS
+    if len(items) > MAX_NATIVE_NEWS_ITEMS:
+        rejected["after_validation_item_limit"] += len(items) - MAX_NATIVE_NEWS_ITEMS
     if profile["kind"] == "workspace" and items:
         raise _fail("invalid_research_report", "A user-text workspace cannot contain invented news.")
-    return {"title": title, "items": items[:MAX_NEWS_ITEMS], "sections": sections,
+    return {"title": title, "items": items[:MAX_NATIVE_NEWS_ITEMS], "sections": sections,
             "limitations": limitations, "visuals": {"palette": palette, "direction": direction,
             "reference_source_ids": visual_ids}}, dict(rejected)
 
@@ -1228,7 +1330,21 @@ def generate_report(agent_id: str, topic: str = "", language: str = "ar", *,
                     previous_report: dict[str, Any] | None = None,
                     progress: Callable[[str], None] | None = None) -> dict[str, Any]:
     """Generate once; the caller must atomically reserve the returned estimate first."""
-    estimate = estimate_reservation(agent_id, topic, language, research_window=research_window,
+    from app import news_feed
+    if news_feed.supports_agent(agent_id):
+        from app import news_report
+        return news_report.generate_report(agent_id, topic, language, research_window=research_window,
+                                           cutoff=cutoff, previous_report=previous_report, progress=progress)
+    return _generate_native_report(agent_id, topic, language, research_window=research_window,
+                                   cutoff=cutoff, previous_report=previous_report, progress=progress)
+
+
+def _generate_native_report(agent_id: str, topic: str = "", language: str = "ar", *,
+                            research_window: dict[str, Any] | None = None, cutoff: datetime | str | None = None,
+                            previous_report: dict[str, Any] | None = None,
+                            progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+    """Native discovery remains for sourced historical and creative work."""
+    estimate = _estimate_native_reservation(agent_id, topic, language, research_window=research_window,
                                     cutoff=cutoff, previous_report=previous_report)
     profile, topic, window = get_profile(agent_id), estimate["topic"], estimate["research_window"]
     notify = progress or (lambda stage: None)
@@ -1320,7 +1436,7 @@ def generate_report(agent_id: str, topic: str = "", language: str = "ar", *,
                                   if ar else " pages because they could not be inspected, did not meet publication or relevance checks, or were duplicate copies."))
         if len(sources) > len(selected) and selected:
             limitations.append("اختُصر سياق المصادر ليلتزم بحدود التقرير." if ar else "The source context was reduced to fit the report's input bound.")
-        if len(pack["items"]) == MAX_NEWS_ITEMS:
+        if len(pack["items"]) == MAX_NATIVE_NEWS_ITEMS:
             limitations.append("اقتصر التقرير على أهم 20 تطورًا بعد التحقق وإزالة التكرار." if ar else "The report is limited to 20 selected developments after verification and deduplication.")
     public_sources = selected if selected else sources
     section_titles = {part["id"]: part["title_ar" if ar else "title_en"] for part in profile["sections"]}
@@ -1334,7 +1450,7 @@ def generate_report(agent_id: str, topic: str = "", language: str = "ar", *,
         "previous_report_id": (_previous(previous_report, profile) or {}).get("report_id") or None,
         "status": "awaiting_input" if starter else "complete" if (pack["items"] or profile["kind"] != "briefing" and selected
                          or profile["kind"] == "workspace" or profile["kind"] == "moodboard" and pack["visuals"]["palette"]) else "no_evidence",
-        "item_count": len(pack["items"]), "bounded_item_limit": MAX_NEWS_ITEMS,
+        "item_count": len(pack["items"]), "bounded_item_limit": MAX_NATIVE_NEWS_ITEMS,
         "factual_basis": "creative_original" if profile["kind"] == "moodboard" and not sources
                          else "publisher_page" if profile["uses_retrieval"] else "userprovided",
         "source_coverage": {"verified_source_count": len(sources), "included_source_count": len(public_sources),
