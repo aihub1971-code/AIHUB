@@ -28,7 +28,7 @@ from app.service import execute_report
 from app.storage import StoreError, get_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-APP_VERSION = "2.0.3"
+APP_VERSION = "2.0.4"
 
 
 def runtime_is_ready() -> bool:
@@ -178,7 +178,7 @@ def system_status(_: str = Depends(require_owner)) -> dict[str, object]:
     configuration_issue = None
     if runtime_is_ready():
         try:
-            agent_runtime.estimate_reservation("literary-translation", "اختبار إعداد النموذج")
+            agent_runtime.estimate_reservation("story-moodboard", "اختبار إعداد النموذج")
             agent_runtime.estimate_reservation("geopolitical-morning", "أهم الأخبار اليوم")
             pricing_ready = True
         except HTTPException as exc:

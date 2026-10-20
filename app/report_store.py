@@ -22,9 +22,11 @@ from app.storage import Store, StoreError, _aware, _json, _stamp, get_store
 
 MAX_ACTIVE_PER_OWNER = 3
 MAX_ACTIVE_GLOBAL = 20
-MAX_REPORT_BYTES = 2_000_000
+# A bounded 100-article multilingual inventory includes both report items and
+# immutable source references. Keep the same input ceiling as the PDF worker.
+MAX_REPORT_BYTES = 5_000_000
 MAX_PDF_BYTES = 50_000_000
-STAGES = ("queued", "searching", "checking_sources", "analyzing", "preparing_pdf", "ready")
+STAGES = ("queued", "searching", "checking_sources", "analyzing", "saving", "preparing_pdf", "ready")
 _ERROR = re.compile(r"^[a-z0-9_]{1,80}$")
 _REPORT_ID = re.compile(r"^rpt_[a-f0-9]{32}$")
 _PRIVATE_RESULT_FIELDS = {
@@ -141,6 +143,10 @@ class ReportStore:
         self.base_store.initialize()
         with self.base_store._connect() as connection:
             connection.executescript("BEGIN IMMEDIATE;\n" + _SCHEMA + "\nCOMMIT;")
+        with self.base_store._transaction() as connection:
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(research_jobs)")}
+            if "error_diagnostics_json" not in columns:
+                connection.execute("ALTER TABLE research_jobs ADD COLUMN error_diagnostics_json TEXT")
         self.pdf_directory.mkdir(parents=True, exist_ok=True)
 
     def _now(self, now: datetime | None = None) -> datetime:
@@ -155,6 +161,9 @@ class ReportStore:
         fields = ("job_id", "agent_id", "topic", "language", "generation_seq", "status", "stage",
                   "created_at", "updated_at", "started_at", "finished_at", "report_id", "previous_report_id", "error_code")
         result = {name: row[name] for name in fields}
+        from app.report_errors import public_error
+        diagnostics = json.loads(row["error_diagnostics_json"] or "{}") if "error_diagnostics_json" in row.keys() else {}
+        result["error"] = public_error(row["error_code"], row["job_id"], row["stage"], diagnostics)
         result["research_window"] = _window(row["window_start"], row["window_end"])
         result["research_cutoff"] = row["window_end"]
         result["pdf_status"] = None
@@ -358,7 +367,10 @@ class ReportStore:
             raise StoreError("invalid_report_stage", "Invalid report stage.", 503)
         with self.base_store._transaction() as connection:
             row = self._leased(connection, job_id, token)
-            if STAGES.index(stage) < STAGES.index(row["stage"]):
+            # A bounded follow-up discovery legitimately follows source checking.
+            # Persistence and analysis still cannot return to provider work.
+            followup_search = row["stage"] == "checking_sources" and stage == "searching"
+            if STAGES.index(stage) < STAGES.index(row["stage"]) and not followup_search:
                 raise StoreError("invalid_report_stage", "Report stages cannot move backwards.", 503)
             connection.execute("UPDATE research_jobs SET stage=?,updated_at=? WHERE job_id=?",
                                (stage, _stamp(self._now()), job_id))
@@ -376,7 +388,7 @@ class ReportStore:
         try:
             if (not isinstance(result, dict) or result.get("schema_version") != 2
                     or result.get("agent_id") != job["agent_id"] or result.get("language") != job["language"]
-                    or not isinstance(result.get("items"), list) or len(result["items"]) > 20
+                    or not isinstance(result.get("items"), list) or len(result["items"]) > 100
                     or not isinstance(result.get("sources"), list) or len(result["sources"]) > 200
                     or not isinstance(result.get("sections"), list)
                     or not isinstance(result.get("citation_mappings"), dict)):
@@ -411,6 +423,7 @@ class ReportStore:
             return
         ledger = connection.execute("SELECT finished_at FROM runs WHERE report_id=?", (report_id,)).fetchone()
         created_at = ledger["finished_at"] if ledger and ledger["finished_at"] else timestamp
+        payload["created_at"] = created_at
         connection.execute("""INSERT INTO research_reports(report_id,job_id,owner_id,agent_id,topic,language,
             generation_seq,window_start,window_end,created_at,updated_at,payload_json)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -502,7 +515,8 @@ class ReportStore:
             return {"job": self._job(job, connection), "joined_existing": joined,
                     "last_successful_report": self._report(report, include_result=False)}
 
-    def fail(self, job_id: str, token: str, code: str, *, pdf: bool = False, interrupted: bool = False) -> None:
+    def fail(self, job_id: str, token: str, code: str, *, pdf: bool = False, interrupted: bool = False,
+             diagnostics: dict[str, Any] | None = None) -> None:
         timestamp = _stamp(self._now())
         with self.base_store._transaction() as connection:
             job = self._leased(connection, job_id, token)
@@ -511,9 +525,9 @@ class ReportStore:
                 connection.execute("UPDATE research_reports SET pdf_status='failed',pdf_error_code=?,updated_at=? WHERE report_id=?",
                                    (code, timestamp, job["report_id"]))
             status = "pdf_failed" if pdf else "interrupted" if interrupted else "failed"
-            connection.execute("""UPDATE research_jobs SET status=?,error_code=?,updated_at=?,finished_at=?,
+            connection.execute("""UPDATE research_jobs SET status=?,error_code=?,error_diagnostics_json=?,updated_at=?,finished_at=?,
                 lease_token=NULL,lease_owner=NULL,lease_expires_at=NULL WHERE job_id=?""",
-                (status, code, timestamp, timestamp, job_id))
+                (status, code, _json(diagnostics or {}), timestamp, timestamp, job_id))
 
     def defer_saved_report(self, job_id: str, token: str) -> None:
         """Only local persistence/PDF work can be requeued after a saved result."""

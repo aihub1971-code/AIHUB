@@ -7,6 +7,7 @@ as interrupted and is never automatically sent to the provider again.
 from __future__ import annotations
 
 import logging
+import json
 import re
 import threading
 import time
@@ -19,6 +20,7 @@ from app.config import get_setting
 from app.permissions import require_capability
 from app.registry import get_agent
 from app.report_store import ReportStore, get_report_store
+from app.report_errors import safe_diagnostics
 from app.storage import StoreError
 
 
@@ -145,11 +147,14 @@ class ReportWorker:
         ledger_saved = False
         pdf_phase = job["stage"] == "preparing_pdf"
         attempt_path = None
+        current_stage = job["stage"]
 
         def progress(stage: str) -> None:
+            nonlocal current_stage
             if lease_lost.is_set():
                 raise StoreError("report_job_lease_lost", "The worker could not renew its lease.", 409)
             reports.set_stage(job_id, token, stage)
+            current_stage = stage
 
         try:
             existing = base.lookup_idempotency(reports.ledger_key(job_id), job["agent_id"], job["topic"], job["language"])
@@ -194,6 +199,7 @@ class ReportWorker:
                 # The generator reports only stages it actually performs;
                 # user-text workspaces can go directly to analysis.
                 raw_result = self.generator(job["agent_id"], job["topic"], **options, progress=progress)
+                progress("saving")
                 prepared = reports.prepare_result(job, report_id, raw_result)
                 ledger_result = {**raw_result, **prepared}
                 base.finish_run(report_id, ledger_result,
@@ -211,6 +217,7 @@ class ReportWorker:
             reports.finish_pdf(job_id, token, metadata)
         except Exception as error:
             code = _error_code(error, pdf=pdf_phase)
+            diagnostics = safe_diagnostics(error, current_stage)
             if code == "report_job_lease_lost":
                 return
             try:
@@ -221,11 +228,12 @@ class ReportWorker:
                 else:
                     if report_id is not None and not ledger_saved:
                         base.fail_run(report_id, code)
-                    reports.fail(job_id, token, code, pdf=pdf_phase)
+                    reports.fail(job_id, token, code, pdf=pdf_phase, diagnostics=diagnostics)
             except Exception:
                 # Keep the durable lease for conservative restart recovery.
                 LOGGER.warning("research_failure_state_unavailable job_id=%s", job_id)
-            LOGGER.warning("research_job_failed job_id=%s code=%s", job_id, code)
+            LOGGER.warning("research_job_failed job_id=%s code=%s diagnostics=%s", job_id, code,
+                           json.dumps(diagnostics, sort_keys=True, separators=(",", ":")))
         finally:
             if attempt_path is not None:
                 try:

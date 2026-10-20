@@ -378,7 +378,7 @@ function dashboardFixture(url, respond) {
   assert.fail("Unexpected fixture request: "+url);
 }
 
-test("English translates every static chrome label and all 13 assistants, with only language persisted", () => {
+test("English translates every static chrome label and all 9 active assistants, with only language persisted", () => {
   const ui=harness(null,{language:"en"});
   assert.equal(ui.I18n.getLanguage(),"en");
   assert.equal(ui.document.documentElement.lang,"en");
@@ -391,7 +391,7 @@ test("English translates every static chrome label and all 13 assistants, with o
       if(attribute!=="data-i18n")assert.equal(element.getAttribute(attribute.slice(10)),ui.I18n.t(key));
     }
   }
-  assert.equal(fixtureAgents.length,13);
+  assert.equal(fixtureAgents.length,9);
   ui.setAgents(fixtureAgents);
   for(const agent of fixtureAgents){
     assert.ok(ui.I18n.has("agent."+agent.id+".name"));
@@ -449,7 +449,7 @@ test("an incomplete follow-up and separate event dates are visible and localized
 
 test("scripts initialize in order without chat requests before authentication; logout clears private state", async () => {
   const sources=[...html.matchAll(/<script src="([^"]+)"/g)].map(match=>match[1]);
-  assert.deepEqual(sources,["/static/i18n.js?v=2.0.3","/static/chat.js?v=1.5.1","/static/app.js?v=1.5.1"]);
+  assert.deepEqual(sources,["/static/i18n.js?v=2.0.3","/static/chat.js?v=1.5.1","/static/app.js?v=2.0.4"]);
   const ui=harness(null,{language:"en",fetch:(url,_options,respond)=>dashboardFixture(url,respond)});
   assert.equal(ui.chatCalls.create,1);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
   assert.equal(ui.chatConfig.getCurrentReport(),null);

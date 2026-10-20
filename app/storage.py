@@ -616,6 +616,8 @@ class Store:
                 raise StoreError("monthly_budget_limit", "The monthly estimated USD budget cannot cover this reservation.", 429)
             credit_cost = connection.execute("SELECT COALESCE(SUM(accounted_newsdata_credits),0) FROM runs WHERE local_date=?",
                                              (local_date,)).fetchone()[0]
+            from app.news_feed import accounted_credits
+            credit_cost += accounted_credits(connection, local_date=local_date)
             if credits and credit_cost + credits > limits.newsdata_daily_credit_limit:
                 raise StoreError("newsdata_daily_credit_limit", "The daily NewsData credit budget cannot cover this page.", 429)
             report_id = "rpt_" + uuid4().hex
@@ -786,6 +788,12 @@ class Store:
                 (SELECT COALESCE(SUM(accounted_newsdata_credits),0) FROM runs WHERE local_date=?) AS accounted,
                 (SELECT COALESCE(SUM(accounted_newsdata_credits),0) FROM runs WHERE local_month=?) AS monthly""",
                 (date, date, month)).fetchone()
+            from app.news_feed import accounted_credits
+            feed_daily = accounted_credits(connection, local_date=date)
+            feed_monthly = accounted_credits(connection, local_month=month)
+            credits = {"reserved": credits["reserved"] + feed_daily,
+                       "accounted": credits["accounted"] + feed_daily,
+                       "monthly": credits["monthly"] + feed_monthly}
         daily_budget, monthly_budget = _micros(limits.daily_budget_usd), _micros(limits.monthly_budget_usd)
         daily_cost = daily["cost"] + chat_daily["cost"]
         monthly_cost = monthly["cost"] + chat_monthly["cost"]

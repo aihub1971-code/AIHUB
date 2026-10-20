@@ -75,14 +75,14 @@ MAX_RESPONSE_TEXT_CHARS = 80000
 WEB_SEARCH_AGENT_IDS = frozenset({
     "ubi-research", "iran-news", "uae-eu-trade-talks", "geopolitical-morning",
     "education-observatory", "historical-reading-companion", "economic-cultural-briefing",
-    "decision-briefing", "pre-meeting-briefing",
+    "decision-briefing",
 })
 AUTO_SEARCH_AGENT_IDS = frozenset({
     "iran-news", "uae-eu-trade-talks", "geopolitical-morning",
-    "economic-cultural-briefing", "pre-meeting-briefing",
+    "economic-cultural-briefing",
 })
 NEWS_TOPIC_AGENT_IDS = AUTO_SEARCH_AGENT_IDS
-NEWS_REPORT_AGENT_IDS = AUTO_SEARCH_AGENT_IDS - {"pre-meeting-briefing"}
+NEWS_REPORT_AGENT_IDS = AUTO_SEARCH_AGENT_IDS
 
 _SEARCH_INTENT = re.compile(
     r"\b(search|research|news|latest|recent|current|today|yesterday|sources?|"
@@ -1147,7 +1147,7 @@ def _call_model(key: str, payload: dict[str, object], *, research: bool = False)
     # httpx's transport has no automatic retries; no SDK retries, fallback, raw-page
     # fetches or response continuations can create invisible extra charges.
     try:
-        with httpx.Client(timeout=httpx.Timeout(90.0, connect=15.0)) as client:
+        with httpx.Client(timeout=httpx.Timeout(90.0, connect=15.0), follow_redirects=False) as client:
             response = client.post(OPENAI_RESPONSES_URL,
                                    headers={"Authorization": f"Bearer {key}",
                                             "Content-Type": "application/json"}, json=payload)
@@ -1155,17 +1155,24 @@ def _call_model(key: str, payload: dict[str, object], *, research: bool = False)
         raise _fail("openai_timeout", "OpenAI timed out; no retry was made.", 504) from None
     except httpx.RequestError:
         raise _fail("openai_connection_error", "Could not reach OpenAI; no retry was made.") from None
-    if response.is_error:
-        failure = _fail("openai_api_error",
-                        "OpenAI rejected the request. Check model access, API settings and limits.",
-                        429 if response.status_code == 429 else 502)
-        failure.detail["provider_status"] = response.status_code
-        raise failure
+    # Share the same safe diagnostics used by native research. NewsData analysis
+    # and translation use this tool-free caller, so their original provider stage
+    # must be distinguishable from retrieval or PDF failures as well.
+    from app.research import MAX_MODEL_RESPONSE_BYTES, _provider_http_failure, _response_failure, _response_diagnostics
+    if response.status_code >= 300:
+        raise _provider_http_failure(response, key)
+    if len(response.content) > MAX_MODEL_RESPONSE_BYTES:
+        raise _response_failure("invalid_model_response", "The model response exceeded its size bound.", response, key)
     try:
         data = response.json()
     except (ValueError, TypeError):
-        raise _fail("invalid_model_response", "OpenAI returned invalid JSON.") from None
-    result = _extract_model_response(data, research=research)
+        raise _response_failure("invalid_model_response", "OpenAI returned invalid JSON.", response, key) from None
+    try:
+        result = _extract_model_response(data, research=research)
+    except HTTPException as error:
+        if isinstance(error.detail, dict):
+            error.detail.update(_response_diagnostics(response, key, data))
+        raise
     input_bound = _json_bytes(payload) + PROVIDER_INPUT_OVERHEAD_TOKENS
     if research:
         input_bound = 2 * input_bound + NATIVE_SEARCH_CONTEXT_TOKENS + int(payload["max_output_tokens"])

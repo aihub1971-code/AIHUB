@@ -25,8 +25,10 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      # Existing legacy NewsData values are preserved by omission. The research
-      # workspace only requires OpenAI; never add secret values to this file.
+      # Existing NewsData values are preserved by omission. Version 2.0.4 uses
+      # NEWSDATA_API_KEY for seven live-news feeds; retain the existing key and
+      # credit limit privately. OpenAI handles bounded report work and chat.
+      # Keep secrets private; this release preserves build settings and budgets.
       - key: OPENAI_MODEL_NAME
         value: gpt-6.1-sol
       - key: OPENAI_REASONING_EFFORT

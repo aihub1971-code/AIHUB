@@ -1,4 +1,7 @@
-"""Synthetic provider and publisher fixtures: no live requests or current claims."""
+"""Native research engine contracts; production news dispatch is tested separately.
+
+Synthetic provider and publisher fixtures: no live requests or current claims.
+"""
 from datetime import datetime, timezone
 from decimal import Decimal
 import hashlib
@@ -552,7 +555,7 @@ def test_no_evidence_is_concise_dated_and_does_not_make_a_synthesis_request(monk
         requests.append(json.loads(request.content))
         return httpx.Response(200, json=provider_response("No inspectable source was returned.", native=[native_call(sources=[])]))
     install_transport(monkeypatch, handler)
-    result = research.generate_report("iran-news", language=language, research_window=WINDOW, progress=stages.append)
+    result = research._generate_native_report("iran-news", language=language, research_window=WINDOW, progress=stages.append)
     assert len(requests) == 2 and result["items"] == []
     assert all(request["max_tool_calls"] == 3 for request in requests)
     assert "coverage_feedback" in json.loads(requests[1]["input"][1]["content"])
@@ -582,7 +585,7 @@ def test_full_pipeline_uses_native_evidence_publisher_timestamp_and_one_synthesi
         sources = json.loads(payload["input"][1]["content"])["sources"]
         return httpx.Response(200, json=provider_response(json.dumps(structured_pack(profile, sources))))
     install_transport(monkeypatch, handler)
-    result = research.generate_report("iran-news", language="en", research_window=WINDOW)
+    result = research._generate_native_report("iran-news", language="en", research_window=WINDOW)
     assert len(requests) == 2
     assert requests[0]["max_tool_calls"] == 3
     assert requests[0]["tools"][0]["external_web_access"] is True
@@ -628,7 +631,7 @@ def test_zero_coverage_gets_one_focused_stage_with_shared_page_and_action_bounds
         sources = json.loads(payload["input"][1]["content"])["sources"]
         return httpx.Response(200, json=provider_response(json.dumps(structured_pack(get_profile("iran-news"), sources))))
     install_transport(monkeypatch, handler)
-    result = research.generate_report("iran-news", language="en", research_window=WINDOW)
+    result = research._generate_native_report("iran-news", language="en", research_window=WINDOW)
     assert len(requests) == 3 and [p["max_tool_calls"] for p in requests[:2]] == [3, 3]
     assert len(downloads) == len(set(downloads)) == research.MAX_PUBLISHER_PAGES
     assert result["verification_diagnostics"]["discovered_url_count"] <= research.MAX_DISCOVERY_URLS
@@ -652,8 +655,8 @@ def test_failed_focused_stage_is_never_retried_or_sent_to_synthesis(monkeypatch)
         return httpx.Response(429, json={"error": {"message": "private provider diagnostic"}})
     install_transport(monkeypatch, handler)
     with pytest.raises(HTTPException) as error:
-        research.generate_report("iran-news", research_window=WINDOW)
-    assert len(requests) == 2 and error.value.detail["code"] == "openai_api_error"
+        research._generate_native_report("iran-news", research_window=WINDOW)
+    assert len(requests) == 2 and error.value.detail["code"] == "openai_rate_limited"
 
 
 def test_focused_feedback_trims_to_reserved_payload_without_changing_window():
@@ -677,7 +680,7 @@ def test_unknown_stage_usage_or_actual_tier_retains_full_reservation(monkeypatch
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-real-key")
     install_transport(monkeypatch, lambda request: httpx.Response(200, json=provider_response("No source.", native=[native_call(sources=[])],
         usage=missing != "usage", tier=missing != "tier")))
-    result = research.generate_report("iran-news", research_window=WINDOW)
+    result = research._generate_native_report("iran-news", research_window=WINDOW)
     assert result["estimated_cost_usd"] is None and result["cost_tracking_complete"] is False
 
 
@@ -689,7 +692,7 @@ def test_native_cap_refusal_incomplete_and_unexpected_tools_never_retry(monkeypa
         return httpx.Response(200, json=provider_response("Too many actions.", native=[native_call()] * 7))
     install_transport(monkeypatch, handler)
     with pytest.raises(HTTPException) as error:
-        research.generate_report("iran-news", research_window=WINDOW)
+        research._generate_native_report("iran-news", research_window=WINDOW)
     assert error.value.detail["code"] == "search_call_limit_exceeded" and len(calls) == 1
 
 
@@ -701,38 +704,22 @@ def test_provider_failure_is_sanitized_and_not_retried(monkeypatch):
         return httpx.Response(429, json={"error": {"message": "secret echoed must never be public"}})
     install_transport(monkeypatch, handler)
     with pytest.raises(HTTPException) as error:
-        research.generate_report("iran-news", research_window=WINDOW)
+        research._generate_native_report("iran-news", research_window=WINDOW)
     assert error.value.status_code == 429 and len(calls) == 1
     assert "secret" not in json.dumps(error.value.detail)
 
 
-@pytest.mark.parametrize("agent", ["mom-agent", "whatsapp-briefing", "literary-translation"])
-def test_empty_workspace_starters_need_no_key_and_make_no_external_call(agent):
-    stages = []
-    estimate = research.estimate_reservation(agent, language="en", research_window=WINDOW)
-    result = research.generate_report(agent, language="en", research_window=WINDOW, progress=stages.append)
-    assert estimate["estimated_cost_usd"] == 0 and estimate["max_model_calls"] == 0
-    assert result["status"] == "awaiting_input" and result["factual_basis"] == "userprovided"
-    assert result["items"] == result["sources"] == []
-    assert result["estimated_cost_usd"] == 0 and stages == ["analyzing"]
-
-
-def test_pasted_workspace_text_uses_only_one_tool_free_model_call(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-real-key")
-    requests = []
-    def handler(request):
-        payload = json.loads(request.content)
-        requests.append(payload)
-        return httpx.Response(200, json=provider_response(json.dumps(structured_pack(get_profile("mom-agent"), [], items=False))))
-    install_transport(monkeypatch, handler)
-    result = research.generate_report("mom-agent", "Meeting notes: Layla will prepare a draft by Friday. No decision was recorded.", "en", research_window=WINDOW)
-    assert len(requests) == 1 and requests[0]["tools"] == []
-    assert result["factual_basis"] == "userprovided" and result["sources"] == []
+@pytest.mark.parametrize("agent", ["mom-agent", "whatsapp-briefing", "literary-translation", "pre-meeting-briefing"])
+def test_retired_assistants_cannot_estimate_or_start_new_research(agent):
+    for operation in (research.estimate_reservation, research.generate_report):
+        with pytest.raises(HTTPException) as error:
+            operation(agent, language="en", research_window=WINDOW)
+        assert error.value.status_code == 404
 
 
 def test_reservation_bounds_cover_all_actions_full_payload_and_output(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-real-key")
-    estimate = research.estimate_reservation("iran-news", research_window=WINDOW)
+    estimate = research._estimate_native_reservation("iran-news", research_window=WINDOW)
     assert estimate["max_native_actions"] == estimate["max_web_search_calls"] == 6
     assert estimate["max_model_calls"] == 3
     assert estimate["research_stage_action_limits"] == [3, 3]
@@ -747,11 +734,11 @@ def test_custom_model_has_no_unverified_long_context_pricing(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-real-key")
     monkeypatch.setenv("OPENAI_MODEL_NAME", "synthetic-custom-model")
     with pytest.raises(HTTPException):
-        research.estimate_reservation("iran-news", research_window=WINDOW)
+        research._estimate_native_reservation("iran-news", research_window=WINDOW)
     monkeypatch.setenv("OPENAI_PRICING_MODEL", "synthetic-custom-model")
     monkeypatch.setenv("OPENAI_INPUT_USD_PER_MILLION", "2")
     monkeypatch.setenv("OPENAI_OUTPUT_USD_PER_MILLION", "10")
-    assert research.estimate_reservation("iran-news", research_window=WINDOW)["max_native_actions"] == 1
+    assert research._estimate_native_reservation("iran-news", research_window=WINDOW)["max_native_actions"] == 1
 
 
 def test_synthesis_context_is_bounded_before_call_and_untrusted_prior_report_is_whitelisted():

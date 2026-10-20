@@ -7,9 +7,9 @@
   <meta name="description" content="AI HUB — research, evidence, reports and connected discussion in Arabic and English.">
   <title>AI HUB · Research workspace</title>
   <link rel="icon" href="/static/mark.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/workspace.css?v=2.0.3">
-  <script defer src="/static/workspace-markdown.js?v=2.0.3"></script>
-  <script defer src="/static/workspace.js?v=2.0.3"></script>
+  <link rel="stylesheet" href="/static/workspace.css?v=2.0.4">
+  <script defer src="/static/workspace-markdown.js?v=2.0.4"></script>
+  <script defer src="/static/workspace.js?v=2.0.4"></script>
 </head>
 <body>
   <a class="skip-link" href="#main-content" data-text="skip">انتقل إلى المحتوى</a>
@@ -51,9 +51,13 @@
           <span id="agent-count" class="agent-count"></span>
         </aside>
       </div>
+      <section id="home-news" class="home-news" aria-labelledby="home-news-title" hidden>
+        <div class="section-heading"><h2 id="home-news-title" data-text="liveNews">الأخبار المباشرة</h2><label class="sr-only" for="home-news-agent" data-text="newsTopic">مجال الأخبار</label><select id="home-news-agent" class="agent-selector"></select></div>
+        <div id="home-news-content"></div>
+      </section>
       <div class="section-heading"><h2 data-text="specialists">اختر مجال البحث</h2><span data-text="cardsHint">اختيار المساعد يبدأ إعداد تقريره</span></div>
       <div id="agent-grid" class="agent-grid" aria-live="polite"></div>
-      <p class="home-footnote" data-text="coverageNote">تُحدّث التقارير عند الطلب. يُعرض حتى 20 خبرًا بعد التحقق من وقت النشر وإزالة التكرار؛ وقد تقلّ النتائج بحسب الأدلة المتاحة.</p>
+      <p class="home-footnote" data-text="coverageNote">تُحدّث الأخبار المباشرة تلقائيًا، وتُعد التقارير عند الطلب. يُعرض حتى 100 خبر منشور خلال آخر 12 ساعة بعد التحقق وإزالة التكرار؛ وقد تقلّ النتائج بحسب المصادر المتاحة.</p>
     </section>
     <section id="workspace-view" class="workspace-view" aria-labelledby="workspace-heading" hidden>
       <div class="workspace-toolbar">

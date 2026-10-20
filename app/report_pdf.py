@@ -22,7 +22,8 @@ from zoneinfo import ZoneInfo
 
 
 FONT_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
-MAX_REPORT_BYTES = 1_500_000
+# Match report_store: 100 long multilingual articles plus source references.
+MAX_REPORT_BYTES = 5_000_000
 MAX_PDF_BYTES = 32_000_000
 DUBAI = ZoneInfo("Asia/Dubai")
 
@@ -38,6 +39,10 @@ _LABELS = {
     "moodboard": ("لوحة القصة", "Story moodboard"),
     "workspace": ("تقرير المساعد", "Agent report"),
     "cutoff": ("وقت البحث", "Research cutoff"),
+    "generated": ("وقت إنشاء التقرير", "Generated"),
+    "report_id": ("معرّف التقرير", "Report ID"),
+    "article_count": ("عدد الأخبار المسترجعة", "Articles retrieved"),
+    "analyzed_count": ("الأخبار التي شملها التحليل", "Articles included in analysis"),
     "window": ("فترة التغطية بتوقيت دبي", "Coverage window - Dubai time"),
     "snapshot": ("تقرير مؤرخ يُحدّث عند الطلب", "Dated snapshot - refreshed on demand"),
     "news": ("ملحق الأخبار", "News appendix"),
@@ -52,6 +57,7 @@ _LABELS = {
     "reference": ("مرجع", "Reference material"),
     "event": ("تاريخ الحدث كما ورد", "Reported event date"),
     "conflict_and_diplomacy": ("الصراع والدبلوماسية", "Conflict and diplomacy"),
+    "conflict_diplomacy": ("الصراع والدبلوماسية", "Conflict and diplomacy"),
     "major_consequences": ("التداعيات الرئيسية", "Major consequences"),
     "empty": ("لا توجد تطورات موثقة خلال الساعات الاثنتي عشرة الماضية.", "No verified developments in the last 12 hours."),
     "palette": ("لوحة الألوان", "Colour palette"),
@@ -492,6 +498,24 @@ def _build_pdf(report: dict[str, Any]) -> tuple[bytes, int]:
     if window.get("start") and window.get("end"):
         pdf.paragraph(label("window"), size=8, bold=True, color=MUTED, gap=0)
         pdf.paragraph(f"{_date(window['start'])}  -  {_date(window['end'])}", size=8.5, latin=True, color=MUTED, gap=3.5)
+    generated = _date(report.get("created_at"))
+    if generated:
+        pdf.paragraph(label("generated"), size=8, bold=True, color=MUTED, gap=0)
+        pdf.paragraph(generated, size=8.5, latin=True, color=MUTED, gap=2)
+    if type(report.get("actual_article_count")) is int:
+        target = report.get("requested_article_target", 100)
+        article_count = f"{report['actual_article_count']} / {target}"
+        if ar:
+            article_count = "\u2066" + article_count + "\u2069"
+        pdf.paragraph(f"{label('article_count')}: {article_count}",
+                      size=9, bold=True, color=ACCENT, gap=1)
+        if type(report.get("analyzed_article_count")) is int:
+            pdf.paragraph(f"{label('analyzed_count')}: {report['analyzed_article_count']}",
+                          size=8.5, color=MUTED, gap=2)
+    report_id = _text(report.get("report_id"))
+    if report_id:
+        pdf.paragraph(label("report_id"), size=7.4, color=MUTED, gap=0)
+        pdf.paragraph(report_id, size=7.4, latin=True, color=MUTED, gap=2)
     pdf.set_draw_color(*RULE)
     pdf.line(20, pdf.get_y(), 190, pdf.get_y())
     pdf.ln(4)
@@ -594,7 +618,7 @@ def render_report_pdf(report: dict[str, Any], output_path: Path | str) -> dict[s
         raise ReportPDFError("pdf_report_too_large")
     if not isinstance(report.get("sections", []), list) or not isinstance(report.get("sources", []), list) or not isinstance(report.get("items", []), list):
         raise ReportPDFError("pdf_invalid_report")
-    if len(report.get("items", [])) > 20:
+    if len(report.get("items", [])) > 100:
         raise ReportPDFError("pdf_news_limit_exceeded")
     target = Path(output_path)
     if target.suffix.lower() != ".pdf":

@@ -3,8 +3,20 @@
   "adapted_from": "User-supplied project handoff; branding and selected instructions adapted for AI HUB.",
   "source_snapshot_date": "2026-10-12",
   "handoff_date": "2026-10-20",
-  "agent_count": 13,
+  "release_version": "2.0.4",
+  "agent_count": 9,
+  "active_agent_count": 9,
+  "source_snapshot_agent_count": 13,
+  "retired_agent_ids": [
+    "mom-agent",
+    "whatsapp-briefing",
+    "literary-translation",
+    "pre-meeting-briefing"
+  ],
   "skill_file_count": 14,
+  "active_skill_file_count": 9,
+  "retained_archived_skill_file_count": 5,
+  "retention_note": "All 14 original skill files and their recorded hashes are retained as source provenance. Four assistants are retired from active registration and permissions; their saved reports, PDFs and owner-scoped conversations are retained. Presence in this historical skill manifest does not authorize execution.",
   "skills": [
     {
       "agent_id": "ubi-research",

@@ -107,41 +107,6 @@ _PROFILES = {
         "research_strategy": "Find primary evidence relevant to the decision and independent comparisons. Keep facts, assumptions and recommendation conditions explicit.",
         "terms": [], "sections": _STANDARD + [("options", "Options and trade-offs", "الخيارات والمفاضلات")],
     },
-    "mom-agent": {
-        "kind": "workspace", "uses_retrieval": False,
-        "default_topic_en": "Paste meeting notes or a transcript here to create minutes, decisions and action items",
-        "default_topic_ar": "ألصق ملاحظات الاجتماع أو نصه هنا لإعداد المحضر والقرارات والمهام",
-        "scope": "Transform user-provided meeting material into minutes, decisions, owners, deadlines and an unsent follow-up draft. Missing notes require a useful template and a request for notes; never invent a meeting or participants.",
-        "research_strategy": "Use only text supplied by the user. Mark unspecified dates, owners and decisions as missing. No access to recordings or external accounts is implied.",
-        "terms": [], "sections": [("meeting_summary", "Meeting summary", "ملخص الاجتماع"), ("decisions", "Decisions", "القرارات"),
-            ("actions", "Action items", "المهام"), ("follow_up", "Unsent follow-up draft", "مسودة متابعة غير مرسلة")],
-    },
-    "whatsapp-briefing": {
-        "kind": "workspace", "uses_retrieval": False,
-        "default_topic_en": "Paste the messages you want summarized; no WhatsApp account access is connected",
-        "default_topic_ar": "ألصق الرسائل التي تريد تلخيصها؛ لا يوجد اتصال بحساب واتساب",
-        "scope": "Summarize user-pasted messages, priorities, proposed actions and unsent replies. Never claim to read WhatsApp, access a contact or send a message.",
-        "research_strategy": "Use only supplied messages. Label reply drafts as unsent and distinguish explicit commitments from suggested follow-up.",
-        "terms": [], "sections": [("summary", "Message summary", "ملخص الرسائل"), ("priorities", "Priorities", "الأولويات"),
-            ("actions", "Suggested actions", "خطوات مقترحة"), ("reply_drafts", "Unsent reply drafts", "مسودات ردود غير مرسلة")],
-    },
-    "literary-translation": {
-        "kind": "workspace", "uses_retrieval": False,
-        "default_topic_en": "Paste a literary passage for translation, with its source language and preferred tone",
-        "default_topic_ar": "ألصق المقطع الأدبي المطلوب ترجمته مع لغة الأصل والنبرة المرغوبة",
-        "scope": "Translate user-provided literary text faithfully with notes, glossary and revisable style choices. Do not fabricate the original, its author or missing context.",
-        "research_strategy": "Work only from user-provided text. Explain ambiguous translation choices and preserve voice; request the passage when absent.",
-        "terms": [], "sections": [("translation", "Translation", "الترجمة"), ("translator_notes", "Translator notes", "ملاحظات المترجم"),
-            ("glossary", "Glossary", "المسرد"), ("style_choices", "Style choices", "الاختيارات الأسلوبية")],
-    },
-    "pre-meeting-briefing": {
-        "kind": "briefing", "uses_retrieval": True,
-        "default_topic_en": "Prepare an evidence-based briefing for a meeting on UAE international cooperation",
-        "default_topic_ar": "إعداد إحاطة موثقة لاجتماع حول التعاون الدولي لدولة الإمارات",
-        "scope": "Counterpart research, relevant developments, agenda, questions and conditional meeting goals. Do not invent the principal, counterpart biography or a scheduled appointment.",
-        "research_strategy": "Use official institution biographies and primary documents plus relevant reporting. Separate verified facts from suggested discussion points and unanswered questions.",
-        "terms": [], "sections": _STANDARD + [("meeting_questions", "Meeting questions", "أسئلة الاجتماع")],
-    },
 }
 
 

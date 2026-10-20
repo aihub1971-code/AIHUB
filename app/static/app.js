@@ -386,7 +386,7 @@
       button.append(newsElement("span","agent-num",agent.number),detail);button.addEventListener("click",()=>chooseAgent(agent.id));$("agentList").append(button);
     });
     if(agents.length && !shown.length)$("agentList").append(newsElement("p","hint",t("agents.empty")));
-    $("agentCount").textContent=n(agents.length || 13);
+    $("agentCount").textContent=n(agents.length);
   }
   function renderSelectedAgent(){
     if(!selectedAgent)return;
