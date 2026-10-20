@@ -126,6 +126,7 @@
     "news.fallbackHeadline": ["خبر من المصادر المعتمدة", "Report from an approved publisher"],
     "news.noSummary": ["لم يتوفر ملخص لهذا الخبر.", "No summary is available for this report."],
     "news.aljazeera": ["الجزيرة", "Al Jazeera"],
+    "news.liveCoverage": ["تغطية حية", "Live coverage"],
     "news.published": ["النشر: {date}", "Published: {date}"],
     "news.eventDate": ["تاريخ الحدث حسب ملاحظات البحث: {date}", "Event date reported in research notes: {date}"],
     "news.researchIncomplete": ["لم يكتمل البحث لدى بعض الناشرين ({count}). يعرض التقرير ما أمكن العثور عليه من عمليات البحث المكتملة.", "Research did not complete for some publishers ({count}). This report includes the material found by the completed searches."],

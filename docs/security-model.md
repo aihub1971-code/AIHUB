@@ -1,4 +1,6 @@
-# AI HUB 1.4.0 security model
+# AI HUB 1.4.1 security model
+
+This documents the pending 1.4.1 source update; it does not certify that version as deployed.
 
 ## Scope and identity
 
@@ -12,7 +14,7 @@ The browser keeps authentication only in memory. Its sole application preference
 
 `config/permissions.json` defines per-agent action and tool allowlists; missing permission entries deny access. Skill text, tasks and retrieved material cannot authorize additional tools or external actions. The only research provider is OpenAI, using the same server-side `OPENAI_API_KEY` as generation and chat.
 
-The Iran news assistant produces one unified report. Each news task uses one unified research Responses request across all eight approved domains together, covering Financial Times, The Atlantic, Politico, The Wall Street Journal, The Daily Telegraph and Al Jazeera. Research is not split into publisher-specific requests or parallel publisher workers. The request permits at most one native `web_search` action. A final structured synthesis, when usable sources are available, uses `tools=[]`.
+The Iran news assistant produces one unified report. Each news task uses one unified research Responses request across all eight approved domains together, covering Financial Times, The Atlantic, Politico, The Wall Street Journal, The Daily Telegraph and Al Jazeera. Research is not split into publisher-specific requests or parallel publisher workers. The request permits at most one native `web_search` action. A final structured synthesis, when usable sources are available, uses `tools=[]`. The research prompt asks for one concise natural-language query using the subject and requested period; the hosted domain filter continues to restrict publishers. This prompt change does not establish improved retrieval coverage.
 
 | Operation | Maximum Responses requests | Native search limit |
 |---|---:|---:|
@@ -27,6 +29,8 @@ All native-search agents are restricted to `ft.com`, `theatlantic.com`, `politic
 
 Structured news URLs must match authorized native source metadata. URL matching permits equivalent Unicode/UTF-8 percent-encoded paths, normalizes percent-escape case and removes tracking parameters. It does not invent article paths or treat a different protocol, `www` host, AMP path or reserved encoded separator as authorization for another URL. Broader duplicate detection does not grant source authorization.
 
+Direct, dated official live coverage can be included as one evolving source with `source_kind="live_coverage"`, displayed as **تغطية حية** or **Live coverage**. The page counts once; individual updates are not split into separate news items. It must pass the same native URL authorization, publisher, publication/update-date, future-timestamp, relevance and duplicate checks as other sources. Homepages, category pages and bare live indexes remain excluded. The live-coverage label does not bypass evidence checks or imply that AI HUB continuously refreshes the saved report.
+
 Attributed notes and publication/event dates remain **model-derived research evidence**. They are not independently fetched publisher bodies or verified verbatim quotations. A source citation does not prove full access to a paywalled article. Publisher coverage and semantic accuracy are not guaranteed. See the [OpenAI web-search metadata documentation](https://developers.openai.com/api/docs/guides/tools-web-search).
 
 The browser inserts structured headlines and summaries as text. Official-article buttons have a separate approved-host and HTTP(S) check; credentials, nonstandard ports, deceptive host suffixes and homepages are rejected. Links open with `noopener noreferrer`. Copy and download retain the saved report. Other generated content uses a limited Markdown renderer without inserting raw HTML. This release does not send WhatsApp messages, emails or invitations, or publish generated reports to third parties.
@@ -35,7 +39,7 @@ The browser inserts structured headlines and summaries as text. Official-article
 
 Conversations, messages and turn states are stored in owner-scoped SQLite records. The client submits a message, language and optional selected report; it cannot supply system messages or forged assistant history. The server retrieves recent completed user/assistant pairs itself. A conversation permits one pending turn, and a history-version check prevents sending a request prepared against changed history.
 
-Chat context is bounded to 20 completed turns within 100,000 serialized bytes, an explicitly selected completed report within 30,000 bytes, and a total payload within 200,000 bytes. A message may contain up to 8,000 characters; a conversation title is limited to 120. Older context may be omitted without deleting stored history, and truncation is reported. The selected report is labeled untrusted archived data and is not the full database. Chat has no callable tools, live web search, filesystem access or permission to change settings, schedules or reports. These boundaries limit actions; they do not guarantee the factual correctness of generated prose.
+Chat context is bounded to 20 completed turns within 100,000 serialized bytes, an explicitly selected completed report within 30,000 bytes, and a total payload within 200,000 bytes. A message may contain up to 8,000 characters; a conversation title is limited to 120. Older context may be omitted without deleting stored history, and truncation is reported. The selected report is labeled untrusted archived data and is not the full database. The server-whitelisted platform context identifies the **العربية** and **English** buttons in the page header and tells the user to type the requested publication period in the task box. These factual interface instructions add no tool or action permissions. Chat has no callable tools, live web search, filesystem access or permission to change settings, schedules or reports. These boundaries limit actions; they do not guarantee the factual correctness of generated prose.
 
 Arabic and English are stored with new reports and schedules. Changing interface language updates page direction and controls without making an OpenAI call or translating saved content. A report can be explained or translated in chat while its saved original remains unchanged. The additive migration creates chat tables and adds `schedules.language` with `ar` for existing schedules; existing Arabic report idempotency hashes remain stable. See [Chat and language guide](CHAT_AND_LANGUAGES.md).
 

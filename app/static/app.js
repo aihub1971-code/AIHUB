@@ -213,6 +213,7 @@
     article.append(heading,summary);
     const source=officialNewsSource(item.url), meta=newsElement("div","news-byline"); meta.dir=I18n.getDirection();
     if(source)meta.append(newsElement("bdi","news-publisher",source.publisher));
+    if(item.source_kind==="live_coverage")meta.append(newsElement("span","news-context-label news-live-coverage",t("news.liveCoverage")));
     const published=item.published_day_dubai || item.published_date, day=newsDay(published);
     if(day){const time=newsElement("time","news-published",t("news.published",{date:day}));time.dateTime=published;meta.append(time);}
     else meta.append(newsElement("span","news-published",t("news.noDate")));

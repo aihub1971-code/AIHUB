@@ -370,7 +370,7 @@ def test_canonical_urls_and_duplicate_headlines_are_removed():
     assert len(search["results"]) == 2 and search["excluded"]["duplicate"] == 2
 
 
-def test_iran_incidental_notes_liveblogs_and_indexes_are_rejected():
+def test_iran_incidental_notes_and_generic_live_indexes_are_rejected():
     sources = [
         raw_source(title="Regional climate forum opens", content="Iran mentioned as a side story."),
         raw_source(url="https://www.ft.com/live-updates/iran"),
@@ -381,6 +381,96 @@ def test_iran_incidental_notes_liveblogs_and_indexes_are_rejected():
     search = extracted_sources(sources)
     assert len(search["results"]) == 1 and search["results"][0]["title"].startswith("إيران")
     assert search["excluded"]["irrelevant"] == 1 and search["excluded"]["invalid_source"] == 3
+
+
+@pytest.mark.parametrize("path", [
+    "/", "/news", "/category/iran", "/tag/iran", "/live", "/news/liveblog/",
+    "/live-updates/iran", "/news/liveblog/world", "/live/latest",
+])
+def test_live_coverage_title_does_not_make_a_homepage_or_index_eligible(path):
+    source = raw_source(title="Iran live coverage: synthetic index fixture",
+                        url="https://www.aljazeera.com" + path)
+    search = extracted_sources([source])
+    assert search["results"] == []
+    assert search["excluded"]["non_article_url"] == 1
+
+
+@pytest.mark.parametrize("title,url", [
+    ("Iran synthetic project updates", "https://www.aljazeera.com/news/liveblog/2026/10/19/iran-fixture-updates"),
+    ("تطورات اصطناعية من طهران", "https://www.aljazeera.net/news/live/2026/10/19/tehran-fixture-updates"),
+    ("Iran live coverage: a fictional programme", "https://www.ft.com/content/synthetic-coverage-fixture"),
+    ("تغطية مباشرة لمشروع افتراضي في إيران", "https://www.aljazeera.net/news/2026/10/19/synthetic-coverage-fixture"),
+])
+def test_direct_official_live_coverage_is_an_eligible_source_with_explicit_kind(title, url):
+    source = raw_source(title=title, url=url)
+    search = extracted_sources([source])
+    assert len(search["results"]) == 1
+    accepted = search["results"][0]
+    assert accepted["source_kind"] == "live_coverage" and accepted["url"] == url
+    assert accepted["evidence_level"] == "openai_research_notes"
+    assert accepted["publisher_text_verified"] is False
+    assert search["excluded"]["invalid_source"] == 0
+
+
+@pytest.mark.parametrize("language,label", [("ar", "تغطية حية"), ("en", "Live coverage")])
+def test_dated_live_coverage_reaches_one_report_and_its_downloadable_label(mocked_http, language, label):
+    source = raw_source(title="Iran live coverage: fictional project updates",
+                        url="https://www.aljazeera.com/news/liveblog/2026/10/19/iran-fixture-updates")
+    candidate = selected_item()
+    if language == "en":
+        candidate.pop("headline_ar")
+        candidate.pop("summary_ar")
+        candidate.update(headline_en="Fictional live updates from Tehran",
+                         summary_en="Synthetic research notes for testing; these are not retrieved news.")
+    calls = mocked_http(news_handler([source], {"items": [candidate], "background_items": []}))
+    result = runtime.run_agent("iran-news", "أخبار إيران اليوم", language=language)
+    assert len(calls) == 2 and result["web_search"]["request_count"] == 1
+    assert report_source_pack(calls[1])[0]["source_kind"] == "live_coverage"
+    assert result["item_count"] == 1 and result["status"] == "complete"
+    assert result["target_count"] is None and result["shortfall"] is None
+    assert result["items"][0]["source_kind"] == "live_coverage"
+    assert result["items"][0]["url"] == source["url"]
+    assert result["items"][0]["published_day_dubai"] == "2026-10-19"
+    assert result["items"][0]["publisher_text_verified"] is False
+    assert label in result["response"] and source["url"] in result["response"]
+
+
+def test_live_coverage_cannot_split_one_native_url_into_multiple_news_items(mocked_http):
+    url = "https://www.aljazeera.com/news/liveblog/2026/10/19/iran-fixture-updates"
+    sources = [raw_source(url=url), raw_source(1, url=url + "?utm_source=fixture#update-2")]
+    candidates = [selected_item(index, source_id="s1") for index in range(3)]
+    calls = mocked_http(news_handler(sources, {"items": candidates[:2], "background_items": candidates[2:]}))
+    result = runtime.run_agent("iran-news", "أخبار إيران اليوم")
+    assert len(calls) == 2 and len(report_source_pack(calls[1])) == 1
+    assert result["item_count"] == 1 and result["background_items"] == []
+    assert result["items"][0]["url"] == url and result["items"][0]["source_kind"] == "live_coverage"
+    assert result["discarded_item_reasons"] == {"duplicate": 2}
+
+
+def test_live_page_with_prior_publication_and_supported_current_update_is_current_news(mocked_http):
+    updated = "2026-10-19T07:00:00Z"
+    phrase = "A fictional project was announced on 2026-10-19."
+    source = raw_source(published="2026-10-18T07:00:00Z",
+                        url="https://www.aljazeera.com/news/liveblog/2026/10/18/iran-fixture-updates",
+                        content=f"Synthetic fixture, not actual news. Updated: {updated}. {phrase}")
+    candidate = selected_item(published=updated, published_date_note=f"Updated: {updated}.")
+    mocked_http(news_handler([source], {"items": [candidate], "background_items": []}))
+    result = runtime.run_agent("iran-news", "أخبار إيران اليوم")
+    assert result["item_count"] == 1 and result["background_items"] == []
+    assert result["items"][0]["source_kind"] == "live_coverage"
+    assert result["items"][0]["published_date"] == updated
+    assert result["items"][0]["published_date_note"] == f"Updated: {updated}."
+
+
+def test_live_coverage_notes_cannot_authorize_a_new_same_publisher_url():
+    source = raw_source(url="https://www.aljazeera.com/news/liveblog/2026/10/19/iran-fixture-updates")
+    reply = research_reply([source])
+    part = reply["output"][1]["content"][0]
+    part["annotations"] = []
+    part["text"] = part["text"].replace("iran-fixture-updates", "invented-fixture-updates")
+    reply["output"][0]["action"]["sources"][0]["title"] = source["title"]
+    search = runtime._native_research_sources(runtime._extract_model_response(reply, research=True), "iran-news")
+    assert search["results"] == []
 
 
 def test_model_text_cannot_authorize_an_arbitrary_url_or_same_domain_article():
@@ -681,13 +771,17 @@ def test_citation_spanning_article_headings_cannot_transfer_source_evidence():
     (None, "publication_evidence"), ("2026-10-16", "outside_window"),
     ("2026-10-20", "future_publication"), ("2026-10-19T25:99:00Z", "publication_evidence"),
 ])
-def test_undated_outside_window_future_and_malformed_publications_do_not_enter_news(mocked_http, published, reason):
-    sources = [raw_source(published=published), raw_source(1)]
+@pytest.mark.parametrize("source_kind", ["article", "live_coverage"])
+def test_undated_outside_window_future_and_malformed_publications_do_not_enter_news(mocked_http, published, reason, source_kind):
+    url = ("https://www.aljazeera.com/news/liveblog/2026/10/19/iran-fixture-updates"
+           if source_kind == "live_coverage" else "https://www.ft.com/article/0")
+    sources = [raw_source(published=published, url=url), raw_source(1)]
     report = {"items": [selected_item(published=published), selected_item(1)], "background_items": []}
     mocked_http(news_handler(sources, report))
     result = runtime.run_agent("iran-news", "أخبار 2026-10-19")
     assert result["item_count"] == 1 and result["discarded_item_count"] == 1
     assert result["items"][0]["source_title"] == TITLES[1]
+    assert result["items"][0]["source_kind"] == "article"
     assert result["discarded_item_reasons"] == {reason: 1}
     assert sum(result["discarded_item_reasons"].values()) == result["discarded_item_count"]
 
@@ -775,15 +869,19 @@ def test_unknown_publication_cannot_borrow_an_occurrence_date(mocked_http):
     assert result["item_count"] == 0 and result["discarded_item_count"] == 1
 
 
-def test_prior_day_remains_background_even_if_model_places_in_items(mocked_http):
+@pytest.mark.parametrize("source_kind", ["article", "live_coverage"])
+def test_prior_day_remains_background_even_if_model_places_in_items(mocked_http, source_kind):
     published = "2026-10-18T07:00:00Z"
-    sources = [raw_source(published=published, event_day="2026-10-18")]
+    url = ("https://www.aljazeera.com/news/liveblog/2026/10/18/iran-fixture-updates"
+           if source_kind == "live_coverage" else "https://www.ft.com/article/0")
+    sources = [raw_source(published=published, event_day="2026-10-18", url=url)]
     report = {"items": [selected_item(event_day="2026-10-18", published=published)], "background_items": []}
     requests = mocked_http(news_handler(sources, report))
     result = runtime.run_agent("iran-news", "أخبار اليوم")
     assert len(requests) == 2 and result["item_count"] == result["fresh_event_count"] == 0
     assert len(result["background_items"]) == 1
     assert result["background_items"][0]["classification"] == "prior_day_background"
+    assert result["background_items"][0]["source_kind"] == source_kind
     assert result["web_search"]["status"] == "recent_fallback"
     assert result["web_search"]["requested_window_matches"] == 0
     assert "اليوم السابق" in result["response"]

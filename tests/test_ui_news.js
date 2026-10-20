@@ -166,6 +166,51 @@ test("news presents a headline, summary, publisher, publication date and direct 
   assert.equal(byClass(body, "news-coverage").length, 1);
   assert.equal(byTag(body, "details").length, 1);
   assert.equal(byTag(body, "details")[0].attributes.open, undefined);
+  assert.equal(byClass(body, "news-live-coverage").length, 0, "Legacy article results have no invented coverage type.");
+});
+
+test("live coverage is labeled in Arabic and English without changing its headline, date or official link", async () => {
+  const live = item({source_kind:"live_coverage", headline:"تغطية اختبار افتراضية من طهران",
+    url:"https://www.aljazeera.com/news/liveblog/2026/10/20/tehran-synthetic-preview"});
+  const ui = harness();
+  ui.displayResult(report({items:[live,item({source_kind:"article"})],item_count:2}));
+  const body=ui.elements.get("responseBody");
+  assert.equal(byClass(body,"news-item").length,2);
+  assert.equal(byClass(body,"news-live-coverage").length,1);
+  assert.equal(byClass(body,"news-live-coverage")[0].textContent,"تغطية حية");
+  assert.equal(byClass(body,"news-headline")[0].textContent,live.headline);
+  assert.equal(byClass(body,"news-summary")[0].textContent,live.summary);
+  assert.equal(byTag(body,"time")[0].dateTime,"2026-10-20");
+  let link=byClass(body,"news-source-link")[0];
+  assert.equal(link.href,live.url);assert.equal(link.target,"_blank");assert.equal(link.rel,"noopener noreferrer");
+  await ui.elements.get("languageEN").click();
+  assert.equal(byClass(body,"news-live-coverage")[0].textContent,"Live coverage");
+  assert.equal(byClass(body,"news-headline")[0].textContent,live.headline);
+  assert.equal(byClass(body,"news-count")[0].textContent,"News items: 2");
+  link=byClass(body,"news-source-link")[0];
+  assert.equal(link.href,live.url);assert.match(link.textContent,/Read on the publisher’s website/);
+  assert.equal(ui.requests.length,0,"Changing a coverage label must not retrieve new news.");
+});
+
+test("an archived previous-day live page keeps its distinct background label and original downloadable report", async () => {
+  const live=item({source_kind:"live_coverage",classification:"prior_day_background",
+    published_day_dubai:"2026-10-19",published_date:"2026-10-19",
+    url:"https://www.aljazeera.net/news/liveblog/2026/10/19/tehran-synthetic-preview"});
+  const data=report({items:[],item_count:0,background_items:[live]});
+  const saved={report_id:data.report_id,agent_id:"iran-news",status:"succeeded",result:data};
+  const ui=harness(saved,{language:"en"});ui.setAuthenticated();
+  ui.renderArchive([{...saved,task:"Synthetic archived coverage",created_at:data.generated_at}]);
+  await byTag(ui.elements.get("archiveList"),"button")[0].click();
+  const body=ui.elements.get("responseBody"),background=byClass(body,"news-background")[0];
+  assert.equal(byClass(body,"news-list").length,0);
+  assert.equal(byClass(background,"news-item").length,1);
+  assert.equal(byClass(background,"news-live-coverage")[0].textContent,"Live coverage");
+  assert.equal(byClass(background,"news-context-label").length,2);
+  assert.match(byClass(background,"news-context-label")[1].textContent,/previous-day report/i);
+  assert.equal(byClass(background,"news-source-link")[0].href,live.url);
+  await ui.elements.get("copyBtn").click();assert.equal(ui.copied(),data.response);
+  await ui.elements.get("downloadBtn").click();
+  assert.equal(ui.requests[1].url,"/v1/reports/rpt_ui_fixture/download?format=md");
 });
 
 test("empty current news and a previous-day item remain separate without a fixed target", () => {
@@ -326,7 +371,7 @@ test("partial publisher research and separate event dates are visible and locali
 
 test("scripts initialize in order without chat requests before authentication; logout clears private state", async () => {
   const sources=[...html.matchAll(/<script src="([^"]+)"/g)].map(match=>match[1]);
-  assert.deepEqual(sources,["/static/i18n.js?v=1.4.0","/static/chat.js?v=1.4.0","/static/app.js?v=1.4.0"]);
+  assert.deepEqual(sources,["/static/i18n.js?v=1.4.1","/static/chat.js?v=1.4.1","/static/app.js?v=1.4.1"]);
   const ui=harness(null,{language:"en",fetch:(url,_options,respond)=>dashboardFixture(url,respond)});
   assert.equal(ui.chatCalls.create,1);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
   assert.equal(ui.chatConfig.getCurrentReport(),null);

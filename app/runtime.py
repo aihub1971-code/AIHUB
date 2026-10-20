@@ -502,15 +502,30 @@ def _duplicate_headline(title: str, previous: list[str]) -> bool:
                for old in previous)
 
 
+def _news_source_kind(title: str, url: str) -> str:
+    path = unquote(urlsplit(url).path).strip("/").casefold()
+    return "live_coverage" if (
+        re.search(r"(?:^|/)(?:live|liveblog|live-blog|live_blog|live-updates?)(?:/|$)", path)
+        or re.search(r"\b(?:live blog|liveblog|live updates?|live coverage)\b|بث مباشر|تغطية مباشرة",
+                     title, re.IGNORECASE)
+    ) else "article"
+
+
 def _is_article_url(title: str, url: str) -> bool:
     path = unquote(urlsplit(url).path).strip("/").casefold()
     if not path or path in {"news", "iran", "world", "latest", "middle-east", "middleeast"}:
         return False
     if re.search(r"(?:^|/)(?:category|categories|tag|tags|author|authors|search|archive|"
-                 r"archives|topic|topics|liveblog|live-blog|live_blog|live-updates?)(?:/|$)", path):
+                 r"archives|topic|topics)(?:/|$)", path):
         return False
-    return not bool(re.search(r"\b(?:live blog|liveblog|live updates)\b|بث مباشر|تغطية مباشرة",
-                              title, re.IGNORECASE))
+    live = re.search(r"(?:^|/)(?:live|liveblog|live-blog|live_blog|live-updates?)(?:/|$)", path)
+    if live:
+        detail = path[live.end():].strip("/")
+        if not detail or detail in {"news", "iran", "world", "latest", "middle-east"}:
+            return False
+    # Dated official live coverage is an eligible source, counted once by URL.
+    # Its publication/update evidence must still pass the later date validator.
+    return True
 
 
 def _is_direct_iran_article(title: str, snippet: str, url: str) -> bool:
@@ -719,6 +734,8 @@ def _build_system_prompt(agent: dict[str, object], skills: str, news: bool,
             "actors/territory or a documented direct consequence. Tehran/Teheran, other Iranian "
             "cities, institutions and people can establish that connection without the literal "
             "word Iran in the article. Include all subject areas relevant to the user's task. "
+            "A source marked live_coverage is one evolving publisher page: summarize its supported "
+            "updates as one item, identify it as live coverage, and never split it into invented articles. "
             "Exclude unrelated regional side stories. Add no count, introduction or extra keys.\n"
         )
         if target_count is not None:
@@ -798,7 +815,10 @@ def _build_research_payload(model: str, agent_id: str, task: str,
         "it, and include its original unambiguous date phrase. Otherwise say occurrence unknown. "
         "A publication date is not an occurrence date. Do not combine different articles in one "
         "paragraph. Do not claim your notes are independent verification or verbatim publisher "
-        "text. Exclude homepages, category pages, live feeds and unrelated regional stories. "
+        "text. Include directly linked, dated official live coverage as one evolving page when it "
+        "has relevant evidence and an explicit publication/update date; identify its live nature "
+        "in the notes and do not split one coverage page into multiple articles. Exclude homepages, "
+        "category pages, undated indexes and unrelated regional stories. "
         "If usable sources cannot be found, say so without fabricated links. "
         + topics.get(agent_id, "Research the specific subject in the user task.")
         + f" Frozen current time: {as_of:%Y-%m-%d %H:%M:%S} Asia/Dubai (UTC+04:00)."
@@ -830,7 +850,11 @@ def _build_research_payloads(model: str, agent_id: str, task: str,
     """One unified discovery request; publishers are sources, not separate jobs."""
     instruction = (
         "Research the subject across ALL approved domains together in one unified search. "
-        "Use Arabic and English search terms as relevant to find direct coverage and related developments. "
+        "The native allowed_domains filter already restricts publishers. Use one concise natural-language "
+        "query in the task language, with the main subject and period in ordinary words. Do not repeat "
+        "publisher names or domains, site: clauses, Boolean OR/AND lists, parentheses, after: or before: "
+        "operators. Do not concatenate translations or all city/topic examples into the search string. "
+        "Those examples help assess relevance after retrieval; they are not mandatory query terms. "
         "Do not allocate a quota to individual publishers or split the result into publisher reports. "
         "Use the publication period to assess returned articles; avoid a query that requires the exact "
         "date spelling to appear in the article title. A new report about an earlier event still "
@@ -1250,6 +1274,7 @@ def _native_research_sources(response: dict[str, object], agent_id: str) -> dict
         seen_titles.append(_headline_key(title))
         sources.append({"source_id": f"s{len(sources) + 1}", "title": title, "url": url,
                         "content": content, "title_basis": title_basis,
+                        "source_kind": _news_source_kind(title, url),
                         "evidence_level": "openai_research_notes",
                         "publisher_text_verified": False,
                         "date_basis": "openai_model_reported_publication_date"})
@@ -1502,6 +1527,7 @@ def _validate_news(content: str, sources: list[dict[str, object]],
             fresh = bool(event_scope == "within_window" and classification == "publication_window_report")
             entry = {"headline": headline, "summary": summary, "source_id": source_id,
                      "url": url, "source_title": source["title"], "research_note_quote": quote,
+                     "source_kind": _news_source_kind(str(source["title"]), url),
                      "published_date": published, "published_day_dubai": day.isoformat(),
                      "published_date_note": candidate["published_date_note"],
                      "date_basis": "openai_model_reported_publication_date", "event_date": event_date,
@@ -1572,6 +1598,8 @@ def _render_news(agent_id: str, report: dict[str, object], window: tuple[datetim
     for number, item in enumerate(report["items"], start=1):
         lines += [f"{number}. **{_md_safe(item['headline'])}**", "",
                   f"   {_md_safe(item['summary'])}", "",
+                  *(["   - **نوع المصدر: تغطية حية.** تلخيص لصفحة واحدة قد تُحدّث."]
+                    if item.get("source_kind") == "live_coverage" else []),
                   f"   - النشر/التحديث كما أورده بحث OpenAI: {_md_safe(item['published_date'])} "
                   f"(اليوم في دبي: {item['published_day_dubai']}).",
                   f"   - توقيت الحدث بحسب ملاحظات البحث: {item['event_date'] or 'غير مثبت؛ لا يُفترض وقوعه داخل الفترة.'}",
@@ -1584,7 +1612,8 @@ def _render_news(agent_id: str, report: dict[str, object], window: tuple[datetim
                   "future_event_background": "حدث مستقبلي أو خارج الفترة",
                   "additional_background": "سياق إضافي"}
         for item in report["background_items"]:
-            lines += [f"- **{_md_safe(item['headline'])}** — {labels[item['classification']]}. "
+            live_label = "تغطية حية — " if item.get("source_kind") == "live_coverage" else ""
+            lines += [f"- **{live_label}{_md_safe(item['headline'])}** — {labels[item['classification']]}. "
                       f"{_md_safe(item['summary'])} "
                       f"النشر/التحديث المذكور: {_md_safe(item['published_date'])}. "
                       f"تاريخ الحدث المذكور: {item['event_date'] or 'غير مثبت'}. "
@@ -1632,6 +1661,8 @@ def _render_news_en(agent_id: str, report: dict[str, object], window: tuple[date
     for number, item in enumerate(report["items"], start=1):
         lines += [f"{number}. **{_md_safe(item['headline'])}**", "",
                   f"   {_md_safe(item['summary'])}", "",
+                  *(["   - **Source type: Live coverage.** A summary of one evolving publisher page."]
+                    if item.get("source_kind") == "live_coverage" else []),
                   f"   - Publication/update reported by OpenAI research: {_md_safe(item['published_date'])} "
                   f"(Dubai calendar day: {item['published_day_dubai']}).",
                   f"   - Event date in the research notes: {item['event_date'] or 'Not established; occurrence inside the period is not assumed.'}",
@@ -1640,7 +1671,8 @@ def _render_news_en(agent_id: str, report: dict[str, object], window: tuple[date
         lines += ["### Earlier publication context", "",
                   "These reports were published or updated on the previous day, according to the research notes.", ""]
         for item in report["background_items"]:
-            lines += [f"- **{_md_safe(item['headline'])}** — {_md_safe(item['summary'])} "
+            live_label = "Live coverage — " if item.get("source_kind") == "live_coverage" else ""
+            lines += [f"- **{live_label}{_md_safe(item['headline'])}** — {_md_safe(item['summary'])} "
                       f"Reported publication/update: {_md_safe(item['published_date'])}. "
                       f"Reported event date: {item['event_date'] or 'Not established'}. "
                       f"[Official source](<{item['url']}>).", ""]
