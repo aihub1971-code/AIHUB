@@ -23,7 +23,8 @@ def safe_diagnostics(error: Exception, stage: str) -> dict[str, Any]:
     if isinstance(feed_reference, str) and re.fullmatch(r"news_[a-f0-9]{16}", feed_reference):
         detail = {**detail, "feed_error_reference": feed_reference}
     result: dict[str, Any] = {"stage": stage, "exception_type": type(error).__name__}
-    for field in ("provider_code", "provider_type", "provider_param", "request_id", "response_id", "reason", "feed_error_reference"):
+    for field in ("provider_code", "provider_type", "provider_param", "request_id", "response_id", "reason", "feed_error_reference",
+                  "schema_path", "schema_keyword", "schema_property", "schema_reason"):
         value = detail.get(field)
         if isinstance(value, str) and _SAFE_TOKEN.fullmatch(value):
             result[field] = value
@@ -31,6 +32,10 @@ def safe_diagnostics(error: Exception, stage: str) -> dict[str, Any]:
                   "retry_after_seconds"):
         value = detail.get(field)
         if type(value) is int and 0 <= value <= 86400:
+            result[field] = value
+    for field in ("schema_limit", "schema_actual"):
+        value = detail.get(field)
+        if type(value) is int and 0 <= value <= 1_000_000:
             result[field] = value
     return result
 

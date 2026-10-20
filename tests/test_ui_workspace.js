@@ -266,8 +266,10 @@ test("automatic feed refresh waits for its due time and pauses when the page is 
   const ui = await start({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", newsFeed()]]});
   await ui.advance(10000); assert.equal(ui.newsRequests().length, 1);
   await ui.visibility(true); await ui.advance(900000); assert.equal(ui.newsRequests().length, 1);
-  ui.setNow(NEWS_NOW + 15 * 60000); await ui.visibility(false); await ui.advance(60000);
-  assert.equal(ui.newsRequests().length, 2);
+  ui.server.feeds.set(A + ":en", newsFeed({next_refresh_at: "2026-10-20T12:30:00Z"}));
+  ui.setNow(NEWS_NOW + 15 * 60000); await ui.visibility(false);
+  assert.equal(ui.newsRequests().length, 2, "A due visible snapshot must check the cache immediately.");
+  await ui.advance(60000); assert.equal(ui.newsRequests().length, 2);
   await ui.elements.get("nav-chat").click(); await ui.settle(); await ui.advance(900000);
   assert.equal(ui.newsRequests().length, 2); assert.equal(ui.generations().length, 0);
 });
@@ -284,6 +286,63 @@ test("Arabic and English feeds keep their own data and identify missing translat
   await ui.elements.get("language-en").click(); await ui.settle();
   assert.match(home.textContent, /Live article 1/); assert.doesNotMatch(home.textContent, /خبر عربي موثّق/);
   assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
+});
+
+test("switching back to an expired language snapshot immediately reads the shared cache without duplicate requests", async () => {
+  let englishChecks = 0, release;
+  const refreshed = newsFeed({last_successful_refresh_at: "2026-10-20T12:16:00Z", next_refresh_at: "2026-10-20T12:31:00Z",
+    items: [newsItem(1, {headline: "Updated cached English article"})]});
+  const ui = await start({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", newsFeed()], [A + ":ar", refreshed]],
+    fetch: (url, request, respond) => {
+      if (url.endsWith("/news?language=en") && ++englishChecks === 2)
+        return new Promise(resolve => { release = () => resolve(respond(refreshed)); });
+    }});
+  ui.setNow(NEWS_NOW + 22 * 60000);
+  await ui.elements.get("language-ar").click(); await ui.settle();
+  assert.equal(ui.newsRequests().length, 2);
+  await ui.elements.get("language-en").click(); await ui.settle();
+  assert.equal(ui.newsRequests().length, 3, "The expired English snapshot must not wait for the 60-second timer floor.");
+  assert.match(ui.newsRequests()[2].url, /\/news\?language=en$/);
+  await ui.elements.get("language-en").click(); await ui.visibility(false);
+  assert.equal(ui.newsRequests().length, 3, "Repeated activation must join the in-flight cache check.");
+  release(); await ui.settle();
+  assert.match(ui.elements.get("home-news-content").textContent, /Updated cached English article/);
+  assert.equal(ui.newsState(A, "en").data.last_successful_refresh_at, refreshed.last_successful_refresh_at);
+  await ui.elements.get("language-ar").click(); await ui.elements.get("language-en").click(); await ui.settle();
+  await ui.advance(60000);
+  assert.equal(ui.newsRequests().length, 3, "A refreshed snapshot must not trigger another activation request or loop.");
+  assert.equal(ui.newsRequests().every(request => request.options.method === "GET"), true);
+  assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
+});
+
+test("activating a loading or paused feed preserves its existing polling gates", async () => {
+  const ui = await start({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", newsFeed({status: "loading", next_refresh_at: "2026-10-20T11:59:00Z"})]]});
+  await ui.visibility(true); await ui.visibility(false);
+  assert.equal(ui.newsRequests().length, 1, "Loading status must retain its polling interval rather than immediately repeat.");
+  await ui.advance(2000); assert.equal(ui.newsRequests().length, 2);
+  ui.newsState(A).pollPaused = true;
+  await ui.visibility(true); await ui.visibility(false); await ui.advance(900000);
+  assert.equal(ui.newsRequests().length, 2, "Activation must not restart a paused polling loop.");
+});
+
+test("expired snapshot activation respects provider cooldowns and nonretryable response or transport errors", async () => {
+  for (const mode of ["provider", "transport", "cooldown"]) {
+    const error = {code: mode === "cooldown" ? "newsdata_rate_limited" : "newsdata_auth_failed",
+      retryable: mode === "cooldown", ...(mode === "cooldown" ? {retry_after_seconds: 300} : {})};
+    let checks = 0;
+    const ui = await start({now: NEWS_NOW, newsAgents: [A], fetch: (url, request, respond) => {
+      if (!url.includes("/news?")) return;
+      checks++;
+      if (mode === "transport" && checks > 1) return respond({detail: error}, 502);
+      return respond(newsFeed({next_refresh_at: "2026-10-20T11:59:00Z",
+        ...(mode !== "transport" ? {status: "provider_error", error} : {})}));
+    }});
+    if (mode === "transport") await ui.loadNews(A);
+    const count = ui.newsRequests().length;
+    await ui.visibility(true); await ui.visibility(false); await ui.advance(60000);
+    assert.equal(ui.newsRequests().length, count, mode + " must retain its retry gate when activated.");
+    assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
+  }
 });
 
 test("the observed twelve-hour provider delay is an honest empty result without inferring the account plan", async () => {
@@ -340,7 +399,7 @@ test("assistant total follows configuration without hardcoded removed cards", as
 
 test("the public workspace has no credential, cost, admin, or upload controls", async () => {
   assert.doesNotMatch(html, /type="(?:password|file)"|id="(?:username|password)"|\/admin|dailyCost|monthlyCost|accountOverview|usage-details|loginBox/);
-  assert.match(html, /workspace\.js\?v=2\.0\.4/);
+  assert.match(html, /workspace\.js\?v=2\.0\.4\.1"/);
   assert.doesNotMatch(html, /src="\/static\/(?:app|public)\.js/);
   const ui = await start();
   await assert.rejects(ui.request("/v1/usage"));

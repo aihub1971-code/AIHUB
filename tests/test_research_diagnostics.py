@@ -5,8 +5,10 @@ import json
 import httpx
 import pytest
 from fastapi import HTTPException
+from jsonschema import Draft202012Validator
 
 from app import research, runtime
+from app.agent_profiles import get_profile
 from app.report_errors import public_error, safe_diagnostics
 
 
@@ -200,3 +202,118 @@ def test_transport_failures_never_echo_exception_text_or_retry(provider, failure
         research._call_response(KEY, PAYLOAD)
     assert captured.value.status_code == status and captured.value.detail["code"] == code
     assert KEY not in json.dumps(captured.value.detail) and len(calls) == 1
+
+
+@pytest.mark.parametrize("caller", [research._call_response, runtime._call_model])
+def test_schema_rejection_retains_safe_context_without_provider_or_source_prose(provider, caller):
+    message = ("Invalid schema for response_format 'ai_hub_research_report': "
+        "In context=('properties', 'sections', 'items'), 'required' is required to include every key. "
+        "Missing 'source_ids'. Private source excerpt and credential " + KEY)
+    calls = provider(httpx.Response(400, json={"error": {
+        "type": "invalid_request_error", "code": "invalid_json_schema",
+        "param": "text.format.schema", "message": message}},
+        headers={"x-request-id": "req_schema_fixture"}))
+    with pytest.raises(HTTPException) as captured:
+        caller(KEY, PAYLOAD)
+    diagnostics = safe_diagnostics(captured.value, "analyzing")
+    assert captured.value.detail["code"] == "openai_request_rejected"
+    assert diagnostics["provider_status"] == 400
+    assert diagnostics["request_id"] == "req_schema_fixture"
+    assert diagnostics["provider_param"] == "text.format.schema"
+    assert diagnostics["schema_path"] == "properties.sections.items"
+    assert diagnostics["schema_keyword"] == "required"
+    assert diagnostics["schema_property"] == "source_ids"
+    assert diagnostics["schema_reason"] == "missing_required"
+    assert len(calls) == 1
+    serialized = json.dumps(captured.value.detail)
+    assert KEY not in serialized and "Private source" not in serialized and message not in serialized
+    assert public_error("openai_request_rejected", "job_fixture", "analyzing", diagnostics) == {
+        "code": "openai_request_rejected", "reference": "job_fixture", "stage": "analyzing", "retryable": False}
+
+
+@pytest.mark.parametrize("message,expected", [
+    ("In context=(), 'additionalProperties' is required to be supplied and to be false.",
+     {"schema_path": "root", "schema_keyword": "additionalProperties", "schema_reason": "additional_properties"}),
+    ("In context=('properties', 'visuals'), 'allOf' is not permitted.",
+     {"schema_path": "properties.visuals", "schema_keyword": "allOf", "schema_reason": "unsupported_keyword"}),
+    ("In context=('properties', 'sections', 'items'), Extra required key 'attribution' supplied.",
+     {"schema_path": "properties.sections.items", "schema_property": "attribution", "schema_reason": "extra_required"}),
+    ("In context=('properties', 'items', 'items', 'properties', 'evidence_quote'), 'enum' values must be unique: ['Private quote', 'Private quote'].",
+     {"schema_path": "properties.items.items.properties.evidence_quote", "schema_keyword": "enum", "schema_reason": "duplicate_enum"}),
+    ("'enum' must contain at least one value.",
+     {"schema_keyword": "enum", "schema_reason": "empty_enum"}),
+    ("In context=('properties', 'items', 'items', 'properties', 'evidence_quote', 'enum'), ['Private quote', 'Private quote'] has non-unique elements.",
+     {"schema_path": "properties.items.items.properties.evidence_quote.enum", "schema_keyword": "enum", "schema_reason": "duplicate_enum"}),
+    ("Too many enum values: maximum of 1,000, got 1001.",
+     {"schema_reason": "enum_limit", "schema_limit": 1000, "schema_actual": 1001}),
+    ("Total string length of enum values exceeds the limit of 120000; received 120001.",
+     {"schema_reason": "schema_size_limit", "schema_limit": 120000, "schema_actual": 120001}),
+    ("Schema nesting depth must not exceed 10; found 11.",
+     {"schema_reason": "nesting_limit", "schema_limit": 10, "schema_actual": 11}),
+    ("In context=('properties', 'private_source_title', 'enum', 0), unknown validation error.",
+     {"schema_path": "properties.redacted", "schema_reason": "invalid_schema"}),
+    ("In context=('properties', 'sections', 'anyOf', 0), unknown validation error.",
+     {"schema_path": "properties.sections.anyOf.0", "schema_reason": "invalid_schema"}),
+    ("'enum' value ['Private excerpt maximum 500000 got 700000'] is invalid.",
+     {"schema_keyword": "enum", "schema_reason": "enum_limit"}),
+    ("'enum' value 'Private excerpt maximum 500000 got 700000' is invalid.",
+     {"schema_keyword": "enum", "schema_reason": "enum_limit"}),
+    ("Schema size too large: maximum 1000001, received 2000000.",
+     {"schema_reason": "schema_size_limit"}),
+])
+def test_schema_error_categories_paths_and_limits_are_allowlisted(message, expected):
+    assert research._schema_error_diagnostics({"code": "invalid_json_schema", "message": message}) == expected
+
+
+@pytest.mark.parametrize("error", [
+    {"code": "rate_limit_exceeded", "message": "Private notes: enum maximum 1000 got 1001"},
+    {"code": "invalid_json_schema", "message": {"private": "source text"}},
+    {"code": "invalid_json_schema"},
+])
+def test_schema_message_parser_does_not_handle_unrelated_or_malformed_messages(error):
+    assert research._schema_error_diagnostics(error) == {}
+
+
+def test_schema_limit_diagnostics_survive_internal_sanitization_only():
+    error = HTTPException(502, {"schema_reason": "schema_size_limit", "schema_limit": 120000,
+        "schema_actual": 120001, "schema_path": "properties.items.items.properties.evidence_quote",
+        "message": "Private provider message", "schema_keyword": "https://private.example/",
+        "schema_property": "Private source title"})
+    diagnostics = safe_diagnostics(error, "analyzing")
+    assert diagnostics == {"stage": "analyzing", "exception_type": "HTTPException",
+        "schema_reason": "schema_size_limit", "schema_limit": 120000, "schema_actual": 120001,
+        "schema_path": "properties.items.items.properties.evidence_quote"}
+    assert not set(diagnostics) & set(public_error("openai_request_rejected", "job_fixture", "analyzing", diagnostics)) - {"stage"}
+
+
+@pytest.mark.parametrize("agent", ["historical-reading-companion", "story-moodboard"])
+@pytest.mark.parametrize("source_count", [0, 1, 40])
+def test_native_profile_schemas_obey_strict_contract_with_full_source_bound(agent, source_count):
+    sources = [{"id": f"src_{index:016x}", "title": (f"Synthetic title {index} " + "a" * 499)[:499],
+        "excerpt": (f"Synthetic excerpt {index} " + "b" * 392)[:392], "role": "reference"}
+        for index in range(source_count)]
+    schema = research._schema(get_profile(agent), sources)
+    Draft202012Validator.check_schema(schema)
+    objects, enums = [], []
+
+    def inspect(node):
+        if isinstance(node, dict):
+            assert not set(node) & {"allOf", "not", "if", "then", "else", "dependentRequired", "dependentSchemas"}
+            if node.get("type") == "object":
+                objects.append(node)
+                assert node["additionalProperties"] is False
+                assert set(node["required"]) == set(node["properties"])
+            if "enum" in node:
+                assert node["enum"] and len(node["enum"]) == len(set(node["enum"]))
+                enums.append(node["enum"])
+            for value in node.values():
+                inspect(value)
+        elif isinstance(node, list):
+            for value in node:
+                inspect(value)
+
+    inspect(schema)
+    assert len(objects) == 5
+    assert sum(map(len, enums)) <= 1000
+    assert sum(len(value) for choices in enums for value in choices) < 120000
+    assert len(schema["properties"]["items"]["items"]["properties"]["evidence_quote"]["enum"]) == max(1, source_count * 2)

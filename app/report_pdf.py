@@ -103,6 +103,12 @@ def _plain_markdown(value: Any, *, rtl: bool = False) -> str:
         # changing the saved text, Arabic shaping, or clickable link targets.
         text = re.sub(r"(?<![\w\u2066])#[0-9a-fA-F]{6}(?!\w)",
                       lambda match: "\u2066" + match[0] + "\u2069", text)
+        # Keep ISO dates and timestamps as complete LTR tokens inside Arabic
+        # prose; neutral hyphens otherwise move date components around the time.
+        text = re.sub(r"(?<![\w\u2066])[0-9]{4}-[0-9]{2}-[0-9]{2}"
+                      r"(?:[Tt][0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?"
+                      r"(?:[Zz]|[+-][0-9]{2}:[0-9]{2})?)?(?![\w:])",
+                      lambda match: "\u2066" + match[0] + "\u2069", text)
     return text
 
 

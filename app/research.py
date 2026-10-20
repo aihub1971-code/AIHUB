@@ -335,6 +335,76 @@ def _response_retry_after(response: httpx.Response) -> int | None:
     return None
 
 
+_SCHEMA_KEYWORDS = frozenset({"type", "properties", "required", "additionalProperties", "items", "enum",
+    "const", "pattern", "format", "minLength", "maxLength", "minItems", "maxItems", "anyOf", "allOf",
+    "not", "if", "then", "else", "dependentRequired", "dependentSchemas", "patternProperties"})
+_SCHEMA_FIELDS = frozenset({"title", "sections", "limitations", "visuals", "palette", "direction",
+    "reference_source_ids", "id", "body", "source_ids", "attribution", "name", "hex", "source_id",
+    "supporting_source_ids", "headline", "summary", "why_it_matters", "evidence_quote", "event_key",
+    "section", "translations", "article_id", "headline_ar", "headline_en", "summary_ar", "summary_en"})
+
+
+def _schema_error_diagnostics(error: dict[str, Any]) -> dict[str, Any]:
+    """Classify schema rejection syntax without retaining schema or source values."""
+    message = error.get("message")
+    if error.get("code") != "invalid_json_schema" or not isinstance(message, str):
+        return {}
+    message = message[:8000]
+    result: dict[str, Any] = {}
+    context = re.search(r"\bcontext\s*=\s*\(([^)]{0,1500})\)", message, re.I)
+    tail = message[context.end():] if context else message
+    if context:
+        parts = []
+        for single, double, index in re.findall(r"'([^']*)'|\"([^\"]*)\"|\b([0-9]{1,3})\b", context[1]):
+            token = single or double or index
+            if token in _SCHEMA_KEYWORDS | _SCHEMA_FIELDS or index:
+                parts.append(token)
+            else:
+                parts.append("redacted")
+                break
+        result["schema_path"] = ".".join(parts)[:160] or "root"
+    quoted = re.findall(r"['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]", tail)
+    keyword = next((token for token in quoted if token in _SCHEMA_KEYWORDS), None)
+    if not keyword and context and parts and parts[-1] in {"enum", "pattern"}:
+        keyword = parts[-1]
+    if keyword:
+        result["schema_keyword"] = keyword
+    missing = re.search(r"\b(?:Missing|Extra required key)\s+['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]", tail, re.I)
+    if missing and missing[1] in _SCHEMA_FIELDS | _SCHEMA_KEYWORDS:
+        result["schema_property"] = missing[1]
+    lower = (tail + " " + (keyword or "")).casefold()
+    reasons = (
+        ("missing_required", "missing" in lower and "required" in lower),
+        ("extra_required", "extra required" in lower),
+        ("additional_properties", "additionalproperties" in lower),
+        ("unsupported_keyword", any(token in lower for token in ("not permitted", "not supported", "unsupported"))),
+        ("schema_size_limit", any(token in lower for token in ("string length", "too large", "total string"))),
+        ("duplicate_enum", "enum" in lower and any(token in lower for token in ("unique", "duplicate"))),
+        ("empty_enum", "enum" in lower and any(token in lower for token in ("empty", "at least one"))),
+        ("enum_limit", "enum" in lower and any(token in lower for token in ("limit", "maximum", "too many", "exceed"))),
+        ("invalid_enum", "enum" in lower),
+        ("invalid_pattern", "pattern" in lower or "regular expression" in lower or "regex" in lower),
+        ("nesting_limit", "nest" in lower or "depth" in lower),
+        ("property_limit", "properties" in lower and any(token in lower for token in ("limit", "maximum", "too many"))),
+        ("invalid_required", "required" in lower),
+        ("invalid_bound", any(token in lower for token in ("minitems", "maxitems", "minlength", "maxlength"))),
+        ("invalid_type", "type" in lower),
+    )
+    result["schema_reason"] = next((reason for reason, matches in reasons if matches), "invalid_schema")
+    # Only numeric limits stated outside quoted values/collections are eligible.
+    numeric = re.sub(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"|\[[^]]*\]", "", tail)
+    for field, pattern in (
+        ("schema_limit", r"(?:maximum(?: of)?|limit(?: of| is)?|at most|cannot exceed|must not exceed|less than or equal to)\s*[:=]?\s*([0-9][0-9,]{0,8})"),
+        ("schema_actual", r"(?:got|found|received|contains|actual(?: size)?)\s*[:=]?\s*([0-9][0-9,]{0,8})"),
+    ):
+        match = re.search(pattern, numeric, re.I)
+        if match:
+            value = int(match[1].replace(",", ""))
+            if value <= 1_000_000:
+                result[field] = value
+    return result
+
+
 def _response_diagnostics(response: httpx.Response, key: str, data: Any = None,
                           **counts: int) -> dict[str, Any]:
     """Retain only bounded diagnostic tokens, never error prose or credentials."""
@@ -344,7 +414,8 @@ def _response_diagnostics(response: httpx.Response, key: str, data: Any = None,
     fields = {"provider_status": response.status_code, "request_id": response.headers.get("x-request-id"),
               "response_id": body.get("id"), "provider_code": provider_error.get("code"),
               "provider_type": provider_error.get("type"), "provider_param": provider_error.get("param"),
-              "reason": incomplete.get("reason"), "retry_after_seconds": _response_retry_after(response), **counts}
+              "reason": incomplete.get("reason"), "retry_after_seconds": _response_retry_after(response),
+              **_schema_error_diagnostics(provider_error), **counts}
     fields = {name: value for name, value in fields.items() if not isinstance(value, str)
               or not ((key and key in value) or re.search(r"sk-[A-Za-z0-9_-]{8,}", value))}
     allowed = safe_diagnostics(HTTPException(502, detail=fields), "")
