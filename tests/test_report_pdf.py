@@ -215,6 +215,27 @@ def test_arabic_paragraph_and_table_preserve_left_to_right_colour_codes(tmp_path
     assert all(text.count(code) == 2 for code in codes)
 
 
+@pytest.mark.parametrize("language", ["ar", "en"])
+def test_iso_dates_and_timestamps_keep_complete_selectable_order_in_prose(tmp_path, language):
+    report = provider_delay_fixture(language)
+    timestamps = ["2026-10-20T06:40:50.000000+00:00", "2026-10-20T06:40:50Z",
+                  "2026-10-20T01:40:50-05:00", "2026-10-19"]
+    lead = "أحدث وقت نشر أعاده المزود لهذا البحث هو " if language == "ar" else "The newest provider publication is "
+    report["sections"][0]["body"] = lead + ", ".join(timestamps) + ".\n\n| Time | Value |\n|---|---|\n" + "\n".join(
+        "| ISO | " + stamp + " |" for stamp in timestamps)
+    report["limitations"] = [lead + stamp + "." for stamp in timestamps]
+    original = json.dumps(report, ensure_ascii=False, sort_keys=True)
+    path = tmp_path / f"iso-prose-{language}.pdf"
+    report_pdf.render_report_pdf(report, path)
+    reader = PdfReader(path)
+    text = "".join(char for page in reader.pages for char in page.extract_text()
+                   if not char.isspace() and unicodedata.category(char) != "Cf")
+    assert all(text.count(stamp) == 3 for stamp in timestamps)
+    assert report["report_id"] in text and "0/100" in text
+    assert _uris(reader) == []
+    assert json.dumps(report, ensure_ascii=False, sort_keys=True) == original
+
+
 def test_no_evidence_stays_concise_and_does_not_invent_sources(tmp_path):
     report = report_fixture()
     report.update(items=[], sources=[], sections=[], citation_mappings={}, limitations=[])

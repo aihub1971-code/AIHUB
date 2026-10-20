@@ -1,6 +1,6 @@
 # AI HUB 2.0.4 — live news, report recovery and active assistants
 
-Prepared on **20 October 2026**. This note describes the implementation, completed local checks and pre-release diagnosis. **Hosted CI, deployment and post-deployment live verification are pending.** The release owner must append the resulting commit/deployment identifiers and observation times before marking those steps complete. A source version change does not prove deployment or a successful live fix.
+Updated on **20 October 2026**. **The initial 2.0.4 release is deployed and its recorded live API, report and archive checks are complete.** Current NewsData access still returns delayed articles outside the required 12-hour window, so real-time news coverage remains unresolved. A subsequent Arabic PDF inline-ISO correction has passed 20 focused local PDF tests; its follow-up deployment and verification of a newly generated live Arabic PDF remain pending.
 
 Historical [2.0.1 validation](VALIDATION_AR.md), [2.0.2](FIXES_2_0_2.md), [2.0.3](FIXES_2_0_3.md) and [validation](VALIDATION_AR.md) records retain their original evidence. Their successful checks must not be relabelled as validation of 2.0.4.
 
@@ -62,7 +62,7 @@ Saved owner-scoped reports, PDFs and conversations remain readable. Original ski
 
 This release does **not** change `MAX_REPORTS_PER_DAY=100`, `DAILY_BUDGET_USD=900`, `MONTHLY_BUDGET_USD=28000`, `NEWSDATA_DAILY_CREDIT_LIMIT=200`, the retained attempt/credit ledgers, or owner/session boundaries. The absent-variable report fallback remains 50. The separate 50 active-schedule-slot cap and `SCHEDULER_ENABLED=false` remain in place.
 
-The existing service, disk and database stay in use, with one Uvicorn process and two configured report-job workers. `render.yaml` changes are explanatory comments only. No deployment, budget increase, quota reset or provider-plan change is implied by this note.
+The existing service, disk and database stay in use, with one Uvicorn process and two configured report-job workers. `render.yaml` changes are explanatory comments only. The initial deployment is recorded below; no budget increase, quota reset, provider-plan upgrade or credential change was performed.
 
 `APP_VERSION` and the workspace CSS/JavaScript cache references identify 2.0.4. Historical legacy-page asset references remain tied to their existing assets.
 
@@ -71,15 +71,35 @@ The existing service, disk and database stay in use, with one Uvicorn process an
 | Gate | Current record |
 |---|---|
 | Consolidated implementation checks | Integration review complete; Python/JavaScript syntax and `git diff --check` pass; official Render Blueprint schema validation passes |
-| Full Python and JavaScript test results | `python -m pytest -o addopts='' -q`: **1,041 passed** in 37.83 seconds; one upstream TestClient deprecation warning. All four `node tests/test_ui_*.js` suites: **93 passed** (news 29, public 10, workspace 41, chat 13) |
-| Exact-commit CI | Pending; append commit and run identifiers |
-| Deployment | Pending; append deployment identifier, commit and live timestamp |
-| Served version/assets and browser behavior | Pending after deployment |
-| Authorized live provider/report result | Pending; record actual article count, source freshness, error details and PDF outcome without inferring success |
-| Preserved saved reports, PDFs, conversations and ledgers | Pending release verification |
+| Initial release Python and JavaScript tests | `python -m pytest -o addopts='' -q`: **1,041 passed** in 37.83 seconds; one upstream TestClient deprecation warning. All four `node tests/test_ui_*.js` suites: **93 passed** (news 29, public 10, workspace 41, chat 13) |
+| Merge and CI | [PR #15](https://github.com/aihub1971-code/AIHUB/pull/15) merged as `cf9494d82fdc1da4bc7b264d242057420c3a9a62`. [PR CI 39476452804](https://github.com/aihub1971-code/AIHUB/actions/runs/39476452804) and [main CI 39476671212](https://github.com/aihub1971-code/AIHUB/actions/runs/39476671212) passed |
+| Initial deployment | Render `dep-dbbrbclg1s2s73a2gc80`, merged commit above, **live at 18:41:42.832743 UTC** on 20 October 2026 |
+| Served version and public API | `/health` served **2.0.4**, `ok`, `ready`. **47/47 live API checks passed at 18:43:20–18:43:43 UTC**, using an isolated anonymous HTTP session |
+| Active and retired routes | Nine active profiles matched the shipped defaults and numbering **01–09**; all **12** retired-assistant workspace/news/report-submission checks returned **404**. Historical and Story Moodboard news endpoints also returned **404** |
+| Live reports | Two completed zero-article news reports and one real AI historical report are recorded below; these do not establish successful analysis of fresh news |
+| Preserved reports and PDFs | At **18:45:42.706076 UTC**, all **13 existing reports** retained their original content digests and all **13 PDF SHA-256 hashes** matched their pre-deployment values |
+| Subsequent Arabic PDF correction | Inline ISO timestamp direction correction: **20 focused PDF tests passed in 22.13 seconds**. Two added tests bring the expected hosted full-suite count to **1,043**; that follow-up CI result, deployment and a new live Arabic PDF remain **pending** |
 
-The intended checks include the feed bounds/cooldowns and credit gate, honest empty-versus-error handling, Arabic/English notices, report-stage transitions, durable failure details, explicit retry behavior, active/retired registry enforcement and archive preservation. Tests use synthetic fixtures unless a separately authorized live check is explicitly identified. Do not trigger provider or model calls merely to fill this table.
+The automated checks cover feed bounds/cooldowns and credits, empty-versus-error handling, Arabic/English notices, report stages and durable failures, explicit retry behavior, registry enforcement and archive retention. Synthetic tests and the explicitly identified live observations are separate evidence; the initial full-suite result does not substitute for follow-up release validation.
 
 Local PDF verification retained all 100 inventory records and 100 distinct original source links in both languages (45 English pages, 46 Arabic pages for the synthetic fixture). Links remained within page bounds; rendered covers, inventory pages and source pages were inspected. Empty provider-delay reports rendered as one-page Arabic and English PDFs. These are synthetic checks, not evidence that the live provider supplies current articles.
 
-The present pre-release provider observation is **zero qualifying articles in the tested 10-item Iran page**. A functioning UI or completed empty PDF cannot turn that result into proven live-news coverage.
+## Completed live observations
+
+| Report | Report ID | Observed outcome on 20 October 2026 |
+|---|---|---|
+| Iran War News | `rpt_54a8eaf1388c46aa965cf167e88a05b6` | Ready at **18:42:28.995614 UTC**; **0 qualifying articles from 10 raw provider records**, with the delay disclosed |
+| Global Geopolitical Briefing | `rpt_2a3956a211e5438c9bbc44030b775aef` | Ready at **18:43:13.603875 UTC**; **0 qualifying articles from 10 raw provider records**, with the delay disclosed |
+| Historical Reading Companion | `rpt_ca0d28f315574687b46ef9085a18bc1e` | Verified at **18:46 UTC**: real AI research, **17 sources**, and a **7-page PDF** |
+
+The Iran and global results verify successful completion of honest empty reports. They do **not** verify the nonempty fresh-news analysis path. The historical result verifies one real native-research and PDF path; its historical references are not fresh news.
+
+The other five news feeds—basic income, UAE–EU trade talks, education, economic/cultural briefing and decision briefing—each completed exactly one provider-page refresh during the API checks: **10 raw records, 0 accepted articles**, `status=empty`, `stop_reason=window_exhausted`, and `provider_delay`. No provider error was returned. Each immediate manual refresh reused the same snapshot, last-successful timestamp and pagination with `refresh_started=false`; the five checks consumed five provider pages in total. The isolated API session generated no reports. No private global quota read was attempted; the retired requests returned 404 before report submission.
+
+The public API confirmed seven feed IDs, a maximum of 100 accepted articles, 12-hour coverage and a 900-second refresh interval. Profile checks compared published kinds, retrieval flags and bilingual default topics; the public schema does not expose literal `domain` or `required_inputs` fields. Positive live fresh-article, maximum-inventory and translation behavior remain covered by synthetic tests rather than a successful nonempty live feed in this record.
+
+## Remaining provider action and PDF follow-up
+
+To supply articles inside the strict 12-hour window, verify the NewsData account's **real-time entitlement** and provide a key authorized for that access through the existing service's private `NEWSDATA_API_KEY` setting; update that secret if a different key is required. Set `NEWSDATA_PLAN=paid` **only when paid access is actually confirmed**. That configuration flag does not grant entitlement or remove a provider-side delay. **No plan upgrade or key change has been performed.** Do not weaken the freshness window or relabel delayed articles as current.
+
+The Arabic inline-ISO PDF correction is a subsequent change: its 20 passing focused tests establish local validation only. Record the follow-up commit/deployment and inspect a newly generated live Arabic PDF before marking that remaining step complete. The 13 preserved archive PDFs above were verified unchanged and are not evidence of the new rendering correction.
