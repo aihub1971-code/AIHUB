@@ -21,6 +21,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from app.config import PROJECT_ROOT, get_setting
+from app.newsdata import MAX_NEWSDATA_RESULTS
 
 DUBAI = ZoneInfo("Asia/Dubai")
 MAX_DAILY_REPORTS = 50
@@ -347,20 +348,51 @@ class Store:
                 raise ValueError
             parent, root = context.get("parent_report_id"), context.get("root_report_id")
             cursor = cls._cursor(context.get("cursor"))
+            consumed = context.get("results_consumed", 0)
+            if type(consumed) is not int or not 0 <= consumed <= MAX_NEWSDATA_RESULTS:
+                raise ValueError
             if index == 1:
-                if parent is not None or cursor is not None:
+                if parent is not None or cursor is not None or consumed != 0:
                     raise ValueError
+                size = min(size, MAX_NEWSDATA_RESULTS)
             elif not all(isinstance(value, str) and value for value in (parent, root, cursor)):
                 raise ValueError
             return {"cursor": cursor, "window_start": _stamp(start), "window_end": _stamp(end),
-                    "page_size": size, "page_index": index, "parent_report_id": parent, "root_report_id": root}
+                    "page_size": size, "page_index": index, "parent_report_id": parent, "root_report_id": root,
+                    "results_consumed": consumed}
         except (ValueError, TypeError, KeyError, AttributeError):
             raise StoreError("invalid_newsdata_context", "Invalid saved NewsData pagination state.", 503) from None
 
     @staticmethod
-    def _page_context(row: sqlite3.Row) -> dict[str, Any]:
+    def _results_consumed(connection: sqlite3.Connection, row: sqlite3.Row, *, before: bool = False) -> int:
+        """Reconstruct saved provider positions, including pre-cap reports."""
+        last_index = row["page_index"] - int(before)
+        pages = connection.execute("""SELECT p.page_size,r.status,r.result_json FROM newsdata_pages p
+            JOIN runs r USING(report_id) WHERE p.root_report_id=? AND p.page_index<=?
+            ORDER BY p.page_index""", (row["root_report_id"], last_index)).fetchall()
+        consumed = 0
+        for page in pages:
+            if page["status"] != "succeeded":
+                continue
+            try:
+                metadata = json.loads(page["result_json"] or "{}").get("newsdata", {})
+                count = metadata.get("consumed_item_count", metadata.get("returned_item_count"))
+            except (ValueError, TypeError, AttributeError):
+                count = None
+            # Unknown legacy counts consume the saved page size rather than
+            # silently restarting the result allowance at zero.
+            if type(count) is not int or not 0 <= count <= page["page_size"]:
+                count = page["page_size"]
+            consumed += count
+            if consumed >= MAX_NEWSDATA_RESULTS:
+                return MAX_NEWSDATA_RESULTS
+        return consumed
+
+    @classmethod
+    def _page_context(cls, connection: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
         return {"cursor": row["cursor_used"], **{name: row[name] for name in (
-            "window_start", "window_end", "page_size", "page_index", "parent_report_id", "root_report_id")}}
+            "window_start", "window_end", "page_size", "page_index", "parent_report_id", "root_report_id")},
+            "results_consumed": cls._results_consumed(connection, row, before=True)}
 
     @classmethod
     def _public_report(cls, connection: sqlite3.Connection, row: sqlite3.Row, include_result: bool = True) -> dict[str, Any]:
@@ -370,11 +402,15 @@ class Store:
             report["language"] = page["language"]
             report["pagination"] = {name: page[name] for name in (
                 "page_index", "page_size", "parent_report_id", "root_report_id")}
-            report["pagination"]["has_more"] = bool(page["next_cursor"])
+            consumed = cls._results_consumed(connection, page)
+            reached = consumed >= MAX_NEWSDATA_RESULTS
+            report["pagination"].update(result_limit=MAX_NEWSDATA_RESULTS, results_consumed=consumed,
+                results_before_page=cls._results_consumed(connection, page, before=True), limit_reached=reached,
+                has_more=bool(page["next_cursor"]) and not reached)
             child = connection.execute("""SELECT r.report_id,r.status FROM newsdata_pages p
                 JOIN runs r USING(report_id) WHERE p.parent_report_id=?""", (row["report_id"],)).fetchone()
-            report["pagination"]["next_report_id"] = child["report_id"] if child else None
-            report["pagination"]["next_report_status"] = child["status"] if child else None
+            report["pagination"]["next_report_id"] = child["report_id"] if child and not reached else None
+            report["pagination"]["next_report_status"] = child["status"] if child and not reached else None
             if page["stop_reason"]:
                 report["pagination"]["stop_reason"] = page["stop_reason"]
             if isinstance(report.get("result"), dict):
@@ -386,9 +422,9 @@ class Store:
         """Internal only: opaque provider state never appears in public reports."""
         with self._connect() as connection:
             row = connection.execute("SELECT * FROM newsdata_pages WHERE report_id=?", (report_id,)).fetchone()
-        if row is None:
-            raise StoreError("invalid_newsdata_continuation", "This report has no NewsData page state.", 409)
-        return self._page_context(row)
+            if row is None:
+                raise StoreError("invalid_newsdata_continuation", "This report has no NewsData page state.", 409)
+            return self._page_context(connection, row)
 
     @classmethod
     def _continuation(cls, connection: sqlite3.Connection, parent_report_id: str,
@@ -403,11 +439,15 @@ class Store:
             raise StoreError("invalid_newsdata_continuation", "Only a successful saved NewsData page can be continued.", 409)
         if row["task"] != task or row["language"] != language:
             raise StoreError("continuation_request_mismatch", "Continue with the saved task and language.", 409)
+        consumed = cls._results_consumed(connection, row)
+        if consumed >= MAX_NEWSDATA_RESULTS:
+            raise StoreError("newsdata_result_limit", "This report has already consumed its first 20 provider results.", 409)
         cursor = cls._cursor(row["next_cursor"])
         if cursor is None:
             raise StoreError("newsdata_no_more_pages", "The saved report has no further page.", 409)
-        context = cls._page_context(row)
-        context.update(cursor=cursor, page_index=row["page_index"] + 1, parent_report_id=parent_report_id)
+        context = cls._page_context(connection, row)
+        context.update(cursor=cursor, page_index=row["page_index"] + 1, parent_report_id=parent_report_id,
+                       results_consumed=consumed)
         return cls._newsdata_context(context)
 
     def continuation_context(self, parent_report_id: str, agent_id: str, task: str, language: str = "ar") -> dict[str, Any]:
@@ -628,7 +668,7 @@ class Store:
                 page = connection.execute("SELECT * FROM newsdata_pages WHERE report_id=?", (report_id,)).fetchone()
                 if page is not None:
                     returned = self._newsdata_context(newsdata_context)
-                    if returned != self._page_context(page):
+                    if returned != self._page_context(connection, page):
                         raise StoreError("invalid_newsdata_context", "The returned page changed its saved query window or cursor.", 503)
                     next_cursor = self._cursor(newsdata_context.get("next_cursor"))
                     stop_reason = None

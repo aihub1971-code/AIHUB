@@ -24,6 +24,7 @@ from .newsdata_translation import translate_items, translation_plan
 NEWSDATA_LATEST_URL = "https://newsdata.io/api/1/latest"
 NEWSDATA_QUERY = "iran war"
 MAX_NEWSDATA_PAGE_SIZE = 50
+MAX_NEWSDATA_RESULTS = 20
 DEFAULT_NEWSDATA_PAGE_SIZE = 10
 MAX_NEWSDATA_RESPONSE_BYTES = 2000000
 MAX_CURSOR_CHARS = 2048
@@ -51,7 +52,7 @@ def page_size_setting() -> int:
         raise _fail("newsdata_page_size_invalid", "Set NEWSDATA_PAGE_SIZE to an integer from 1 to 50.", 503) from None
     if not 1 <= size <= MAX_NEWSDATA_PAGE_SIZE:
         raise _fail("newsdata_page_size_invalid", "Set NEWSDATA_PAGE_SIZE to an integer from 1 to 50.", 503)
-    return size
+    return min(size, MAX_NEWSDATA_RESULTS)
 
 
 def initial_context(now: datetime | None = None) -> dict[str, object]:
@@ -62,7 +63,7 @@ def initial_context(now: datetime | None = None) -> dict[str, object]:
     moment = moment.astimezone(_UTC)
     return {"cursor": None, "window_start": (moment - timedelta(hours=48)).isoformat(),
             "window_end": moment.isoformat(), "page_size": page_size_setting(), "page_index": 1,
-            "parent_report_id": None, "root_report_id": None}
+            "parent_report_id": None, "root_report_id": None, "results_consumed": 0}
 
 
 def _moment(value: object) -> datetime:
@@ -91,6 +92,13 @@ def _validated_context(context: dict[str, object] | None) -> dict[str, object]:
                 or not 1 <= size <= MAX_NEWSDATA_PAGE_SIZE or type(index) is not int
                 or not 1 <= index <= 1000000 or not _cursor(context.get("cursor"))):
             raise ValueError("invalid_context")
+        consumed = context.get("results_consumed", min(MAX_NEWSDATA_RESULTS, (index - 1) * size))
+        if type(consumed) is not int or not 0 <= consumed <= MAX_NEWSDATA_RESULTS:
+            raise ValueError("invalid_result_count")
+        if index == 1:
+            if consumed != 0:
+                raise ValueError("invalid_initial_result_count")
+            size = min(size, MAX_NEWSDATA_RESULTS)
         for field in ("parent_report_id", "root_report_id"):
             identifier = context.get(field)
             if identifier is not None and (not isinstance(identifier, str)
@@ -99,7 +107,7 @@ def _validated_context(context: dict[str, object] | None) -> dict[str, object]:
         return {"cursor": context.get("cursor"), "window_start": start.isoformat(),
                 "window_end": end.isoformat(), "page_size": size, "page_index": index,
                 "parent_report_id": context.get("parent_report_id"),
-                "root_report_id": context.get("root_report_id")}
+                "root_report_id": context.get("root_report_id"), "results_consumed": consumed}
     except (ValueError, TypeError, OverflowError):
         raise _fail("newsdata_context_invalid", "The saved news page context is invalid.", 422) from None
 
@@ -111,7 +119,10 @@ def estimate_reservation(*, language: str = "ar",
     if not is_ready():
         raise _fail("newsdata_not_configured", "Configure NEWSDATA_API_KEY to retrieve Iran-war news.", 503)
     context = _validated_context(newsdata_context)
-    translation = translation_plan(int(context["page_size"]))
+    remaining = MAX_NEWSDATA_RESULTS - int(context["results_consumed"])
+    if remaining <= 0:
+        raise _fail("newsdata_result_limit", "This report has already consumed its first 20 provider results.", 409)
+    translation = translation_plan(min(int(context["page_size"]), remaining))
     count = int(translation["max_model_calls"])
     return {"provider": "newsdata", "model": translation["model"], "language": language,
             "estimated_cost_usd": translation["estimated_cost_usd"], "cost_is_estimate": True,
@@ -354,6 +365,9 @@ def _render_report(report: dict[str, object], language: str) -> str:
     if pagination["has_more"]:
         lines += ["توجد صفحة تالية؛ جلبها طلب مستقل إلى مزود الأخبار." if arabic else
                   "Another page is available; fetching it makes a separate provider request.", ""]
+    if pagination.get("limit_reached"):
+        lines += ["وصل التقرير إلى حد أول 20 نتيجة من المزود؛ قد تقل الأخبار المعروضة بسبب التحقق من الحقول والوقت." if arabic else
+                  "The report reached its first-20-provider-results limit; validation may leave fewer displayed articles.", ""]
     lines += ["العناوين والأوصاف والروابط والتواريخ من بيانات NewsData.io؛ الترجمة العربية آلية. لم يجلب الخادم نصوص الناشرين الكاملة للتحقق المستقل." if arabic else
               "Titles, descriptions, links and dates come from NewsData.io metadata; Arabic text is machine translated. This server has not independently fetched the publishers' complete articles."]
     return "\n".join(lines).strip()
@@ -365,7 +379,13 @@ def run_report(*, language: str = "ar",
     estimate = estimate_reservation(language=language, newsdata_context=newsdata_context)
     context = estimate["newsdata_context"]
     data, quota = _fetch_page(context)
-    items, excluded = _items(data["results"], context)
+    before = int(context["results_consumed"])
+    # Cursor requests retain their original size. Only the remaining prefix is
+    # eligible for parsing or translation, including positions later excluded.
+    prefix = data["results"][:MAX_NEWSDATA_RESULTS - before]
+    consumed = before + len(prefix)
+    limit_reached = consumed >= MAX_NEWSDATA_RESULTS
+    items, excluded = _items(prefix, context)
     translated = translate_items(items, estimate["translation"])
     for item in items:
         available_arabic = language == "ar" and item["translation_status"] == "translated"
@@ -374,22 +394,25 @@ def run_report(*, language: str = "ar",
         item["display_language"] = "ar" if available_arabic else "en"
     next_cursor = data.get("nextPage")
     repeated_cursor = next_cursor is not None and next_cursor == context["cursor"]
-    if repeated_cursor:
+    if repeated_cursor or limit_reached:
         next_cursor = None
     pagination = {"has_more": next_cursor is not None, "page_index": context["page_index"],
                   "page_size": context["page_size"], "parent_report_id": context["parent_report_id"],
                   "root_report_id": context["root_report_id"], "total_results": data["totalResults"],
-                  "repeated_cursor_stopped": repeated_cursor}
+                  "repeated_cursor_stopped": repeated_cursor,
+                  "result_limit": MAX_NEWSDATA_RESULTS, "results_before_page": before,
+                  "results_consumed": consumed, "limit_reached": limit_reached}
     result = {"agent_id": "iran-news", "report_kind": "news", "provider": "newsdata",
         "model": estimate["model"], "language": language, "generated_at": datetime.now(_UTC).isoformat(),
         "items": items, "background_items": [], "item_count": len(items),
-        "target_count": None, "shortfall": None, "bounded_item_limit": None, "count_mode": "provider_page",
+        "target_count": None, "shortfall": None, "bounded_item_limit": MAX_NEWSDATA_RESULTS, "count_mode": "provider_page",
         "status": "complete" if items else "no_evidence", "fresh_event_count": 0,
         "discarded_item_count": sum(excluded.values()), "discarded_item_reasons": excluded,
         "pagination": pagination, "freshness": _freshness(context),
         "newsdata": {"query": NEWSDATA_QUERY, "query_semantics": "iran AND war",
                      "language": "en", "endpoint": "latest", "request_count": 1,
-                     "returned_item_count": len(data["results"]), "provider_total_results": data["totalResults"],
+                     "returned_item_count": len(data["results"]), "consumed_item_count": len(prefix),
+                     "provider_total_results": data["totalResults"],
                      "credits_used": 1, "credit_basis": "one_latest_api_page", **quota},
         "newsdata_context": {**context, "next_cursor": next_cursor},
         "newsdata_credits_used": 1, "credit_tracking_complete": True,

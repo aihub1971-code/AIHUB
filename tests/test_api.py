@@ -94,10 +94,11 @@ def test_system_status_exposes_configuration_flags_only(client, monkeypatch):
     assert response.json()["provider"] == "openai"
     assert response.json()["search_provider"] == "newsdata"
     assert response.json()["configuration_check_only"] is True
-    assert response.json()["version"] == "1.5.0"
+    assert response.json()["version"] == "1.5.1"
     assert response.json()["news_items_per_report"] is None
     assert response.json()["news_count_mode"] == "provider_page"
-    assert response.json()["news_item_limit"] is None
+    assert response.json()["news_item_limit"] == 20
+    assert response.json()["iran_news"]["result_limit"] == 20
     assert response.json()["allowed_source_domains"] == []
     assert response.json()["other_news"]["processing_limit"] == 20
     assert set(response.json()["other_news"]["allowed_source_domains"]) == {
@@ -186,7 +187,7 @@ def test_system_newsdata_configuration_without_openai_is_read_only_and_secret_fr
     assert result["iran_news"] == {
         "provider": "newsdata", "configured": True, "query": "iran war",
         "query_semantics": "iran AND war", "window_hours": 48, "source_language": "en",
-        "page_size": 7, "plan": "free", "free_plan_delay_hours": 12,
+        "page_size": 7, "result_limit": 20, "plan": "free", "free_plan_delay_hours": 12,
         "translation_provider": "openai", "translation_configured": False, "configuration_issue": None,
     }
     assert "private-newsdata-fixture" not in response.text

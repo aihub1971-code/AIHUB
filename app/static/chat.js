@@ -4,10 +4,10 @@
   const MESSAGE_LIMIT = 8000;
   const LIST_LIMIT = 50;
   const MESSAGE_PAGE = 100;
-  const endpoint = "/v1/chat/conversations";
 
   function create(options) {
     const {root, request, renderMarkdown, getLanguage, getCurrentReport} = options;
+    const endpoint = options.endpoint || "/v1/chat/conversations";
     if (!root || typeof request !== "function") throw new TypeError("Chat requires a root and an authenticated request callback.");
     const el = (tag, className, text) => {
       const node = document.createElement(tag);

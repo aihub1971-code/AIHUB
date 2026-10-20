@@ -26,7 +26,8 @@ def store(tmp_path):
 
 @pytest.fixture
 def fake_newsdata(monkeypatch):
-    state = {"calls": [], "reserved_usd": 0, "actual_usd": 0, "cost_complete": True, "hook": None}
+    state = {"calls": [], "reserved_usd": 0, "actual_usd": 0, "cost_complete": True, "hook": None,
+             "returned_count": 1}
     monkeypatch.setenv("NEWSDATA_PAGE_SIZE", "10")
     monkeypatch.setattr(service.runtime, "runtime_is_ready", lambda: False)
     monkeypatch.setattr(service.runtime, "agent_runtime_is_ready", lambda agent_id: agent_id == "iran-news")
@@ -45,6 +46,7 @@ def fake_newsdata(monkeypatch):
             state["hook"](context)
         return {"provider": "newsdata", "response": "Synthetic English original and Arabic translation",
                 "pagination": {"total_results": 100}, "language": language,
+                "newsdata": {"returned_item_count": state["returned_count"], "consumed_item_count": state["returned_count"]},
                 "newsdata_context": {**context, "next_cursor": f"private-next-cursor-{context['page_index'] + 1}"},
                 "estimated_cost_usd": state["actual_usd"], "cost_tracking_complete": state["cost_complete"],
                 "newsdata_credits_used": 1, "credit_tracking_complete": True, "usage": {"newsdata_credits": 1}}
@@ -200,10 +202,10 @@ def test_invalid_continuations_are_rejected_before_any_new_call(store, fake_news
 def test_provider_cursor_cycle_stops_pagination_before_another_credit(store):
     first = reserve_page(store).report
     context = store.get_newsdata_context(first["report_id"])
-    store.finish_run(first["report_id"], {}, newsdata_context={**context, "next_cursor": "opaque-A"})
+    store.finish_run(first["report_id"], {"newsdata": {"returned_item_count": 1}}, newsdata_context={**context, "next_cursor": "opaque-A"})
     second = reserve_page(store, context=store.continuation_context(first["report_id"], "iran-news", TASK)).report
     context = store.get_newsdata_context(second["report_id"])
-    done = store.finish_run(second["report_id"], {}, newsdata_context={**context, "next_cursor": "opaque-A"})
+    done = store.finish_run(second["report_id"], {"newsdata": {"returned_item_count": 1}}, newsdata_context={**context, "next_cursor": "opaque-A"})
     assert done["pagination"]["has_more"] is False
     assert done["pagination"]["stop_reason"] == "repeated_cursor"
     with pytest.raises(StoreError) as stopped:
@@ -300,3 +302,78 @@ def test_real_newsdata_runtime_contract_saves_empty_page_without_openai(store, m
     assert result["accounting"]["newsdata_credits"] == 1
     assert result["pagination"]["has_more"]
     assert "private-real-adapter-cursor" not in json.dumps(store.get_report(result["report_id"]))
+
+
+def test_two_default_pages_stop_at_twenty_with_no_third_charge_and_saved_second_replays(store, fake_newsdata, monkeypatch):
+    fake_newsdata["returned_count"] = 10
+    first = execute(store, key="capped-root")
+    second = execute(store, parent=first["report_id"], key="capped-second")
+    assert first["pagination"]["results_consumed"] == 10
+    assert second["pagination"]["results_before_page"] == 10
+    assert second["pagination"]["results_consumed"] == 20 and second["pagination"]["limit_reached"]
+    assert second["pagination"]["result_limit"] == 20 and not second["pagination"]["has_more"]
+    before = store.usage_summary()
+    for key in (None, "new-third-key", "capped-second"):
+        with pytest.raises(HTTPException) as capped:
+            execute(store, parent=second["report_id"], key=key)
+        assert capped.value.detail["code"] == "newsdata_result_limit"
+    monkeypatch.setattr(service.runtime, "agent_runtime_is_ready", lambda agent_id: False)
+    replay = execute(store, parent=first["report_id"], key="replay-second")
+    assert replay["report_id"] == second["report_id"] and replay["idempotency_replayed"]
+    assert len(fake_newsdata["calls"]) == 2 and store.usage_summary() == before
+
+
+@pytest.mark.parametrize("saved_count", [10, None, "invalid"])
+def test_legacy_saved_chain_reconstructs_cap_and_transaction_rejects_count_reset(store, saved_count):
+    def finish(report, next_cursor):
+        metadata = {} if saved_count is None else {"returned_item_count": saved_count}
+        store.finish_run(report["report_id"], {"newsdata": metadata},
+                         newsdata_context={**store.get_newsdata_context(report["report_id"]), "next_cursor": next_cursor})
+    first = reserve_page(store).report
+    finish(first, "legacy-next")
+    second_context = store.continuation_context(first["report_id"], "iran-news", TASK)
+    assert second_context["results_consumed"] == 10
+    with pytest.raises(StoreError) as reset:
+        reserve_page(store, context={**second_context, "results_consumed": 0})
+    assert reset.value.code == "invalid_newsdata_context"
+    second = reserve_page(store, context=second_context).report
+    finish(second, "legacy-third")
+    assert store.get_report(second["report_id"])["pagination"]["limit_reached"]
+    # Bypass preflight and call the transactional gate directly with a forged
+    # next-page counter: no attempt or credit may be added.
+    with pytest.raises(StoreError) as capped:
+        reserve_page(store, context={**second_context, "parent_report_id": second["report_id"],
+                     "page_index": 3, "cursor": "legacy-third", "results_consumed": 0})
+    assert capped.value.code == "newsdata_result_limit"
+    assert store.usage_summary()["daily"]["attempts"] == 2
+    assert store.usage_summary()["provider_credits"]["newsdata"]["daily_accounted"] == 2
+
+
+def test_short_provider_pages_use_saved_raw_counts_instead_of_page_index_times_size(store, fake_newsdata):
+    fake_newsdata["returned_count"] = 3
+    first = execute(store)
+    second = execute(store, parent=first["report_id"])
+    third = execute(store, parent=second["report_id"])
+    assert [item["context"]["results_consumed"] for item in fake_newsdata["calls"]] == [0, 3, 6]
+    assert third["pagination"]["results_consumed"] == 9
+    assert third["pagination"]["has_more"] and not third["pagination"]["limit_reached"]
+
+
+def test_legacy_fifty_row_archive_remains_readable_but_cannot_continue(store):
+    first = reserve_page(store).report
+    report_id = first["report_id"]
+    store.finish_run(report_id, {"newsdata": {"returned_item_count": 10}},
+                     newsdata_context={**store.get_newsdata_context(report_id), "next_cursor": "legacy-after-fifty"})
+    # Reproduce a durable page created before the first-20 rule existed.
+    with sqlite3.connect(store.path) as connection:
+        connection.execute("UPDATE newsdata_pages SET page_size=50 WHERE report_id=?", (report_id,))
+        connection.execute("UPDATE runs SET result_json=? WHERE report_id=?",
+                           (json.dumps({"newsdata": {"returned_item_count": 50}, "items": list(range(50))}), report_id))
+    archived = store.get_report(report_id)
+    assert len(archived["result"]["items"]) == 50
+    assert archived["pagination"]["results_consumed"] == 20 and archived["pagination"]["limit_reached"]
+    assert not archived["pagination"]["has_more"]
+    with pytest.raises(StoreError) as capped:
+        store.continuation_context(report_id, "iran-news", TASK)
+    assert capped.value.code == "newsdata_result_limit"
+    assert store.usage_summary()["daily"]["attempts"] == 1

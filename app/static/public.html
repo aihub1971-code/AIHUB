@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">
+<title>AI HUB | منصة المساعدين الذكيين</title>
+<link rel="stylesheet" href="/static/style.css?v=1.5.1">
+<link rel="stylesheet" href="/static/chat.css?v=1.5.1">
+<link rel="stylesheet" href="/static/public.css?v=1.5.1">
+</head>
+<body class="public-app">
+<div class="public-shell">
+  <header class="public-header">
+    <a class="public-brand" href="/" aria-label="AI HUB"><span class="logo" aria-hidden="true">AI</span><span><strong>AI HUB</strong><small data-i18n="public.brand"></small></span></a>
+    <div class="public-header-actions">
+      <span id="publicStatus" class="public-status" role="status" data-i18n="public.connecting"></span>
+      <div class="language-switch" role="group" data-i18n-aria-label="language.label">
+        <button id="languageAR" type="button" lang="ar" aria-pressed="true" class="active">العربية</button>
+        <button id="languageEN" type="button" lang="en" aria-pressed="false">English</button>
+      </div>
+    </div>
+  </header>
+  <nav class="public-tabs" role="tablist" data-i18n-aria-label="public.sections">
+    <button id="publicReportsTab" type="button" role="tab" aria-controls="publicReports" aria-selected="true" class="active" data-i18n="public.searchTab"></button>
+    <button id="publicChatTab" type="button" role="tab" aria-controls="publicChat" aria-selected="false" data-i18n="public.chatTab"></button>
+  </nav>
+  <main id="publicReports" class="public-workspace" role="tabpanel" aria-labelledby="publicReportsTab">
+    <aside class="public-sidebar">
+      <div class="public-sidebar-heading"><h2 data-i18n="public.assistants"></h2><span id="publicAgentCount" class="public-count">13</span></div>
+      <div id="publicAgentList" class="public-agent-list" aria-label="Assistants"></div>
+      <div class="public-sidebar-note"><span aria-hidden="true">✦</span><p data-i18n="public.sidebarNote"></p></div>
+    </aside>
+    <section class="public-main">
+      <div class="public-intro">
+        <span class="public-eyebrow" data-i18n="public.eyebrow"></span>
+        <h1 id="publicAgentName" data-i18n="agent.iran-news.name"></h1>
+        <p id="publicAgentDescription" data-i18n="public.iranDescription"></p>
+      </div>
+      <form id="publicSearchForm" class="public-composer">
+        <label for="publicTask" data-i18n="public.searchLabel"></label>
+        <textarea id="publicTask" rows="2" maxlength="8000" dir="auto" aria-describedby="publicKeyboardHint publicQueryNote" data-i18n-placeholder="public.placeholder" readonly>iran war</textarea>
+        <div class="public-composer-footer"><span id="publicKeyboardHint" data-i18n="public.keyboard"></span><button id="publicSearchButton" type="submit" class="primary" disabled><span data-i18n="public.search"></span><span aria-hidden="true">↗</span></button></div>
+      </form>
+      <p id="publicQueryNote" class="public-query-note" data-i18n="public.iranScope"></p>
+      <div id="publicNotice" class="notice hidden" role="status" aria-live="polite"></div>
+      <section id="publicResults" class="public-results hidden" aria-labelledby="publicResultsTitle">
+        <div class="public-results-toolbar"><h2 id="publicResultsTitle" data-i18n="public.results"></h2><div class="actions"><button id="publicCopy" class="textbutton" type="button" data-i18n="response.copy"></button><button id="publicDownload" class="textbutton" type="button" data-i18n="response.download"></button><button id="publicDiscuss" class="textbutton" type="button" data-i18n="public.discuss"></button></div></div>
+        <div id="publicResultBody" class="response-body" role="region" aria-labelledby="publicResultsTitle"></div>
+      </section>
+      <section id="publicEmpty" class="public-empty">
+        <div class="public-empty-symbol" aria-hidden="true">✦</div>
+        <h2 data-i18n="public.emptyTitle"></h2><p data-i18n="public.emptyDescription"></p>
+        <div class="public-benefits"><span data-i18n="public.benefitOne"></span><span data-i18n="public.benefitTwo"></span><span data-i18n="public.benefitThree"></span></div>
+      </section>
+    </section>
+  </main>
+  <section id="publicChat" class="hidden" role="tabpanel" aria-labelledby="publicChatTab"><div id="publicChatRoot"></div></section>
+  <footer class="public-footer"><span>AI HUB</span><p data-i18n="public.footer"></p></footer>
+</div>
+<script src="/static/i18n.js?v=1.5.1" defer></script>
+<script src="/static/chat.js?v=1.5.1" defer></script>
+<script src="/static/public.js?v=1.5.1" defer></script>
+</body>
+</html>

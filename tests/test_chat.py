@@ -249,8 +249,8 @@ def test_platform_help_distinguishes_newsdata_policy_and_instant_saved_languages
     assert iran["agent_id"] == "iran-news" and iran["provider"] == "newsdata"
     assert iran["query"] == "iran war" and iran["query_semantics"] == "iran AND war"
     assert iran["coverage_window_hours"] == 48 and iran["source_language"] == "en"
-    assert iran["fixed_item_count"] is None and iran["total_item_cap"] is None
-    assert iran["default_page_size"] == 10 and iran["maximum_page_size"] == 50
+    assert iran["fixed_item_count"] is None and iran["total_item_cap"] == 20
+    assert iran["default_page_size"] == 10 and iran["maximum_page_size"] == 20
     assert "One page is one saved report" in iran["pagination"]
     assert "Previous page" in iran["pagination"] and "server-held cursor" in iran["pagination"]
     assert "OpenAI" in iran["translation"] and "even when the interface is English" in iran["translation"]
