@@ -26,22 +26,22 @@
     {
       "number": "02",
       "id": "iran-news",
-      "name": "Iran News Briefing",
-      "description": "Prepare neutral, source-grounded Iran news briefs covering domestic, regional, diplomatic, economic and humanitarian developments.",
+      "name": "Iran War News",
+      "description": "Retrieve English Iran-war articles from NewsData.io with saved Arabic translations, original publisher links and explicit pagination.",
       "skills": [
         {
           "id": "iran-news",
           "path": "skills/iran-news/iran-news.md",
-          "sha256": "0a6f029ea1a5dd8f810cda39106b214ec4b3b10a08d4efc9e9d44d0a9a9f0ed6",
+          "sha256": "1ca429ead1e5239d0e69c5fb250282f0d313469d0bbf39055a67aae50c747dd3",
           "source_resource": "skill://plugins_6aca3e7b1584819193bca53a608892e2/iran-news/SKILL.md"
         }
       ],
       "enabled": true,
       "tools": [
-        "web_search"
+        "newsdata"
       ],
       "external_actions": [],
-      "display_name_ar": "أخبار إيران"
+      "display_name_ar": "أخبار حرب إيران"
     },
     {
       "number": "03",

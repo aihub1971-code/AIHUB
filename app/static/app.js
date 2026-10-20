@@ -9,7 +9,7 @@
   let lastResult = null, editingScheduleId = null, archiveOffset = 0, lastAttempt = null;
   let runInFlight = false, loginBusy = false, scheduleBusy = false, copied = false, sessionVersion = 0;
   let dashboardCache = null, healthState = null, runHintKey = "task.runHint", activeWorkspace = "reports";
-  let chat = null, scheduleLanguageExplicit = false;
+  let chat = null, scheduleLanguageExplicit = false, newsPageAttempt = null;
   const activeRequests = new Set(), notices = new Map();
   function noticeParams(params){
     const output={...params};
@@ -195,6 +195,19 @@
       return {url:url.href,publisher:publisher[1] || t("news.aljazeera")};
     }catch(_){return null;}
   }
+  function providerNewsSource(item){
+    const value=item.url;
+    if(typeof value!=="string" || /[\u0000-\u0020\u007f\\]/.test(value))return null;
+    try{
+      const url=new URL(value),hostname=url.hostname.toLowerCase().replace(/\.$/,"");
+      if(!["https:","http:"].includes(url.protocol) || url.username || url.password || url.port ||
+        !url.pathname || url.pathname==="/" || !hostname.includes(".") ||
+        !/^[a-z0-9.-]+$/.test(hostname) || /^[\d.]+$/.test(hostname) ||
+        /(?:^|\.)(?:localhost|local|internal|lan|home|invalid)$/.test(hostname))return null;
+      return {url:url.href,publisher:typeof item.publisher==="string" && item.publisher.trim() ? item.publisher.slice(0,160) : hostname};
+    }catch(_){return null;}
+  }
+  const isNewsDataReport=data=>data?.provider==="newsdata" && data.agent_id==="iran-news";
   function newsElement(tag,className,text){
     const element=document.createElement(tag); if(className)element.className=className;
     if(text!==undefined)element.textContent=String(text);
@@ -205,16 +218,17 @@
     const date=new Date(value.length===10 ? value+"T12:00:00+04:00" : value);
     return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(I18n.getLocale(),{timeZone:"Asia/Dubai",year:"numeric",month:"long",day:"numeric"});
   }
-  function renderNewsItem(item,background){
+  function renderNewsItem(item,background,provider=false){
     const article=newsElement("article","news-item");
     const headline=typeof item.headline==="string" ? item.headline : t("news.fallbackHeadline");
     const heading=newsElement("h3","news-headline",headline); heading.dir="auto";
     const summary=newsElement("p","news-summary",typeof item.summary==="string" && item.summary.trim() ? item.summary : t("news.noSummary")); summary.dir="auto";
     article.append(heading,summary);
-    const source=officialNewsSource(item.url), meta=newsElement("div","news-byline"); meta.dir=I18n.getDirection();
+    const source=provider ? providerNewsSource(item) : officialNewsSource(item.url), meta=newsElement("div","news-byline"); meta.dir=I18n.getDirection();
     if(source)meta.append(newsElement("bdi","news-publisher",source.publisher));
     if(item.source_kind==="live_coverage")meta.append(newsElement("span","news-context-label news-live-coverage",t("news.liveCoverage")));
-    const published=item.published_day_dubai || item.published_date, day=newsDay(published);
+    const published=provider ? item.published_date : item.published_day_dubai || item.published_date;
+    const day=provider && Number.isFinite(Date.parse(published)) ? localDate(published) : newsDay(published);
     if(day){const time=newsElement("time","news-published",t("news.published",{date:day}));time.dateTime=published;meta.append(time);}
     else meta.append(newsElement("span","news-published",t("news.noDate")));
     const eventDay=newsDay(item.event_date);
@@ -228,6 +242,49 @@
       const icon=newsElement("span","","↗");icon.setAttribute("aria-hidden","true");link.append(icon);article.append(link);
     }else{const unavailable=newsElement("p","news-link-unavailable",t("news.noLink"));unavailable.dir=I18n.getDirection();article.append(unavailable);}
     return article;
+  }
+  function renderNewsDataReport(target,data){
+    const items=data.items.filter(item=>item && typeof item==="object" && !Array.isArray(item)).slice(0,50);
+    const language=I18n.getLanguage(),pagination=data.pagination || {};
+    target.replaceChildren();target.classList.add("news-reading");target.dir=I18n.getDirection();target.lang=language;
+    const intro=newsElement("header","news-report-intro");
+    intro.append(newsElement("div","news-provider-badge","NewsData · iran war"),
+      newsElement("h2","news-report-title",t("agent.iran-news.name")),
+      newsElement("p","news-coverage",t("newsdata.window")));
+    if(data.generated_at && Number.isFinite(Date.parse(data.generated_at)))intro.append(newsElement("p","news-prepared",t("news.prepared",{date:localDate(data.generated_at)})));
+    intro.append(newsElement("p","news-count",t("newsdata.pageCount",{page:n(pagination.page_index || 1),count:n(items.length)})));
+    const total=data.newsdata?.provider_total_results ?? pagination.total_results;
+    if(Number.isSafeInteger(total) && total>=0)intro.append(newsElement("p","news-provider-total",t("newsdata.total",{count:n(total)})));
+    target.append(intro);
+    if(data.freshness?.plan==="free")target.append(newsElement("p","news-coverage-note",t("newsdata.freeDelay")));
+    else if(data.freshness?.plan!=="paid")target.append(newsElement("p","news-section-note",t("newsdata.planUnknown")));
+    const originalOnly=items.filter(item=>item.translation_status!=="translated").length;
+    if(language==="ar" && originalOnly)target.append(newsElement("p","news-coverage-note news-translation-note",t("newsdata.translationPartial",{count:n(originalOnly)})));
+    if(items.length){
+      const list=newsElement("div","news-list");
+      for(const item of items){
+        const translated=language==="ar" && item.translation_status==="translated" && typeof item.headline_ar==="string" && item.headline_ar.trim();
+        const headline=translated ? item.headline_ar : item.headline_en || item.headline;
+        const summary=translated ? item.summary_ar : item.summary_en || "";
+        const article=renderNewsItem({...item,headline,summary},false,true);
+        article.lang=translated ? "ar" : "en";article.dir=translated ? "rtl" : "ltr";
+        if(language==="ar"){
+          const label=newsElement("p","news-translation-label",t(translated ? "newsdata.translated" : "newsdata.originalFallback"));label.dir=I18n.getDirection();label.lang=language;article.append(label);
+        }
+        list.append(article);
+      }
+      target.append(list);
+    }else target.append(newsElement("p","news-empty",t("newsdata.empty")));
+    const navigation=newsElement("nav","news-pagination");navigation.setAttribute("aria-label",t("newsdata.navigation"));
+    const previous=newsElement("button","secondary news-page-button news-page-previous",t("newsdata.previous"));previous.type="button";
+    previous.disabled=runInFlight || !pagination.parent_report_id;previous.addEventListener("click",()=>changeNewsPage("previous"));
+    const next=newsElement("button","primary news-page-button news-page-next",t("newsdata.next"));next.type="button";
+    next.disabled=runInFlight || (!pagination.has_more && !pagination.next_report_id) || pagination.next_report_status==="failed";
+    next.addEventListener("click",()=>changeNewsPage("next"));
+    navigation.append(previous,newsElement("span","news-page-index",t("newsdata.page",{page:n(pagination.page_index || 1)})),next);target.append(navigation);
+    target.append(newsElement("p","news-section-note",t(pagination.next_report_status==="failed" ? "newsdata.failedPage" : "newsdata.pageNote")));
+    const notes=newsElement("details","news-notes");
+    notes.append(newsElement("summary","",t("news.notes")),newsElement("p","",t("newsdata.provenance")));target.append(notes);
   }
   function renderPublisherCoverage(coverage){
     const families=[...new Set(newsPublishers.map(([,publisher])=>publisher || "Al Jazeera"))];
@@ -257,6 +314,7 @@
     details.append(list);return details;
   }
   function renderNewsReport(target,data){
+    if(isNewsDataReport(data)){renderNewsDataReport(target,data);return;}
     const valid=item=>item && typeof item==="object" && !Array.isArray(item);
     const items=data.items.filter(valid).slice(0,20), background=data.background_items.filter(valid).slice(0,20-items.length);
     target.replaceChildren();target.classList.add("news-reading");
@@ -320,8 +378,10 @@
     if(!selectedAgent)return;
     $("selectedNum").textContent=selectedAgent.number;$("selectedName").textContent=agentName(selectedAgent.id);
     $("selectedId").textContent=selectedAgent.id;$("selectedDescription").textContent=agentDescription(selectedAgent);
-    $("selectedStatus").textContent=t(selectedAgent.runtime_ready ? "agents.ready" : "agents.registered");
+    $("selectedStatus").textContent=t(selectedAgent.runtime_ready ? "agents.ready" : selectedAgent.id==="iran-news" ? "agents.newsdataPending" : "agents.registered");
     $("selectedStatus").className="pill"+(selectedAgent.runtime_ready ? "" : " warn");
+    $("iranQueryNotice").classList.toggle("hidden",selectedAgent.id!=="iran-news");
+    $("newsCoverageHint").classList.toggle("hidden",selectedAgent.id==="iran-news");
     $("skillTags").replaceChildren();
     (selectedAgent.skill_ids || []).forEach(id=>{
       const key=I18n.has("agent."+id+".name") ? "agent."+id+".name" : "skill."+id;
@@ -336,8 +396,12 @@
   function chooseAgent(id){
     if(runInFlight)return false;
     const agent=agents.find(candidate=>candidate.id===id);if(!agent)return false;
+    const wasIran=selectedAgent?.id==="iran-news";
     selectedAgent=agent;$("welcome").classList.add("hidden");$("workArea").classList.remove("hidden");
-    clearResult();renderSelectedAgent();renderAgents();return true;
+    $("task").readOnly=id==="iran-news";
+    if(id==="iran-news")$("task").value="iran war";
+    else if(wasIran && $("task").value==="iran war")$("task").value="";
+    clearResult();renderSelectedAgent();renderAgents();refreshButtons();return true;
   }
   function renderScheduleOptions(){
     const value=$("scheduleAgent").value;$("scheduleAgent").replaceChildren();
@@ -353,10 +417,14 @@
   }
   function refreshButtons(){
     $("loginBtn").textContent=t(loginBusy ? "login.checking" : "login.button");$("loginBtn").disabled=loginBusy;
-    $("runBtn").textContent=t(runInFlight ? "task.running" : "task.run");$("runBtn").disabled=runInFlight;
+    $("runBtn").textContent=t(runInFlight ? "task.running" : selectedAgent?.id==="iran-news" ? "newsdata.refresh" : "task.run");$("runBtn").disabled=runInFlight;
     $("runHint").textContent=t(runHintKey);
     $("copyBtn").textContent=t(copied ? "response.copied" : "response.copy");
     $("saveSchedule").textContent=t(scheduleBusy ? "schedule.saving" : editingScheduleId ? "schedule.saveEdit" : "schedule.save");$("saveSchedule").disabled=scheduleBusy;
+    for(const button of $("responseBody").querySelectorAll(".news-page-button")){
+      const p=lastResult?.pagination || {};
+      button.disabled=runInFlight || (button.classList.contains("news-page-previous") ? !p.parent_report_id : (!p.has_more && !p.next_report_id) || p.next_report_status==="failed");
+    }
   }
   function refreshLanguage(){
     renderHealth();renderAgents();renderSelectedAgent();renderScheduleOptions();refreshButtons();
@@ -368,11 +436,11 @@
   }
   function logout(){
     sessionVersion++;authHeader="";activeRequests.forEach(controller=>controller.abort());activeRequests.clear();
-    chat?.logout();agents=[];selectedAgent=null;dashboardCache=null;editingScheduleId=null;archiveOffset=0;lastAttempt=null;
+    chat?.logout();agents=[];selectedAgent=null;dashboardCache=null;editingScheduleId=null;archiveOffset=0;lastAttempt=null;newsPageAttempt=null;
     runInFlight=false;loginBusy=false;scheduleBusy=false;runHintKey="task.runHint";notices.clear();clearResult();
     for(const id of ["archiveList","scheduleList","agentList","skillTags"])$(id).replaceChildren();
     for(const id of ["selectedName","selectedDescription","selectedId","archivePageLabel","schedulerNotice"])$(id).textContent="";
-    for(const id of ["dailyCount","dailyRemaining","dailyCost","dailyBudget","monthlyCost","monthlyBudget","providerStatus","scheduleStatus"])$(id).textContent="—";
+    for(const id of ["dailyCount","dailyRemaining","dailyCost","dailyBudget","monthlyCost","monthlyBudget","providerStatus","scheduleStatus","newsdataCredits"])$(id).textContent="—";
     for(const id of ["password","username","search","task"])$(id).value="";
     $("scheduleAgent").replaceChildren();resetScheduleForm();
     for(const id of ["management","accountOverview","sessionBox","agentSection","workArea","workspaceTabs","headerLogoutBtn"])$(id).classList.add("hidden");
@@ -401,7 +469,9 @@
     finally{activeRequests.delete(controller);if(version===sessionVersion){loginBusy=false;refreshButtons();}}
   }
   function displayResult(data,{announce=true}={}){
-    lastResult=data;lastResponse=typeof data.response==="string" ? data.response : "";latestReportId=data.report_id || null;
+    lastResult=data;
+    const localized=isNewsDataReport(data) ? data["response_"+I18n.getLanguage()] : null;
+    lastResponse=typeof localized==="string" ? localized : typeof data.response==="string" ? data.response : "";latestReportId=data.report_id || null;
     const body=$("responseBody");
     if(Array.isArray(data.items) && Array.isArray(data.background_items))renderNewsReport(body,data);
     else{body.classList.remove("news-reading");body.dir="auto";body.lang=data.language || "";renderMarkdown(body,lastResponse || t("response.noText"));}
@@ -409,7 +479,8 @@
     const usage=data.usage || {},search=data.web_search || {};
     const newsCount=typeof data.item_count==="number" ? n(data.item_count)+(typeof data.target_count==="number" ? " / "+n(data.target_count) : "") : undefined;
     const searchLabel=search.research_incomplete ? t("search.partial") : search.status ? (I18n.has("search."+search.status) ? t("search."+search.status) : t("search.failed")) : undefined;
-    const cells=[["usage.model",data.model],["usage.search",searchLabel],["usage.news",newsCount],
+    const cells=[["usage.model",data.model],["usage.search",isNewsDataReport(data) ? "NewsData" : searchLabel],["usage.news",newsCount],
+      ["usage.newsdataCredits",data.accounting?.newsdata_credits ? n(data.accounting.newsdata_credits) : undefined],
       ["usage.searchCalls",usage.web_search_calls==null ? undefined : n(usage.web_search_calls)],
       ["usage.input",(usage.prompt_tokens ?? usage.input_tokens)==null ? undefined : n(usage.prompt_tokens ?? usage.input_tokens)],
       ["usage.output",(usage.completion_tokens ?? usage.output_tokens)==null ? undefined : n(usage.completion_tokens ?? usage.output_tokens)],
@@ -425,7 +496,7 @@
   async function runTask(){
     if(runInFlight)return;
     if(!authHeader || !selectedAgent){setNotice("runNotice","task.signIn","error");return;}
-    const task=$("task").value.trim();if(!task){setNotice("runNotice","task.empty","error");return;}
+    const task=selectedAgent.id==="iran-news" ? "iran war" : $("task").value.trim();if(!task){setNotice("runNotice","task.empty","error");return;}
     const agentId=selectedAgent.id,language=I18n.getLanguage(),version=sessionVersion;
     if(!lastAttempt || lastAttempt.agent!==agentId || lastAttempt.task!==task || lastAttempt.language!==language)
       lastAttempt={agent:agentId,task,language,key:crypto.randomUUID()};
@@ -433,7 +504,7 @@
     try{
       const data=await apiJson("/v1/agents/"+encodeURIComponent(agentId)+"/run","POST",{task,language},{"Idempotency-Key":attempt.key});
       if(version!==sessionVersion || !authHeader)return;
-      lastAttempt=null;displayResult(data);$("task").value="";runHintKey="task.savedHint";
+      lastAttempt=null;newsPageAttempt=null;displayResult(data);$("task").value=agentId==="iran-news" ? "iran war" : "";runHintKey="task.savedHint";
     }catch(error){
       if(version!==sessionVersion || !authHeader)return;
       if(error.status && error.code!=="report_in_progress")lastAttempt=null;
@@ -443,10 +514,39 @@
       if(version===sessionVersion){runInFlight=false;refreshButtons();if(authHeader)await syncDashboard();}
     }
   }
-  function smallButton(label,action){const button=newsElement("button","textbutton",label);button.type="button";button.addEventListener("click",action);return button;}
-  async function downloadReport(id,format="md"){
+  async function changeNewsPage(direction){
+    if(runInFlight || !authHeader || !isNewsDataReport(lastResult) || !latestReportId)return;
+    const previous=lastResult,parentId=latestReportId,pagination=previous.pagination || {},version=sessionVersion;
+    const savedId=direction==="previous" ? pagination.parent_report_id : pagination.next_report_id;
+    if(!savedId && (direction==="previous" || !pagination.has_more))return;
+    runInFlight=true;refreshButtons();setNotice("runNotice","newsdata.loading");
     try{
-      const blob=await authenticatedRequest("/v1/reports/"+encodeURIComponent(id)+"/download?format="+encodeURIComponent(format),"GET",undefined,{},true);
+      let data;
+      if(savedId){
+        const saved=await apiJson("/v1/reports/"+encodeURIComponent(savedId));
+        if(!saved.result)throw makeError({detail:{code:saved.status==="pending" ? "report_in_progress" : "report_already_attempted"}},409);
+        data={...saved.result,report_id:saved.report_id,task:saved.task,language:saved.language || saved.result.language,
+          pagination:{...(saved.result.pagination || {}),...(saved.pagination || {})},estimated_cost_usd:saved.estimated_cost_usd};
+      }else{
+        if(!newsPageAttempt || newsPageAttempt.parent!==parentId)newsPageAttempt={parent:parentId,key:crypto.randomUUID()};
+        data=await apiJson("/v1/agents/iran-news/run","POST",{
+          task:previous.task || "iran war",language:previous.language==="en" ? "en" : "ar",continue_from_report_id:parentId
+        },{"Idempotency-Key":newsPageAttempt.key});
+      }
+      if(version!==sessionVersion || !authHeader)return;
+      if(!isNewsDataReport(data))throw makeError({detail:{code:"invalid_newsdata_continuation"}},409);
+      newsPageAttempt=null;displayResult(data);$("responsePanel").scrollIntoView({behavior:"smooth",block:"start"});
+    }catch(error){
+      if(version!==sessionVersion || !authHeader)return;
+      setError("runNotice",error);
+    }finally{
+      if(version===sessionVersion){runInFlight=false;refreshButtons();if(authHeader)await syncDashboard();}
+    }
+  }
+  function smallButton(label,action){const button=newsElement("button","textbutton",label);button.type="button";button.addEventListener("click",action);return button;}
+  async function downloadReport(id,format="md",language=null){
+    try{
+      const blob=await authenticatedRequest("/v1/reports/"+encodeURIComponent(id)+"/download?format="+encodeURIComponent(format)+(language ? "&language="+encodeURIComponent(language) : ""),"GET",undefined,{},true);
       const url=URL.createObjectURL(blob),anchor=document.createElement("a");
       anchor.href=url;anchor.download="AI_HUB_Report_"+id+"."+format;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
     }catch(error){setError("dashboardNotice",error);}
@@ -464,11 +564,14 @@
       if(row.error_code)cost.append(document.createTextNode(" · "+prettyError({detail:{code:row.error_code}},503)));
       const actions=newsElement("div","actions");
       actions.append(smallButton(t("archive.view"),async()=>{
+        if(runInFlight)return;
         try{
           const saved=await apiJson("/v1/reports/"+encodeURIComponent(row.report_id));
+          if(runInFlight)return;
           if(!saved.result){setNotice("dashboardNotice",saved.status==="pending" ? "archive.inProgress" : "archive.noCompletedResult");return;}
           showWorkspace("reports");chooseAgent(saved.agent_id);
-          displayResult({...saved.result,report_id:saved.report_id,estimated_cost_usd:saved.estimated_cost_usd});
+          displayResult({...saved.result,report_id:saved.report_id,task:saved.task,language:saved.language || saved.result.language,
+            pagination:{...(saved.result.pagination || {}),...(saved.pagination || {})},estimated_cost_usd:saved.estimated_cost_usd});
           $("responsePanel").scrollIntoView({behavior:"smooth",block:"start"});
         }catch(error){setError("dashboardNotice",error);}
       }),smallButton(t("archive.download"),()=>downloadReport(row.report_id)),smallButton("JSON",()=>downloadReport(row.report_id,"json")));
@@ -515,8 +618,10 @@
     $("dailyRemaining").textContent=t("overview.remaining",{count:n(usage.daily.remaining)});
     $("dailyCost").textContent=money(usage.daily.estimated_cost_usd);$("dailyBudget").textContent=t("overview.budget",{amount:money(usage.daily.budget_usd)});
     $("monthlyCost").textContent=money(usage.monthly.estimated_cost_usd);$("monthlyBudget").textContent=t("overview.budget",{amount:money(usage.monthly.budget_usd)});
-    $("providerStatus").textContent=system.model_configured ? "OpenAI" : t("overview.pending");
-    $("scheduleStatus").textContent=t("overview.searchPricing",{search:t(system.search_configured ? "configured" : "notConfigured"),pricing:t(system.pricing_configured ? "configured" : "incomplete")});
+    $("providerStatus").textContent=system.iran_news?.configured ? "NewsData + "+(system.model_configured ? "OpenAI" : t("overview.pendingTranslation")) : system.model_configured ? "OpenAI" : t("overview.pending");
+    $("scheduleStatus").textContent=system.iran_news ? t("overview.newsdataConfiguration",{news:t(system.iran_news.configured ? "configured" : "notConfigured"),translation:t(system.iran_news.translation_configured ? "configured" : "notConfigured")}) : t("overview.searchPricing",{search:t(system.search_configured ? "configured" : "notConfigured"),pricing:t(system.pricing_configured ? "configured" : "incomplete")});
+    const credits=usage.provider_credits?.newsdata;
+    $("newsdataCredits").textContent=credits ? t("overview.newsdataCredits",{used:n(credits.daily_accounted || 0),limit:n(credits.daily_limit || 0),remaining:n(credits.daily_remaining || 0)}) : "—";
     $("schedulerNotice").textContent=t(system.scheduler_running ? "schedule.running" : "schedule.stopped");
     renderArchive(reports.reports || []);renderSchedules(schedules.schedules || [],occurrences.occurrences || []);
   }
@@ -568,7 +673,7 @@
   $("scheduleForm").addEventListener("submit",saveSchedule);
   $("scheduleLanguage").addEventListener("change",()=>{scheduleLanguageExplicit=true;});
   $("cancelScheduleEdit").addEventListener("click",resetScheduleForm);
-  $("downloadBtn").addEventListener("click",()=>latestReportId && downloadReport(latestReportId));
+  $("downloadBtn").addEventListener("click",()=>latestReportId && downloadReport(latestReportId,"md",isNewsDataReport(lastResult) ? I18n.getLanguage() : null));
   $("refreshDashboard").addEventListener("click",syncDashboard);
   $("archivePrev").addEventListener("click",()=>{archiveOffset=Math.max(0,archiveOffset-10);syncDashboard();});
   $("archiveNext").addEventListener("click",()=>{archiveOffset+=10;syncDashboard();});

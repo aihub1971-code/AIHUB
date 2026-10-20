@@ -449,7 +449,7 @@ test("an incomplete follow-up and separate event dates are visible and localized
 
 test("scripts initialize in order without chat requests before authentication; logout clears private state", async () => {
   const sources=[...html.matchAll(/<script src="([^"]+)"/g)].map(match=>match[1]);
-  assert.deepEqual(sources,["/static/i18n.js?v=1.4.3","/static/chat.js?v=1.4.3","/static/app.js?v=1.4.3"]);
+  assert.deepEqual(sources,["/static/i18n.js?v=1.5.0","/static/chat.js?v=1.5.0","/static/app.js?v=1.5.0"]);
   const ui=harness(null,{language:"en",fetch:(url,_options,respond)=>dashboardFixture(url,respond)});
   assert.equal(ui.chatCalls.create,1);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
   assert.equal(ui.chatConfig.getCurrentReport(),null);
@@ -541,4 +541,125 @@ test("known backend errors are localized without showing raw service messages", 
   assert.match(error.message,/conversation changed/);assert.doesNotMatch(error.message,/RAW_PRIVATE/);
   ui.I18n.setLanguage("ar");
   assert.match(ui.makeError({detail:{code:"invalid_chat_response"}},502).message,/لم يصل رد صالح/);
+});
+
+function newsdataReport(overrides={}) {
+  return report({provider:"newsdata",language:"ar",task:"iran war",report_id:"rpt_newsdata_page_1",
+    items:[item({article_id:"fixture-1",publisher:"Reuters",url:"https://www.reuters.com/world/middle-east/fixture-article",
+      headline_en:"Original English headline",summary_en:"Original English description.",
+      headline_ar:"عنوان مترجم إلى العربية",summary_ar:"ملخص الخبر مترجم إلى العربية.",translation_status:"translated",
+      published_date:"2026-10-20T03:00:00+00:00"})],
+    pagination:{has_more:true,page_index:1,page_size:10,parent_report_id:null,root_report_id:"rpt_newsdata_page_1",total_results:127},
+    newsdata:{provider_total_results:127},freshness:{plan:"free"},
+    response_ar:"## تقرير عربي محفوظ\n\nعنوان مترجم إلى العربية",
+    response_en:"## Saved English report\n\nOriginal English headline",...overrides});
+}
+
+test("NewsData displays any validated publisher and switches saved translations instantly", async () => {
+  const ui=harness();ui.setAuthenticated();ui.chooseAgent("iran-news");const data=newsdataReport();ui.displayResult(data);
+  const body=ui.elements.get("responseBody");
+  assert.equal(byClass(body,"news-headline")[0].textContent,"عنوان مترجم إلى العربية");
+  assert.equal(byClass(body,"news-publisher")[0].textContent,"Reuters");
+  assert.equal(byClass(body,"news-source-link")[0].href,data.items[0].url);
+  assert.equal(byClass(body,"news-source-coverage").length,0,"Iran must not show the old six-publisher list.");
+  assert.match(body.textContent,/12|١٢/);
+  assert.match(byClass(body,"news-provider-total")[0].textContent,/127|١٢٧/);
+  ui.I18n.setLanguage("en");
+  assert.equal(body.dir,"ltr");assert.equal(body.lang,"en");
+  assert.equal(byClass(body,"news-headline")[0].textContent,"Original English headline");
+  assert.equal(byClass(body,"news-summary")[0].textContent,"Original English description.");
+  assert.equal(byClass(body,"news-count")[0].textContent,"Page 1 · 1 articles shown");
+  await ui.elements.get("copyBtn").click();assert.equal(ui.copied(),data.response_en);
+  ui.I18n.setLanguage("ar");
+  await ui.elements.get("copyBtn").click();assert.equal(ui.copied(),data.response_ar);
+  assert.equal(ui.requests.length,0,"Language switching and copying must not refetch or translate.");
+  assert.equal(ui.getCurrentReport().id,data.report_id);
+});
+
+test("NewsData Arabic translation failures retain English and unsafe links never become clickable", () => {
+  const ui=harness();const data=newsdataReport();
+  data.items[0]={...data.items[0],translation_status:"original_only",headline_ar:null,summary_ar:null};
+  data.items.push({...data.items[0],url:"https://127.0.0.1/private"});
+  data.item_count=2;ui.displayResult(data);const body=ui.elements.get("responseBody");
+  assert.equal(byClass(body,"news-headline")[0].textContent,"Original English headline");
+  assert.equal(byClass(body,"news-item")[0].lang,"en");
+  assert.match(byClass(body,"news-translation-note")[0].textContent,/الترجمة العربية غير متاحة/);
+  assert.equal(byClass(body,"news-source-link").length,1);
+  assert.equal(byClass(body,"news-link-unavailable").length,1);
+  assert.equal(ui.requests.length,0);
+});
+
+test("NewsData paid pages may show more than 20 items without applying a six-story target", () => {
+  const ui=harness(null,{language:"en"}),data=newsdataReport({freshness:{plan:"paid"}});
+  data.items=Array.from({length:25},(_,i)=>({...data.items[0],article_id:"fixture-"+i,headline_en:"Article "+i}));
+  data.item_count=25;data.pagination.page_size=25;ui.displayResult(data);
+  assert.equal(byClass(ui.elements.get("responseBody"),"news-item").length,25);
+  assert.match(byClass(ui.elements.get("responseBody"),"news-count")[0].textContent,/25 articles/);
+  assert.doesNotMatch(ui.elements.get("responseBody").textContent,/12-hour|20 news|of 6/);
+});
+
+test("Next and Previous show saved report pages and preserve the original request language", async () => {
+  const first=newsdataReport({task:"Original scheduled task"});
+  const second=newsdataReport({report_id:"rpt_newsdata_page_2",task:first.task,
+    pagination:{has_more:false,page_index:2,page_size:10,parent_report_id:first.report_id,root_report_id:first.report_id},
+    items:[{...first.items[0],headline_en:"Second page only"}]});
+  const savedFirst={report_id:first.report_id,agent_id:"iran-news",status:"succeeded",language:"ar",task:first.task,
+    result:first,pagination:{...first.pagination,next_report_id:second.report_id,next_report_status:"succeeded"}};
+  const savedSecond={report_id:second.report_id,agent_id:"iran-news",status:"succeeded",language:"ar",task:first.task,result:second};
+  const ui=harness(null,{language:"en",fetch:(url,options,respond)=>{
+    if(url.endsWith("/run"))return respond(second);
+    if(url==="/v1/reports/"+first.report_id)return respond(savedFirst);
+    if(url==="/v1/reports/"+second.report_id)return respond(savedSecond);
+    return dashboardFixture(url,respond);
+  }});
+  ui.setAuthenticated();ui.chooseAgent("iran-news");ui.displayResult(first);
+  let body=ui.elements.get("responseBody");
+  await byClass(body,"news-page-next")[0].click();
+  const run=ui.requests.find(request=>request.url.endsWith("/run"));
+  assert.deepEqual(JSON.parse(run.options.body),{task:first.task,language:"ar",continue_from_report_id:first.report_id});
+  assert.equal(ui.getCurrentReport().id,second.report_id);
+  assert.equal(byClass(body,"news-item").length,1);
+  assert.equal(byClass(body,"news-headline")[0].textContent,"Second page only");
+  assert.equal(byClass(body,"news-page-next")[0].disabled,true);
+  await byClass(body,"news-page-previous")[0].click();
+  assert.equal(ui.getCurrentReport().id,first.report_id);
+  await byClass(body,"news-page-next")[0].click();
+  assert.equal(ui.getCurrentReport().id,second.report_id);
+  assert.equal(ui.requests.filter(request=>request.url.endsWith("/run")).length,1,"Saved page navigation must not charge a second time.");
+});
+
+test("an interrupted continuation keeps its idempotency key and the current page visible", async () => {
+  const ui=harness(null,{fetch:(url,_options,respond)=>{
+    if(url.endsWith("/run"))throw new Error("Synthetic interrupted response");
+    return dashboardFixture(url,respond);
+  }});
+  ui.setAuthenticated();ui.chooseAgent("iran-news");const data=newsdataReport();ui.displayResult(data);
+  const body=ui.elements.get("responseBody");
+  await byClass(body,"news-page-next")[0].click();await byClass(body,"news-page-next")[0].click();
+  const runs=ui.requests.filter(request=>request.url.endsWith("/run"));
+  assert.equal(runs.length,2);
+  assert.equal(runs[0].options.headers["Idempotency-Key"],runs[1].options.headers["Idempotency-Key"]);
+  assert.equal(ui.getCurrentReport().id,data.report_id);
+  assert.equal(byClass(body,"news-item").length,1);
+});
+
+test("NewsData download requests the visible language and a failed child is not retried", async () => {
+  const ui=harness(null,{language:"en"});ui.setAuthenticated();
+  const data=newsdataReport();data.pagination.next_report_id="rpt_failed_page";data.pagination.next_report_status="failed";
+  ui.displayResult(data);await ui.elements.get("downloadBtn").click();
+  assert.equal(ui.requests[0].url,"/v1/reports/"+data.report_id+"/download?format=md&language=en");
+  assert.equal(byClass(ui.elements.get("responseBody"),"news-page-next")[0].disabled,true);
+  assert.match(ui.elements.get("responseBody").textContent,/next-page attempt could not complete/);
+});
+
+test("Iran’s manual query is fixed to iran war even if the form value is changed", async () => {
+  const ui=harness(null,{fetch:(url,options,respond)=>{
+    if(url.endsWith("/run"))return respond(newsdataReport());
+    return dashboardFixture(url,respond);
+  }});
+  ui.setAuthenticated();ui.chooseAgent("iran-news");
+  assert.equal(ui.elements.get("task").readOnly,true);assert.equal(ui.elements.get("task").value,"iran war");
+  ui.elements.get("task").value="unrelated topic";await ui.runTask();
+  const run=ui.requests.find(request=>request.url.endsWith("/run"));assert.equal(JSON.parse(run.options.body).task,"iran war");
+  assert.equal(ui.elements.get("task").value,"iran war");
 });

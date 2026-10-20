@@ -140,7 +140,7 @@ def mock_openai(monkeypatch):
 
 def test_news_success_reconciles_discovery_breadth_report_and_two_search_fees(store, mock_openai):
     requests = mock_openai(all_replies())
-    result = service.execute_report("iran-news", TASK, idempotency_key="three-stage", store=store)
+    result = service.execute_report("geopolitical-morning", TASK, idempotency_key="three-stage", store=store)
     record = store.get_report(result["report_id"])
     assert len(requests) == 3
     assert result["item_count"] == 1
@@ -159,7 +159,7 @@ def test_news_success_reconciles_discovery_breadth_report_and_two_search_fees(st
     assert payloads[1]["tools"][0]["filters"]["allowed_domains"] == NEWS_SOURCE_DOMAINS[1:]
     assert result["web_search"]["research_passes"][1]["allowed_source_domains"] == NEWS_SOURCE_DOMAINS[1:]
     assert store.usage_summary()["daily"]["attempts"] == 1
-    replay = service.execute_report("iran-news", TASK, idempotency_key="three-stage", store=store)
+    replay = service.execute_report("geopolitical-morning", TASK, idempotency_key="three-stage", store=store)
     assert replay["report_id"] == result["report_id"] and replay["idempotency_replayed"]
     assert len(requests) == 3
 
@@ -170,7 +170,7 @@ def test_rejected_publisher_evidence_still_accounts_for_discovery_and_empty_brea
     research["output"][0]["action"]["sources"][0]["url"] = rejected_url
     research["output"][1]["content"][0]["annotations"][0]["url"] = rejected_url
     requests = mock_openai([research, research])
-    result = service.execute_report("iran-news", TASK, store=store)
+    result = service.execute_report("geopolitical-morning", TASK, store=store)
     record = store.get_report(result["report_id"])
     assert len(requests) == 2
     assert result["status"] == "no_evidence" and result["item_count"] == 0
@@ -193,7 +193,7 @@ def empty_native_discovery():
     return reply
 
 
-@pytest.mark.parametrize("agent_id", ["iran-news", "geopolitical-morning"])
+@pytest.mark.parametrize("agent_id", ["economic-cultural-briefing", "geopolitical-morning"])
 def test_missing_native_titles_recover_once_with_one_reservation_and_idempotent_replay(
         store, mock_openai, agent_id):
     estimate = runtime.estimate_reservation(agent_id, TASK)
@@ -233,7 +233,7 @@ def test_missing_native_titles_recover_once_with_one_reservation_and_idempotent_
 
 def test_empty_recovery_stops_without_a_third_search_or_report(store, mock_openai):
     requests = mock_openai([empty_native_discovery(), empty_native_discovery()])
-    result = service.execute_report("iran-news", TASK, store=store)
+    result = service.execute_report("geopolitical-morning", TASK, store=store)
     assert len(requests) == 2 and result["item_count"] == 0
     assert result["report_model_called"] is False
     assert result["web_search"]["evidence_recovery_status"] == "empty"
@@ -241,21 +241,21 @@ def test_empty_recovery_stops_without_a_third_search_or_report(store, mock_opena
 
 
 def test_recovery_timeout_retains_full_reservation_and_cannot_retry_same_attempt(store, mock_openai):
-    estimate = runtime.estimate_reservation("iran-news", TASK)
+    estimate = runtime.estimate_reservation("geopolitical-morning", TASK)
     requests = mock_openai([empty_native_discovery(), "timeout"])
     with pytest.raises(HTTPException) as error:
-        service.execute_report("iran-news", TASK, idempotency_key="recovery-timeout", store=store)
+        service.execute_report("geopolitical-morning", TASK, idempotency_key="recovery-timeout", store=store)
     assert error.value.detail["code"] == "openai_timeout" and len(requests) == 2
     assert store.usage_summary()["daily"]["estimated_cost_usd"] == estimate["estimated_cost_usd"]
     with pytest.raises(HTTPException):
-        service.execute_report("iran-news", TASK, idempotency_key="recovery-timeout", store=store)
+        service.execute_report("geopolitical-morning", TASK, idempotency_key="recovery-timeout", store=store)
     assert len(requests) == 2 and store.usage_summary()["daily"]["attempts"] == 1
 
 
 def test_breadth_timeout_preserves_first_article_with_full_reservation_and_idempotent_replay(store, mock_openai):
-    estimate = runtime.estimate_reservation("iran-news", TASK)
+    estimate = runtime.estimate_reservation("geopolitical-morning", TASK)
     requests = mock_openai([research_reply(), "timeout", report_reply()])
-    result = service.execute_report("iran-news", TASK, idempotency_key="breadth-partial", store=store)
+    result = service.execute_report("geopolitical-morning", TASK, idempotency_key="breadth-partial", store=store)
     record = store.get_report(result["report_id"])
     assert len(requests) == 3 and result["model_call_count"] == 3
     assert result["item_count"] == 1 and result["items"][0]["url"] == ARTICLE_URL
@@ -273,7 +273,7 @@ def test_breadth_timeout_preserves_first_article_with_full_reservation_and_idemp
     assert [bool(payload["tools"]) for payload in payloads] == [True, True, False]
     assert payloads[0]["tools"][0]["filters"]["allowed_domains"] == NEWS_SOURCE_DOMAINS
     assert payloads[1]["tools"][0]["filters"]["allowed_domains"] == NEWS_SOURCE_DOMAINS[1:]
-    replay = service.execute_report("iran-news", TASK, idempotency_key="breadth-partial", store=store)
+    replay = service.execute_report("geopolitical-morning", TASK, idempotency_key="breadth-partial", store=store)
     assert replay["report_id"] == result["report_id"] and replay["idempotency_replayed"] is True
     assert len(requests) == 3 and store.usage_summary()["daily"]["attempts"] == 1
 
@@ -281,9 +281,9 @@ def test_breadth_timeout_preserves_first_article_with_full_reservation_and_idemp
 def test_bound_covers_optional_recovery_but_all_six_eligible_families_skip_it(store, mock_openai, monkeypatch):
     monkeypatch.setenv("OPENAI_RESEARCH_MAX_OUTPUT_TOKENS", "8192")
     monkeypatch.setenv("MAX_OUTPUT_TOKENS", "8192")
-    estimate = runtime.estimate_reservation("iran-news", TASK)
+    estimate = runtime.estimate_reservation("geopolitical-morning", TASK)
     requests = mock_openai(all_replies(full_coverage=True))
-    service.execute_report("iran-news", TASK, store=store)
+    service.execute_report("geopolitical-morning", TASK, store=store)
     assert len(requests) == 2
     payloads = [json.loads(request.content) for request in requests]
     research, report = payloads
@@ -320,19 +320,19 @@ def test_bound_covers_optional_recovery_but_all_six_eligible_families_skip_it(st
 
 
 def test_configured_search_fee_reserves_two_possible_actions_but_charges_only_actual_use(store, mock_openai, monkeypatch):
-    baseline = runtime.estimate_reservation("iran-news", TASK)
+    baseline = runtime.estimate_reservation("geopolitical-morning", TASK)
     monkeypatch.setenv("OPENAI_WEB_SEARCH_PRICE_USD_PER_CALL", ".037")
-    configured = runtime.estimate_reservation("iran-news", TASK)
+    configured = runtime.estimate_reservation("geopolitical-morning", TASK)
     assert Decimal(str(configured["estimated_cost_usd"])) - Decimal(str(baseline["estimated_cost_usd"])) == Decimal(".054")
     requests = mock_openai(all_replies(full_coverage=True))
-    result = service.execute_report("iran-news", TASK, store=store)
+    result = service.execute_report("geopolitical-morning", TASK, store=store)
     assert len(requests) == 2
     assert result["accounting"]["estimated_cost_usd"] == .05075
     assert store.get_report(result["report_id"])["reserved_cost_usd"] == configured["estimated_cost_usd"]
 
 
 def test_synthesis_timeout_retains_whole_reservation_after_successful_unified_research(store, mock_openai):
-    estimate = runtime.estimate_reservation("iran-news", TASK)
+    estimate = runtime.estimate_reservation("geopolitical-morning", TASK)
     store._limits = QuotaLimits(50, str(estimate["estimated_cost_usd"]), "1000")
 
     def reservation_precedes_every_paid_request():
@@ -344,16 +344,16 @@ def test_synthesis_timeout_retains_whole_reservation_after_successful_unified_re
     replies[-1] = "timeout"
     requests = mock_openai(replies, reservation_precedes_every_paid_request)
     with pytest.raises(HTTPException) as error:
-        service.execute_report("iran-news", TASK, idempotency_key="partial-payment", store=store)
+        service.execute_report("geopolitical-morning", TASK, idempotency_key="partial-payment", store=store)
     assert error.value.status_code == 504
     record = store.get_report(error.value.detail["report_id"])
     assert record["status"] == "failed" and record["cost_basis"] == "reservation_retained"
     assert record["estimated_cost_usd"] == record["reserved_cost_usd"] == estimate["estimated_cost_usd"]
     with pytest.raises(HTTPException) as replay:
-        service.execute_report("iran-news", TASK, idempotency_key="partial-payment", store=store)
+        service.execute_report("geopolitical-morning", TASK, idempotency_key="partial-payment", store=store)
     assert replay.value.status_code == 409
     with pytest.raises(HTTPException) as blocked:
-        service.execute_report("iran-news", TASK, idempotency_key="new-attempt", store=store)
+        service.execute_report("geopolitical-morning", TASK, idempotency_key="new-attempt", store=store)
     assert blocked.value.detail["code"] == "daily_budget_limit"
     assert len(requests) == 3 and store.usage_summary()["daily"]["attempts"] == 1
 
@@ -363,13 +363,13 @@ def test_complete_failure_retains_whole_reservation_and_never_repeats_a_stage(st
     replies = ["timeout"] if failure_stage == "research" else [research_reply(), empty_native_discovery(), "timeout"]
     requests = mock_openai(replies)
     with pytest.raises(HTTPException) as error:
-        service.execute_report("iran-news", TASK, idempotency_key="failed-stages", store=store)
+        service.execute_report("geopolitical-morning", TASK, idempotency_key="failed-stages", store=store)
     assert error.value.status_code == 504
     record = store.get_report(error.value.detail["report_id"])
     assert record["status"] == "failed" and record["cost_basis"] == "reservation_retained"
     assert record["estimated_cost_usd"] == record["reserved_cost_usd"] > 0
     with pytest.raises(HTTPException) as replay:
-        service.execute_report("iran-news", TASK, idempotency_key="failed-stages", store=store)
+        service.execute_report("geopolitical-morning", TASK, idempotency_key="failed-stages", store=store)
     assert replay.value.status_code == 409
     assert len(requests) == len(replies)
     assert store.usage_summary()["daily"]["attempts"] == 1
@@ -382,7 +382,7 @@ def test_missing_accounting_metadata_in_any_stage_preserves_the_entire_reservati
     replies = all_replies()
     replies[missing_stage].pop(missing_field)
     requests = mock_openai(replies)
-    result = service.execute_report("iran-news", TASK, store=store)
+    result = service.execute_report("geopolitical-morning", TASK, store=store)
     record = store.get_report(result["report_id"])
     assert len(requests) == 3
     assert result["cost_tracking_complete"] is False and result["estimated_cost_usd"] is None
@@ -398,7 +398,7 @@ def test_usage_beyond_the_actual_synthesis_request_bound_retains_the_full_reserv
     replies[-1]["usage"]["input_tokens"] = 140000
     replies[-1]["usage"]["total_tokens"] = 140000 + replies[-1]["usage"]["output_tokens"]
     requests = mock_openai(replies)
-    result = service.execute_report("iran-news", TASK, store=store)
+    result = service.execute_report("geopolitical-morning", TASK, store=store)
     assert len(requests) == 3
     assert result["usage"]["input_tokens"] == 140600
     assert result["usage_stages"][0]["usage_bound_matches"] is True
@@ -411,11 +411,11 @@ def test_usage_beyond_the_actual_synthesis_request_bound_retains_the_full_reserv
 
 
 def test_full_news_reservation_is_required_before_the_first_provider_request(store, mock_openai):
-    estimate = runtime.estimate_reservation("iran-news", TASK)
+    estimate = runtime.estimate_reservation("geopolitical-morning", TASK)
     store._limits = QuotaLimits(50, str(Decimal(str(estimate["estimated_cost_usd"])) - Decimal(".000001")), "1000")
     requests = mock_openai([])
     with pytest.raises(HTTPException) as error:
-        service.execute_report("iran-news", TASK, store=store)
+        service.execute_report("geopolitical-morning", TASK, store=store)
     assert error.value.detail["code"] == "daily_budget_limit"
     assert requests == []
     assert store.usage_summary()["daily"]["attempts"] == 0

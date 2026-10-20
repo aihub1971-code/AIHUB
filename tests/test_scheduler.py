@@ -175,7 +175,7 @@ def test_start_is_idempotent_and_stop_joins_worker(store):
 
 def test_manual_and_scheduled_execution_share_one_quota(store, monkeypatch):
     store._limits = QuotaLimits(1, "10", "100")
-    schedule(store)
+    schedule(store, agent_id="geopolitical-morning")
     calls = []
     monkeypatch.setattr(service.runtime, "runtime_is_ready", lambda: True)
     monkeypatch.setattr(service.runtime, "estimate_reservation", lambda *args: {"estimated_cost_usd": .1, "provider": "test", "model": "test"}, raising=False)
@@ -185,7 +185,7 @@ def test_manual_and_scheduled_execution_share_one_quota(store, monkeypatch):
         return {"response": "Saved", "cost_tracking_complete": False}
 
     monkeypatch.setattr(service.runtime, "run_agent", run, raising=False)
-    service.execute_report("iran-news", "Manual first", store=store)
+    service.execute_report("geopolitical-morning", "Manual first", store=store)
     scheduler = Scheduler(store=store, clock=lambda: NOW)
     assert scheduler.tick() == 1
     assert len(calls) == 1

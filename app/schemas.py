@@ -8,6 +8,10 @@ class TaskRequest(BaseModel):
     task: str = Field(min_length=1, max_length=8000)
     language: Literal["ar", "en"] = "ar"
 
+class RunRequest(TaskRequest):
+    continue_from_report_id: str | None = Field(
+        default=None, max_length=100, pattern=r"^rpt_[A-Za-z0-9_-]{1,96}$")
+
 class ScheduleCreate(TaskRequest):
     agent_id: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")
     name: str = Field(default="", max_length=120)

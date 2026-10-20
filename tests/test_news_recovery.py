@@ -88,13 +88,13 @@ def dated_sources(hosts, *, publication="2026-10-20T07:00:00Z", overrides=None):
     return reply, runtime._native_research_sources(reply, "iran-news")
 
 
-def plan_for(reply=None, search=None, agent="iran-news"):
+def plan_for(reply=None, search=None, agent="geopolitical-morning"):
     return recovery.plan_evidence_recovery(
         agent, response() if reply is None else reply,
         empty_search() if search is None else search, WINDOW, AS_OF)
 
 
-def build(plan=None, task="أخبار إيران المنشورة اليوم", agent="iran-news"):
+def build(plan=None, task="أخبار إيران المنشورة اليوم", agent="geopolitical-morning"):
     return recovery.build_evidence_recovery_payload(
         runtime.DEFAULT_OPENAI_MODEL, agent, task, WINDOW, AS_OF,
         make_plan() if plan is None else plan)
@@ -112,7 +112,7 @@ def candidate_state(payload):
     raise AssertionError("Expected a separately labeled untrusted candidate registry.")
 
 
-@pytest.mark.parametrize("agent", sorted(runtime.NEWS_REPORT_AGENT_IDS))
+@pytest.mark.parametrize("agent", sorted(runtime.NEWS_REPORT_AGENT_IDS - {"iran-news"}))
 def test_empty_news_with_missing_native_title_can_plan_observed_source(agent):
     reply = response()
     search = runtime._native_research_sources(reply, agent)
@@ -120,6 +120,11 @@ def test_empty_news_with_missing_native_title_can_plan_observed_source(agent):
     assert search["excluded"]["missing_native_title"] == 1
     plan = plan_for(reply, search, agent)
     assert plan == make_plan()
+
+
+def test_iran_newsdata_route_cannot_plan_openai_search_recovery():
+    assert plan_for(agent="iran-news") is None
+    assert build(agent="iran-news") is None
 
 
 def test_missing_notes_and_single_publisher_choose_their_distinct_followup_reasons():

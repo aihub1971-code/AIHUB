@@ -24,6 +24,8 @@ def _response(record: dict[str, Any], *, replayed: bool = False) -> dict[str, An
     response = dict(record.get("result") or {})
     response.update({
         "report_id": record["report_id"],
+        "task": record["task"],
+        "language": record.get("language", response.get("language", "ar")),
         "idempotency_replayed": replayed,
         "accounting": {
             "reserved_cost_usd": record["reserved_cost_usd"],
@@ -31,8 +33,14 @@ def _response(record: dict[str, Any], *, replayed: bool = False) -> dict[str, An
             "cost_basis": record["cost_basis"],
             "cost_is_estimate": True,
             "local_date": record["local_date"],
+            "reserved_newsdata_credits": record.get("reserved_newsdata_credits", 0),
+            "newsdata_credits": record.get("accounted_newsdata_credits", 0),
+            "newsdata_credit_basis": record.get("newsdata_credit_basis", "not_used"),
         },
     })
+    if isinstance(record.get("pagination"), dict):
+        metadata = response.get("pagination")
+        response["pagination"] = {**(metadata if isinstance(metadata, dict) else {}), **record["pagination"]}
     return response
 
 
@@ -71,12 +79,14 @@ def execute_report(
     *,
     store: Store | None = None,
     language: str = "ar",
+    continue_from_report_id: str | None = None,
 ) -> dict[str, Any]:
     """Reserve atomically, execute once without retries, and persist the result.
 
     An ambiguous external failure keeps the full reservation. An idempotency key
-    is permanent for this database: changing the key explicitly requests a new
-    attempt, which remains subject to both quotas and budgets.
+    is permanent for this database. Each NewsData continuation has a second,
+    server-owned identity: a parent can have only one attempted next page even
+    when concurrent callers use different keys.
     """
     agent = get_agent(agent_id)
     if agent is None:
@@ -88,15 +98,35 @@ def execute_report(
         raise HTTPException(status_code=422, detail={"code": "invalid_task", "message": "Task must contain 1 to 8000 characters."})
     if language not in {"ar", "en"}:
         raise HTTPException(status_code=422, detail={"code": "invalid_language", "message": "Use ar or en."})
+    newsdata_page = agent_id == "iran-news"
+    if continue_from_report_id is not None and not newsdata_page:
+        raise HTTPException(status_code=422, detail={"code": "invalid_newsdata_continuation", "message": "Only saved NewsData Iran reports support continuation."})
     language_options = {"language": language} if language != "ar" else {}
     database = store or get_store()
+    page_context = None
     try:
-        previous = database.lookup_idempotency(idempotency_key, agent_id, task, **language_options)
+        identity = {}
+        if continue_from_report_id is not None:
+            page_context = database.continuation_context(continue_from_report_id, agent_id, task, language)
+            identity = {"parent_report_id": continue_from_report_id, "page_index": page_context["page_index"]}
+        previous = database.lookup_idempotency(idempotency_key, agent_id, task, **language_options, **identity)
         if previous is not None:
             return _replay(previous)
-        if not runtime.runtime_is_ready():
-            raise HTTPException(status_code=503, detail={"code": "runtime_not_configured", "message": "Configure OPENAI_API_KEY before running reports."})
-        estimate = runtime.estimate_reservation(agent_id, task, **language_options)
+        if continue_from_report_id is not None:
+            previous = database.lookup_newsdata_child(continue_from_report_id, agent_id, task, language,
+                                                      idempotency_key=idempotency_key)
+            if previous is not None:
+                return _replay(previous)
+        ready = runtime.agent_runtime_is_ready(agent_id) if newsdata_page else runtime.runtime_is_ready()
+        if not ready:
+            credential = "NEWSDATA_API_KEY" if newsdata_page else "OPENAI_API_KEY"
+            code = "newsdata_not_configured" if newsdata_page else "runtime_not_configured"
+            raise HTTPException(status_code=503, detail={"code": code, "message": f"Configure {credential} before running this report."})
+        if newsdata_page and page_context is None:
+            from app.newsdata import initial_context
+            page_context = initial_context(now=database.clock())
+        runtime_options = {**language_options, **({"newsdata_context": page_context} if newsdata_page else {})}
+        estimate = dict(runtime.estimate_reservation(agent_id, task, **runtime_options))
         estimate["language"] = language
         # The runtime declares all three bounds as zero only for deterministic
         # local responses with no model/search calls. Free setup checks can be
@@ -105,12 +135,20 @@ def execute_report(
             type(estimate.get(field)) is int and estimate[field] == 0
             for field in ("max_input_tokens", "max_output_tokens", "max_web_search_calls")
         )
+        credit_reservation = 0
+        if newsdata_page:
+            if (estimate.get("provider") != "newsdata"
+                    or type(estimate.get("max_newsdata_credits")) is not int or estimate["max_newsdata_credits"] != 1
+                    or type(estimate.get("max_newsdata_calls")) is not int or estimate["max_newsdata_calls"] != 1):
+                raise StoreError("invalid_credit_configuration", "A NewsData page requires exactly one reserved provider call and credit.", 503)
+            credit_reservation = 1
         reservation = database.reserve_run(
             agent_id=agent_id, task=task,
             reservation_usd=estimate["estimated_cost_usd"],
             idempotency_key=idempotency_key, trigger=trigger,
             provider=estimate.get("provider", ""), model=estimate.get("model", ""),
             pricing_snapshot=estimate, allow_zero_cost=no_external_calls, **language_options,
+            newsdata_credits=credit_reservation, newsdata_context=page_context,
         )
     except StoreError as error:
         raise _http_store_error(error) from None
@@ -118,15 +156,23 @@ def execute_report(
         return _replay(reservation.report)
     report_id = reservation.report["report_id"]
     try:
-        result = runtime.run_agent(agent_id, task, **language_options)
+        if newsdata_page:
+            # The database assigns the first page's root ID before any paid
+            # request. Runtime receives only the frozen server-side context.
+            runtime_options["newsdata_context"] = database.get_newsdata_context(report_id)
+        result = runtime.run_agent(agent_id, task, **runtime_options)
         if not isinstance(result, dict):
             raise ValueError("Runtime must return a report object")
         result["language"] = language
+        private_context = result.pop("newsdata_context", None)
         record = database.finish_run(
             report_id, result,
             estimated_cost_usd=result.get("estimated_cost_usd"),
             cost_tracking_complete=result.get("cost_tracking_complete") is True,
             usage=result.get("usage") if isinstance(result.get("usage"), dict) else {},
+            newsdata_credits_used=result.get("newsdata_credits_used"),
+            credit_tracking_complete=result.get("credit_tracking_complete") is True,
+            newsdata_context=private_context,
         )
         return _response(record)
     except HTTPException as error:

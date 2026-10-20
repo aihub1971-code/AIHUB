@@ -73,11 +73,18 @@ def _usd(value: int) -> float:
     return float(Decimal(value) / _MICROS)
 
 
+def _credits(value: Any) -> int:
+    if type(value) is not int or not 0 <= value <= 2147483647:
+        raise StoreError("invalid_credit_configuration", "NewsData credits must be nonnegative integers.", 503)
+    return value
+
+
 @dataclass(frozen=True)
 class QuotaLimits:
     max_reports_per_day: int = 50
     daily_budget_usd: Any = "5"
     monthly_budget_usd: Any = "100"
+    newsdata_daily_credit_limit: int = 200
 
     def __post_init__(self) -> None:
         if isinstance(self.max_reports_per_day, bool) or not isinstance(self.max_reports_per_day, int):
@@ -86,17 +93,20 @@ class QuotaLimits:
             raise StoreError("invalid_quota_configuration", "MAX_REPORTS_PER_DAY must be between 1 and 50.", 503)
         _micros(self.daily_budget_usd)
         _micros(self.monthly_budget_usd)
+        _credits(self.newsdata_daily_credit_limit)
 
     @classmethod
     def from_environment(cls) -> "QuotaLimits":
         try:
             count = int(get_setting("MAX_REPORTS_PER_DAY", "50") or "50")
+            newsdata_credits = int(get_setting("NEWSDATA_DAILY_CREDIT_LIMIT", "200") or "200")
         except ValueError:
-            raise StoreError("invalid_quota_configuration", "MAX_REPORTS_PER_DAY must be an integer from 1 to 50.", 503) from None
+            raise StoreError("invalid_quota_configuration", "Report and NewsData credit limits must be integers.", 503) from None
         return cls(
             max_reports_per_day=count,
             daily_budget_usd=get_setting("DAILY_BUDGET_USD", "5"),
             monthly_budget_usd=get_setting("MONTHLY_BUDGET_USD", "100"),
+            newsdata_daily_credit_limit=newsdata_credits,
         )
 
 
@@ -134,11 +144,35 @@ CREATE TABLE IF NOT EXISTS runs (
     model TEXT NOT NULL,
     pricing_snapshot_json TEXT NOT NULL,
     usage_json TEXT,
-    result_json TEXT
+    result_json TEXT,
+    reserved_newsdata_credits INTEGER NOT NULL DEFAULT 0 CHECK(reserved_newsdata_credits >= 0),
+    accounted_newsdata_credits INTEGER NOT NULL DEFAULT 0 CHECK(accounted_newsdata_credits >= 0),
+    newsdata_credit_basis TEXT NOT NULL DEFAULT 'not_used'
 );
 CREATE INDEX IF NOT EXISTS runs_local_date_idx ON runs(local_date);
 CREATE INDEX IF NOT EXISTS runs_local_month_idx ON runs(local_month);
 CREATE INDEX IF NOT EXISTS runs_created_at_idx ON runs(created_at DESC);
+CREATE TABLE IF NOT EXISTS report_request_keys (
+    idempotency_key TEXT PRIMARY KEY,
+    report_id TEXT NOT NULL REFERENCES runs(report_id),
+    request_hash TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS newsdata_pages (
+    report_id TEXT PRIMARY KEY REFERENCES runs(report_id),
+    root_report_id TEXT NOT NULL REFERENCES runs(report_id),
+    parent_report_id TEXT UNIQUE REFERENCES runs(report_id),
+    page_index INTEGER NOT NULL CHECK(page_index >= 1),
+    page_size INTEGER NOT NULL CHECK(page_size BETWEEN 1 AND 50),
+    language TEXT NOT NULL CHECK(language IN ('ar','en')),
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    cursor_used TEXT,
+    cursor_hash TEXT NOT NULL,
+    next_cursor TEXT,
+    stop_reason TEXT,
+    UNIQUE(root_report_id,page_index),
+    UNIQUE(root_report_id,cursor_hash)
+);
 CREATE TABLE IF NOT EXISTS schedules (
     schedule_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -264,6 +298,16 @@ class Store:
                 columns = {row["name"] for row in connection.execute("PRAGMA table_info(schedules)")}
                 if "language" not in columns:
                     connection.execute("ALTER TABLE schedules ADD COLUMN language TEXT NOT NULL DEFAULT 'ar'")
+                run_columns = {row["name"] for row in connection.execute("PRAGMA table_info(runs)")}
+                for name, declaration in (
+                    ("reserved_newsdata_credits", "INTEGER NOT NULL DEFAULT 0 CHECK(reserved_newsdata_credits >= 0)"),
+                    ("accounted_newsdata_credits", "INTEGER NOT NULL DEFAULT 0 CHECK(accounted_newsdata_credits >= 0)"),
+                    ("newsdata_credit_basis", "TEXT NOT NULL DEFAULT 'not_used'"),
+                ):
+                    if name not in run_columns:
+                        connection.execute(f"ALTER TABLE runs ADD COLUMN {name} {declaration}")
+                connection.execute("""INSERT OR IGNORE INTO report_request_keys
+                    SELECT idempotency_key,report_id,request_hash FROM runs WHERE idempotency_key IS NOT NULL""")
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -273,10 +317,104 @@ class Store:
         return _aware(now if now is not None else self.clock())
 
     @staticmethod
-    def _fingerprint(agent_id: str, task: str, language: str = "ar") -> str:
+    def _fingerprint(agent_id: str, task: str, language: str = "ar", *,
+                     parent_report_id: str | None = None, page_index: int | None = None) -> str:
         Store._validate_language(language)
         values = [agent_id, task] if language == "ar" else [agent_id, task, language]
+        if parent_report_id is not None:
+            values.append({"newsdata_parent_report_id": parent_report_id, "page_index": page_index})
         return hashlib.sha256(_json(values).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _cursor(value: Any) -> str | None:
+        if value is None or value == "":
+            return None
+        if (not isinstance(value, str) or len(value) > 8192
+                or any(ord(char) < 32 or ord(char) == 127 for char in value)):
+            raise StoreError("invalid_newsdata_context", "Invalid saved NewsData pagination state.", 503)
+        return value
+
+    @classmethod
+    def _newsdata_context(cls, context: Any) -> dict[str, Any]:
+        try:
+            if not isinstance(context, dict):
+                raise ValueError
+            start = _aware(datetime.fromisoformat(context["window_start"].replace("Z", "+00:00")))
+            end = _aware(datetime.fromisoformat(context["window_end"].replace("Z", "+00:00")))
+            size, index = context["page_size"], context["page_index"]
+            if (end - start != timedelta(hours=48) or type(size) is not int or not 1 <= size <= 50
+                    or type(index) is not int or not 1 <= index <= 2147483647):
+                raise ValueError
+            parent, root = context.get("parent_report_id"), context.get("root_report_id")
+            cursor = cls._cursor(context.get("cursor"))
+            if index == 1:
+                if parent is not None or cursor is not None:
+                    raise ValueError
+            elif not all(isinstance(value, str) and value for value in (parent, root, cursor)):
+                raise ValueError
+            return {"cursor": cursor, "window_start": _stamp(start), "window_end": _stamp(end),
+                    "page_size": size, "page_index": index, "parent_report_id": parent, "root_report_id": root}
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise StoreError("invalid_newsdata_context", "Invalid saved NewsData pagination state.", 503) from None
+
+    @staticmethod
+    def _page_context(row: sqlite3.Row) -> dict[str, Any]:
+        return {"cursor": row["cursor_used"], **{name: row[name] for name in (
+            "window_start", "window_end", "page_size", "page_index", "parent_report_id", "root_report_id")}}
+
+    @classmethod
+    def _public_report(cls, connection: sqlite3.Connection, row: sqlite3.Row, include_result: bool = True) -> dict[str, Any]:
+        report = cls._report(row, include_result=include_result)
+        page = connection.execute("SELECT * FROM newsdata_pages WHERE report_id=?", (row["report_id"],)).fetchone()
+        if page is not None:
+            report["language"] = page["language"]
+            report["pagination"] = {name: page[name] for name in (
+                "page_index", "page_size", "parent_report_id", "root_report_id")}
+            report["pagination"]["has_more"] = bool(page["next_cursor"])
+            child = connection.execute("""SELECT r.report_id,r.status FROM newsdata_pages p
+                JOIN runs r USING(report_id) WHERE p.parent_report_id=?""", (row["report_id"],)).fetchone()
+            report["pagination"]["next_report_id"] = child["report_id"] if child else None
+            report["pagination"]["next_report_status"] = child["status"] if child else None
+            if page["stop_reason"]:
+                report["pagination"]["stop_reason"] = page["stop_reason"]
+            if isinstance(report.get("result"), dict):
+                metadata = report["result"].get("pagination")
+                report["result"]["pagination"] = {**(metadata if isinstance(metadata, dict) else {}), **report["pagination"]}
+        return report
+
+    def get_newsdata_context(self, report_id: str) -> dict[str, Any]:
+        """Internal only: opaque provider state never appears in public reports."""
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM newsdata_pages WHERE report_id=?", (report_id,)).fetchone()
+        if row is None:
+            raise StoreError("invalid_newsdata_continuation", "This report has no NewsData page state.", 409)
+        return self._page_context(row)
+
+    @classmethod
+    def _continuation(cls, connection: sqlite3.Connection, parent_report_id: str,
+                      agent_id: str, task: str, language: str) -> dict[str, Any]:
+        row = connection.execute(
+            "SELECT p.*,r.agent_id,r.task,r.status FROM newsdata_pages p JOIN runs r USING(report_id) WHERE p.report_id=?",
+            (parent_report_id,),
+        ).fetchone()
+        if row is None or agent_id != "iran-news" or row["agent_id"] != "iran-news":
+            raise StoreError("invalid_newsdata_continuation", "Choose a saved NewsData Iran report to continue.", 409)
+        if row["status"] != "succeeded":
+            raise StoreError("invalid_newsdata_continuation", "Only a successful saved NewsData page can be continued.", 409)
+        if row["task"] != task or row["language"] != language:
+            raise StoreError("continuation_request_mismatch", "Continue with the saved task and language.", 409)
+        cursor = cls._cursor(row["next_cursor"])
+        if cursor is None:
+            raise StoreError("newsdata_no_more_pages", "The saved report has no further page.", 409)
+        context = cls._page_context(row)
+        context.update(cursor=cursor, page_index=row["page_index"] + 1, parent_report_id=parent_report_id)
+        return cls._newsdata_context(context)
+
+    def continuation_context(self, parent_report_id: str, agent_id: str, task: str, language: str = "ar") -> dict[str, Any]:
+        if not isinstance(parent_report_id, str) or not parent_report_id or len(parent_report_id) > 100:
+            raise StoreError("invalid_newsdata_continuation", "Invalid parent report ID.", 422)
+        with self._connect() as connection:
+            return self._continuation(connection, parent_report_id, agent_id, task, language)
 
     @staticmethod
     def _validate_language(language: str) -> None:
@@ -319,17 +457,48 @@ class Store:
         item.pop("idempotency_key", None)
         return item
 
-    def lookup_idempotency(self, key: str | None, agent_id: str, task: str, language: str = "ar") -> dict[str, Any] | None:
+    @staticmethod
+    def _key_row(connection: sqlite3.Connection, key: str) -> sqlite3.Row | None:
+        return connection.execute("""SELECT r.* FROM report_request_keys k
+            JOIN runs r ON r.report_id=k.report_id WHERE k.idempotency_key=?""", (key,)).fetchone()
+
+    @classmethod
+    def _bind_key(cls, connection: sqlite3.Connection, key: str | None, row: sqlite3.Row) -> None:
+        if key is not None:
+            previous = cls._key_row(connection, key)
+            if previous is not None and previous["report_id"] != row["report_id"]:
+                raise StoreError("idempotency_conflict", "This Idempotency-Key belongs to a different request.", 409)
+            connection.execute("INSERT OR IGNORE INTO report_request_keys VALUES (?,?,?)",
+                               (key, row["report_id"], row["request_hash"]))
+
+    def lookup_idempotency(self, key: str | None, agent_id: str, task: str, language: str = "ar", *,
+                           parent_report_id: str | None = None, page_index: int | None = None) -> dict[str, Any] | None:
         self._validate_key(key)
         if key is None:
             return None
         with self._connect() as connection:
-            row = connection.execute("SELECT * FROM runs WHERE idempotency_key=?", (key,)).fetchone()
-        if row is None:
-            return None
-        if row["request_hash"] != self._fingerprint(agent_id, task, language):
-            raise StoreError("idempotency_conflict", "This Idempotency-Key belongs to a different task.", 409)
-        return self._report(row)
+            row = self._key_row(connection, key)
+            if row is None:
+                return None
+            if row["request_hash"] != self._fingerprint(agent_id, task, language, parent_report_id=parent_report_id, page_index=page_index):
+                raise StoreError("idempotency_conflict", "This Idempotency-Key belongs to a different task or page.", 409)
+            return self._public_report(connection, row)
+
+    def lookup_newsdata_child(self, parent_report_id: str, agent_id: str, task: str,
+                              language: str = "ar", *, idempotency_key: str | None = None) -> dict[str, Any] | None:
+        self._validate_key(idempotency_key)
+        with self._transaction() as connection:
+            context = self._continuation(connection, parent_report_id, agent_id, task, language)
+            row = connection.execute("""SELECT r.* FROM newsdata_pages p JOIN runs r USING(report_id)
+                WHERE p.parent_report_id=?""", (parent_report_id,)).fetchone()
+            if row is None:
+                return None
+            fingerprint = self._fingerprint(agent_id, task, language, parent_report_id=parent_report_id,
+                                            page_index=context["page_index"])
+            if row["request_hash"] != fingerprint:
+                raise StoreError("idempotency_conflict", "The next page belongs to a different request.", 409)
+            self._bind_key(connection, idempotency_key, row)
+            return self._public_report(connection, row)
 
     def reserve_run(
         self,
@@ -344,14 +513,22 @@ class Store:
         pricing_snapshot: dict[str, Any] | None = None,
         allow_zero_cost: bool = False,
         language: str = "ar",
+        newsdata_credits: int = 0,
+        newsdata_context: dict[str, Any] | None = None,
         now: datetime | None = None,
     ) -> Reservation:
         self._validate_key(idempotency_key)
         if trigger not in {"manual", "scheduled"}:
             raise StoreError("invalid_trigger", "Trigger must be manual or scheduled.")
         reservation = _micros(reservation_usd)
-        if reservation <= 0 and not allow_zero_cost:
+        credits = _credits(newsdata_credits)
+        if reservation <= 0 and not allow_zero_cost and not credits:
             raise StoreError("invalid_cost_configuration", "A positive upfront cost reservation is required.", 503)
+        context = self._newsdata_context(newsdata_context) if newsdata_context is not None else None
+        if (context is not None and (agent_id != "iran-news" or credits != 1)) or (credits and context is None):
+            raise StoreError("invalid_credit_configuration", "A NewsData page must reserve exactly one credit.", 503)
+        snapshot = dict(pricing_snapshot or {})
+        snapshot.pop("newsdata_context", None)
         limits = self.limits
         daily_budget = _micros(limits.daily_budget_usd)
         monthly_budget = _micros(limits.monthly_budget_usd)
@@ -359,14 +536,31 @@ class Store:
         timestamp = _stamp(moment)
         local_date = moment.astimezone(DUBAI).date().isoformat()
         local_month = local_date[:7]
-        request_hash = self._fingerprint(agent_id, task, language)
+        request_hash = self._fingerprint(agent_id, task, language,
+                                         parent_report_id=context["parent_report_id"] if context else None,
+                                         page_index=context["page_index"] if context else None)
         with self._transaction() as connection:
             if idempotency_key is not None:
-                row = connection.execute("SELECT * FROM runs WHERE idempotency_key=?", (idempotency_key,)).fetchone()
+                row = self._key_row(connection, idempotency_key)
                 if row is not None:
                     if row["request_hash"] != request_hash:
                         raise StoreError("idempotency_conflict", "This Idempotency-Key belongs to a different task.", 409)
-                    return Reservation(False, self._report(row))
+                    return Reservation(False, self._public_report(connection, row))
+            if context and context["parent_report_id"] is not None:
+                saved = self._continuation(connection, context["parent_report_id"], agent_id, task, language)
+                if saved != context:
+                    raise StoreError("invalid_newsdata_context", "Pagination must use the exact saved context.", 409)
+                existing = connection.execute("""SELECT r.* FROM newsdata_pages p JOIN runs r USING(report_id)
+                    WHERE p.parent_report_id=?""", (context["parent_report_id"],)).fetchone()
+                if existing is not None:
+                    if existing["request_hash"] != request_hash:
+                        raise StoreError("idempotency_conflict", "The next page belongs to a different request.", 409)
+                    self._bind_key(connection, idempotency_key, existing)
+                    return Reservation(False, self._public_report(connection, existing))
+                repeated = connection.execute("SELECT 1 FROM newsdata_pages WHERE root_report_id=? AND cursor_hash=?",
+                    (context["root_report_id"], hashlib.sha256(context["cursor"].encode()).hexdigest())).fetchone()
+                if repeated is not None:
+                    raise StoreError("newsdata_cursor_repeated", "NewsData returned a previously consumed cursor.", 409)
             day = connection.execute(
                 "SELECT COUNT(*) AS attempts, COALESCE(SUM(accounted_microusd),0) AS cost FROM runs WHERE local_date=?",
                 (local_date,),
@@ -378,17 +572,31 @@ class Store:
                 raise StoreError("daily_budget_limit", "The daily estimated USD budget cannot cover this reservation.", 429)
             if month_cost + reservation > monthly_budget:
                 raise StoreError("monthly_budget_limit", "The monthly estimated USD budget cannot cover this reservation.", 429)
+            credit_cost = connection.execute("SELECT COALESCE(SUM(accounted_newsdata_credits),0) FROM runs WHERE local_date=?",
+                                             (local_date,)).fetchone()[0]
+            if credits and credit_cost + credits > limits.newsdata_daily_credit_limit:
+                raise StoreError("newsdata_daily_credit_limit", "The daily NewsData credit budget cannot cover this page.", 429)
             report_id = "rpt_" + uuid4().hex
             connection.execute(
                 """INSERT INTO runs (report_id,idempotency_key,request_hash,agent_id,task,trigger,status,
                 created_at,updated_at,local_date,local_month,reserved_microusd,accounted_microusd,
-                cost_basis,provider,model,pricing_snapshot_json) VALUES (?,?,?,?,?,?,'pending',?,?,?,?,?,?,'reservation',?,?,?)""",
+                cost_basis,provider,model,pricing_snapshot_json,reserved_newsdata_credits,accounted_newsdata_credits,newsdata_credit_basis)
+                VALUES (?,?,?,?,?,?,'pending',?,?,?,?,?,?,'reservation',?,?,?,?,?,?)""",
                 (report_id, idempotency_key, request_hash, agent_id, task, trigger, timestamp,
                  timestamp, local_date, local_month, reservation, reservation, provider, model,
-                 _json(pricing_snapshot or {})),
+                 _json(snapshot), credits, credits, "reservation" if credits else "not_used"),
             )
+            if context is not None:
+                root = context["root_report_id"] if context["parent_report_id"] else report_id
+                cursor_hash = hashlib.sha256(context["cursor"].encode()).hexdigest() if context["cursor"] else ""
+                connection.execute("""INSERT INTO newsdata_pages
+                    (report_id,root_report_id,parent_report_id,page_index,page_size,language,window_start,window_end,cursor_used,cursor_hash)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (report_id, root, context["parent_report_id"], context["page_index"], context["page_size"], language,
+                     context["window_start"], context["window_end"], context["cursor"], cursor_hash))
             row = connection.execute("SELECT * FROM runs WHERE report_id=?", (report_id,)).fetchone()
-            return Reservation(True, self._report(row))
+            self._bind_key(connection, idempotency_key, row)
+            return Reservation(True, self._public_report(connection, row))
 
     def finish_run(
         self,
@@ -398,28 +606,57 @@ class Store:
         estimated_cost_usd: Any | None = None,
         cost_tracking_complete: bool = False,
         usage: dict[str, Any] | None = None,
+        newsdata_credits_used: int | None = None,
+        credit_tracking_complete: bool = False,
+        newsdata_context: dict[str, Any] | None = None,
         now: datetime | None = None,
     ) -> dict[str, Any]:
         timestamp = _stamp(self._now(now))
-        result_json = _json(result)
+        public_result = dict(result)
+        embedded_context = public_result.pop("newsdata_context", None)
+        if newsdata_context is None:
+            newsdata_context = embedded_context
+        result_json = _json(public_result)
         usage_json = _json(usage or {})
         actual = _micros(estimated_cost_usd) if cost_tracking_complete and estimated_cost_usd is not None else None
+        actual_credits = _credits(newsdata_credits_used) if credit_tracking_complete and newsdata_credits_used is not None else None
         with self._transaction() as connection:
             row = connection.execute("SELECT * FROM runs WHERE report_id=?", (report_id,)).fetchone()
             if row is None:
                 raise StoreError("report_not_found", "Report not found.", 404)
             if row["status"] in {"pending", "interrupted"}:
+                page = connection.execute("SELECT * FROM newsdata_pages WHERE report_id=?", (report_id,)).fetchone()
+                if page is not None:
+                    returned = self._newsdata_context(newsdata_context)
+                    if returned != self._page_context(page):
+                        raise StoreError("invalid_newsdata_context", "The returned page changed its saved query window or cursor.", 503)
+                    next_cursor = self._cursor(newsdata_context.get("next_cursor"))
+                    stop_reason = None
+                    if next_cursor is not None and connection.execute(
+                        "SELECT 1 FROM newsdata_pages WHERE root_report_id=? AND cursor_hash=?",
+                        (page["root_report_id"], hashlib.sha256(next_cursor.encode()).hexdigest()),
+                    ).fetchone():
+                        next_cursor, stop_reason = None, "repeated_cursor"
+                    connection.execute("UPDATE newsdata_pages SET next_cursor=?,stop_reason=? WHERE report_id=?",
+                                       (next_cursor, stop_reason, report_id))
                 cost = actual if actual is not None else row["reserved_microusd"]
                 basis = "usage_estimate" if actual is not None else "reservation_retained"
                 if actual is not None and actual > row["reserved_microusd"]:
                     basis = "usage_estimate_exceeds_reservation"
+                credits = actual_credits if actual_credits is not None else row["reserved_newsdata_credits"]
+                credit_basis = "usage_reported" if actual_credits is not None else "reservation_retained"
+                if not row["reserved_newsdata_credits"] and not credits:
+                    credit_basis = "not_used"
+                elif actual_credits is not None and actual_credits > row["reserved_newsdata_credits"]:
+                    credit_basis = "usage_exceeds_reservation"
                 connection.execute(
                     """UPDATE runs SET status='succeeded',error_code=NULL,finished_at=?,updated_at=?,
-                    accounted_microusd=?,cost_basis=?,usage_json=?,result_json=? WHERE report_id=?""",
-                    (timestamp, timestamp, cost, basis, usage_json, result_json, report_id),
+                    accounted_microusd=?,cost_basis=?,usage_json=?,result_json=?,
+                    accounted_newsdata_credits=?,newsdata_credit_basis=? WHERE report_id=?""",
+                    (timestamp, timestamp, cost, basis, usage_json, result_json, credits, credit_basis, report_id),
                 )
             row = connection.execute("SELECT * FROM runs WHERE report_id=?", (report_id,)).fetchone()
-        return self._report(row)
+            return self._public_report(connection, row)
 
     def fail_run(self, report_id: str, error_code: str = "execution_failed", *, now: datetime | None = None) -> None:
         code = error_code if _ERROR.fullmatch(error_code or "") else "execution_failed"
@@ -427,7 +664,8 @@ class Store:
         with self._transaction() as connection:
             connection.execute(
                 """UPDATE runs SET status='failed',error_code=?,finished_at=?,updated_at=?,
-                cost_basis='reservation_retained' WHERE report_id=? AND status='pending'""",
+                cost_basis='reservation_retained',newsdata_credit_basis=CASE WHEN reserved_newsdata_credits>0
+                THEN 'reservation_retained' ELSE 'not_used' END WHERE report_id=? AND status='pending'""",
                 (code, timestamp, timestamp, report_id),
             )
 
@@ -439,7 +677,8 @@ class Store:
         with self._transaction() as connection:
             cursor = connection.execute(
                 """UPDATE runs SET status='interrupted',error_code='execution_interrupted',finished_at=?,
-                updated_at=?,cost_basis='reservation_retained' WHERE status='pending' AND created_at<?""",
+                updated_at=?,cost_basis='reservation_retained',newsdata_credit_basis=CASE WHEN reserved_newsdata_credits>0
+                THEN 'reservation_retained' ELSE 'not_used' END WHERE status='pending' AND created_at<?""",
                 (timestamp, timestamp, cutoff),
             )
             connection.execute(
@@ -456,7 +695,7 @@ class Store:
     def get_report(self, report_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:
             row = connection.execute("SELECT * FROM runs WHERE report_id=?", (report_id,)).fetchone()
-        return self._report(row) if row is not None else None
+            return self._public_report(connection, row) if row is not None else None
 
     def list_reports(self, limit: int = 50, offset: int = 0, status: str | None = None) -> list[dict[str, Any]]:
         limit, offset = min(max(int(limit), 1), 200), max(int(offset), 0)
@@ -470,7 +709,7 @@ class Store:
         query += " ORDER BY created_at DESC,report_id DESC LIMIT ? OFFSET ?"
         with self._connect() as connection:
             rows = connection.execute(query, (*params, limit, offset)).fetchall()
-        return [self._report(row, include_result=False) for row in rows]
+            return [self._public_report(connection, row, include_result=False) for row in rows]
 
     def usage_summary(self, *, now: datetime | None = None) -> dict[str, Any]:
         moment = self._now(now)
@@ -500,6 +739,11 @@ class Store:
                 "SELECT COUNT(*) AS attempts,COALESCE(SUM(accounted_microusd),0) AS cost FROM chat_turns WHERE local_month=?",
                 (month,),
             ).fetchone()
+            credits = connection.execute("""SELECT
+                (SELECT COALESCE(SUM(reserved_newsdata_credits),0) FROM runs WHERE local_date=?) AS reserved,
+                (SELECT COALESCE(SUM(accounted_newsdata_credits),0) FROM runs WHERE local_date=?) AS accounted,
+                (SELECT COALESCE(SUM(accounted_newsdata_credits),0) FROM runs WHERE local_month=?) AS monthly""",
+                (date, date, month)).fetchone()
         daily_budget, monthly_budget = _micros(limits.daily_budget_usd), _micros(limits.monthly_budget_usd)
         daily_cost = daily["cost"] + chat_daily["cost"]
         monthly_cost = monthly["cost"] + chat_monthly["cost"]
@@ -524,6 +768,12 @@ class Store:
                 "chat_estimated_cost_usd": _usd(chat_monthly["cost"]),
                 "chat_turns": chat_monthly["attempts"],
             },
+            "provider_credits": {"newsdata": {
+                "daily_limit": limits.newsdata_daily_credit_limit,
+                "daily_reserved": credits["reserved"], "daily_accounted": credits["accounted"],
+                "daily_remaining": max(0, limits.newsdata_daily_credit_limit - credits["accounted"]),
+                "monthly_accounted": credits["monthly"], "unit": "credits",
+            }},
             "cost_note": "Combined report and chat estimated USD exposure, not a provider invoice. Pending and ambiguous failures retain their full reservation. Report attempt limits exclude chat turns.",
         }
 

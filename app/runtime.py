@@ -1,9 +1,9 @@
-"""Bounded OpenAI Responses runtime and source-grounded bilingual news reports.
+"""Bounded report runtime with NewsData Iran news and OpenAI assistants.
 
-Only OpenAI is called: news uses unified research across the approved publishers,
-with one optional bounded evidence or source-breadth follow-up, then one report response. Budget
-reservation and persistence belong to app.service. Native citations attest source URLs, not independently fetched
-publisher bodies; report evidence is explicitly labelled model research notes.
+Iran dispatches structured NewsData articles plus optional Arabic translations.
+Other news uses OpenAI research with one bounded follow-up and a report response.
+Reservation and persistence belong to app.service. Native citations attest URLs,
+not independently fetched publisher bodies; each route labels its own evidence.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.config import get_setting
-from app.permissions import is_allowed
+from app.permissions import is_allowed, require_capability
 from app.registry import get_agent, read_skill
 from app.news_recovery import (RECOVERY_MAX_INPUT_BYTES, build_evidence_recovery_payload,
                                plan_evidence_recovery)
@@ -110,9 +110,16 @@ def _provider_config() -> tuple[str, str, str, str]:
 
 
 def runtime_is_ready() -> bool:
-    """One OpenAI key supplies both the model and hosted web search."""
+    """Readiness for OpenAI assistants and chat; Iran uses its own provider."""
     _, model, key, _ = _provider_config()
     return bool(model and key)
+
+
+def agent_runtime_is_ready(agent_id: str) -> bool:
+    if agent_id == "iran-news":
+        from .newsdata import is_ready
+        return is_ready()
+    return runtime_is_ready()
 
 
 def _max_output_tokens() -> int:
@@ -975,7 +982,8 @@ def _rounded_usd(value: Decimal) -> float:
     return float(value.quantize(Decimal("0.000001"), rounding=ROUND_CEILING))
 
 
-def estimate_reservation(agent_id: str, task: str, *, language: str = "ar") -> dict[str, object]:
+def estimate_reservation(agent_id: str, task: str, *, language: str = "ar",
+                         newsdata_context: dict[str, object] | None = None) -> dict[str, object]:
     """Preflight all bounded Responses requests without network or quota mutation.
 
     One research tool step can reread the original prompt. Reserve two prompt byte
@@ -987,6 +995,12 @@ def estimate_reservation(agent_id: str, task: str, *, language: str = "ar") -> d
     """
     _validate_language(language)
     agent, skills = _agent_instructions(agent_id, task)
+    if agent_id == "iran-news":
+        require_capability(agent_id, "tools", "newsdata")
+        from .newsdata import estimate_reservation as estimate_newsdata
+        return estimate_newsdata(language=language, newsdata_context=newsdata_context)
+    if newsdata_context is not None:
+        raise _fail("newsdata_context_not_supported", "Saved news pages belong to the Iran news agent.", 422)
     provider, model, key, _ = _provider_config()
     if not key:
         raise _fail("agent_runtime_not_configured", "Configure OPENAI_API_KEY.", 503)
@@ -1950,10 +1964,17 @@ def _cost_metadata(provider: str, model: str, usage: dict[str, object],
             "cost_basis": "all_responses_reported_tokens_plus_native_search_actions_with_cache_write_allowance"}
 
 
-def run_agent(agent_id: str, task: str, *, language: str = "ar") -> dict[str, object]:
+def run_agent(agent_id: str, task: str, *, language: str = "ar",
+              newsdata_context: dict[str, object] | None = None) -> dict[str, object]:
     """Execute a bounded report. Production callers must use service.execute_report."""
     _validate_language(language)
     agent, skills = _agent_instructions(agent_id, task)
+    if agent_id == "iran-news":
+        require_capability(agent_id, "tools", "newsdata")
+        from .newsdata import run_report
+        return run_report(language=language, newsdata_context=newsdata_context)
+    if newsdata_context is not None:
+        raise _fail("newsdata_context_not_supported", "Saved news pages belong to the Iran news agent.", 422)
     provider, model, key, _ = _provider_config()
     if not key:
         raise _fail("agent_runtime_not_configured", "Configure OPENAI_API_KEY.", 503)

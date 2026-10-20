@@ -162,19 +162,19 @@ def fake_runtime(monkeypatch):
 
 def test_service_gate_does_not_call_provider_after_quota(store, fake_runtime):
     store._limits = QuotaLimits(1, "100", "1000")
-    response = service.execute_report("iran-news", "Create report", store=store)
+    response = service.execute_report("geopolitical-morning", "Create report", store=store)
     assert response["report_id"].startswith("rpt_")
     assert response["accounting"]["estimated_cost_usd"] == .005
     with pytest.raises(HTTPException) as error:
-        service.execute_report("iran-news", "Another report", store=store)
+        service.execute_report("geopolitical-morning", "Another report", store=store)
     assert error.value.status_code == 429
     assert len(fake_runtime) == 1
 
 
 def test_service_replays_success_even_if_provider_config_changes(store, fake_runtime, monkeypatch):
-    response = service.execute_report("iran-news", "Create report", idempotency_key="request", store=store)
+    response = service.execute_report("geopolitical-morning", "Create report", idempotency_key="request", store=store)
     monkeypatch.setattr(service.runtime, "runtime_is_ready", lambda: False)
-    replay = service.execute_report("iran-news", "Create report", idempotency_key="request", store=store)
+    replay = service.execute_report("geopolitical-morning", "Create report", idempotency_key="request", store=store)
     assert replay["report_id"] == response["report_id"]
     assert replay["idempotency_replayed"] is True
     assert len(fake_runtime) == 1
@@ -187,11 +187,11 @@ def test_failed_service_attempt_retains_reservation_and_never_retries_key(store,
 
     monkeypatch.setattr(service.runtime, "run_agent", timeout)
     with pytest.raises(HTTPException) as first:
-        service.execute_report("iran-news", "Create report", idempotency_key="timeout", store=store)
+        service.execute_report("geopolitical-morning", "Create report", idempotency_key="timeout", store=store)
     assert first.value.status_code == 504
     assert "secret-provider-body" not in str(first.value.detail)
     with pytest.raises(HTTPException) as second:
-        service.execute_report("iran-news", "Create report", idempotency_key="timeout", store=store)
+        service.execute_report("geopolitical-morning", "Create report", idempotency_key="timeout", store=store)
     assert second.value.status_code == 409
     assert len(fake_runtime) == 1
     assert store.usage_summary()["daily"]["estimated_cost_usd"] == .1
@@ -208,11 +208,11 @@ def test_service_concurrent_same_key_makes_one_external_call(store, fake_runtime
 
     monkeypatch.setattr(service.runtime, "run_agent", held_run)
     with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(service.execute_report, "iran-news", "Create report", idempotency_key="race", store=store)
+        future = executor.submit(service.execute_report, "geopolitical-morning", "Create report", idempotency_key="race", store=store)
         assert started.wait(5)
         try:
             with pytest.raises(HTTPException) as error:
-                service.execute_report("iran-news", "Create report", idempotency_key="race", store=store)
+                service.execute_report("geopolitical-morning", "Create report", idempotency_key="race", store=store)
             assert error.value.detail["code"] == "report_in_progress"
         finally:
             release.set()
@@ -234,7 +234,7 @@ def test_openai_key_alone_enables_native_search_with_positive_reservation(monkey
     # reserve native tool/model exposure before making any external request.
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-a-real-credential")
     assert service.runtime.runtime_is_ready() is True
-    estimate = service.runtime.estimate_reservation("iran-news", "أهم أخبار إيران اليوم")
+    estimate = service.runtime.estimate_reservation("geopolitical-morning", "أهم أخبار إيران اليوم")
     assert estimate["provider"] == "openai"
     assert estimate["estimated_cost_usd"] > 0
     assert estimate["max_web_search_calls"] == 2
@@ -244,7 +244,7 @@ def test_openai_key_alone_enables_native_search_with_positive_reservation(monkey
 def test_zero_estimate_with_billable_bound_is_blocked_before_runtime(store, fake_runtime, monkeypatch):
     monkeypatch.setattr(service.runtime, "estimate_reservation", lambda *args: {"estimated_cost_usd": 0, "max_input_tokens": 100, "max_output_tokens": 100, "max_web_search_calls": 0})
     with pytest.raises(HTTPException) as error:
-        service.execute_report("iran-news", "Create report", store=store)
+        service.execute_report("geopolitical-morning", "Create report", store=store)
     assert error.value.status_code == 503
     assert error.value.detail["code"] == "invalid_cost_configuration"
     assert not fake_runtime

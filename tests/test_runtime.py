@@ -60,7 +60,7 @@ def test_openai_only_text_request_has_no_model_tools(mocked_http):
     assert result["estimated_cost_usd"] == pytest.approx(0.00155)
 
 
-@pytest.mark.parametrize("agent_id", ["literary-translation", "iran-news"])
+@pytest.mark.parametrize("agent_id", ["literary-translation", "geopolitical-morning"])
 def test_missing_openai_key_fails_closed_without_any_network(monkeypatch, mocked_http, agent_id):
     monkeypatch.delenv("OPENAI_API_KEY")
     calls = mocked_http(lambda req: pytest.fail("No provider call is allowed without OPENAI_API_KEY"))
@@ -154,7 +154,7 @@ def test_invalid_prices_fail_before_network(monkeypatch, bad_value):
 
 def test_reservation_covers_unified_research_optional_recovery_and_report(mocked_http):
     calls = mocked_http(lambda req: pytest.fail("Reservation must not issue paid network requests"))
-    estimate = runtime.estimate_reservation("iran-news", "أخبار إيران ١٩ أكتوبر ٢٠٢٦")
+    estimate = runtime.estimate_reservation("geopolitical-morning", "أخبار إيران ١٩ أكتوبر ٢٠٢٦")
     assert calls == []
     assert estimate["max_web_search_calls"] == 2
     assert estimate["max_model_calls"] == 3
@@ -172,7 +172,7 @@ def test_reservation_covers_unified_research_optional_recovery_and_report(mocked
     expected = (Decimal(estimate["max_input_tokens"]) * Decimal("2.5")
                 + Decimal(12288) * Decimal("10")) / Decimal(1000000) + Decimal(".02")
     assert Decimal(str(estimate["estimated_cost_usd"])) >= expected
-    assert runtime.estimate_run_reservation("iran-news", "أخبار إيران ١٩ أكتوبر ٢٠٢٦") == estimate["estimated_cost_usd"]
+    assert runtime.estimate_run_reservation("geopolitical-morning", "أخبار إيران ١٩ أكتوبر ٢٠٢٦") == estimate["estimated_cost_usd"]
 
 
 def test_other_search_agents_keep_one_research_request_and_report():
@@ -197,12 +197,12 @@ def test_search_free_agents_never_search_even_when_task_asks(mocked_http):
 def test_invalid_reasoning_effort_fails_in_preflight(monkeypatch):
     monkeypatch.setenv("OPENAI_REASONING_EFFORT", "none")
     with pytest.raises(HTTPException) as exc:
-        runtime.estimate_reservation("iran-news", "أخبار اليوم")
+        runtime.estimate_reservation("geopolitical-morning", "أخبار اليوم")
     assert exc.value.detail["code"] == "invalid_reasoning_effort"
 
 
 def test_empty_and_oversized_tasks_fail_without_network():
     for task in ("", " ", "أ" * 8001):
         with pytest.raises(HTTPException) as exc:
-            runtime.estimate_reservation("iran-news", task)
+            runtime.estimate_reservation("geopolitical-morning", task)
         assert exc.value.status_code == 422
