@@ -1,6 +1,6 @@
-# AI HUB 2.0 — ابدأ من هنا
+# AI HUB 2.0.3 — ابدأ من هنا
 
-ابدأ من [README](../README.md) لأوامر Windows وLinux وmacOS. المصدر في [aihub1971-code/AIHUB](https://github.com/aihub1971-code/AIHUB)، والخدمة القائمة [AI HUB](https://ai-hub-vc8w.onrender.com). تصف الوثيقة مصدر 2.0 قبل إثبات نشره؛ [سجل التحقق](VALIDATION_AR.md) هو مرجع الحالة الفعلية.
+ابدأ من [README](../README.md) لأوامر Windows وLinux وmacOS. المصدر في [aihub1971-code/AIHUB](https://github.com/aihub1971-code/AIHUB)، والخدمة القائمة [AI HUB](https://ai-hub-vc8w.onrender.com). تصف الوثيقة إعداد مصدر 2.0.3؛ [سجل التحقق](VALIDATION_AR.md) هو مرجع الحالة الفعلية.
 
 ## ما الذي تفعله الواجهة الجديدة؟
 
@@ -23,7 +23,7 @@
 1. استخدم Python 3.12 وثبّت التبعيات من جذر المصدر، بما فيها متطلبات PDF والخطوط المرفقة وترخيصها.
 2. ضع `OPENAI_API_KEY` وبيانات المالك `APP_USERNAME` و`APP_PASSWORD` في البيئة الخاصة. لا تحتاج المساحة الجديدة إلى `NEWSDATA_API_KEY`.
 3. استخدم الخدمة والقرص الحاليين، وقاعدة البيانات `/var/data/ai-hub/ai-hub.sqlite3`. توجد ملفات PDF في `reports/` بجانبها.
-4. إعدادات 2.0 المستهدفة: `REPORT_JOB_WORKERS=2` داخل **عملية Uvicorn واحدة**، و`MAX_REPORTS_PER_DAY=50`، و`DAILY_BUDGET_USD=900`، و`MONTHLY_BUDGET_USD=28000`. هذه سقوف تحفظ الحجز المحافظ، وليست فاتورة متوقعة. اترك `SCHEDULER_ENABLED=false`.
+4. إعدادات 2.0.3 المستهدفة: `REPORT_JOB_WORKERS=2` داخل **عملية Uvicorn واحدة**، و`MAX_REPORTS_PER_DAY=100`، و`DAILY_BUDGET_USD=900`، و`MONTHLY_BUDGET_USD=28000`. هذه سقوف تحفظ الحجز المحافظ، وليست فاتورة متوقعة. اترك `SCHEDULER_ENABLED=false`.
 5. بعد نجاح الاختبارات وCI والنشر، راجع تقريرًا فعليًا ومصادره وتوقيته وPDF ومحادثته، وسجّل النتيجة الفعلية في `docs/VALIDATION_AR.md`.
 
 راجع [دليل النشر](DEPLOYMENT_AR.md). لا يكفي نجاح `/health` لإثبات جودة البحث أو صلاحية رصيد OpenAI. أوامر smoke القديمة تخص API السابق ولا تختبر مساحة 2.0.

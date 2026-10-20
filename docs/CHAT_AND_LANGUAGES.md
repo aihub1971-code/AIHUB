@@ -1,6 +1,6 @@
-# AI HUB 2.0 — المحادثة واللغتان / Chat and languages
+# AI HUB 2.0.3 — المحادثة واللغتان / Chat and languages
 
-تصف الوثيقة مصدر 2.0 قبل إثبات نشره. حالة الاختبار والنشر الفعلي في [سجل التحقق](VALIDATION_AR.md).
+تصف الوثيقة إعداد مصدر 2.0.3. حالة الاختبار والنشر الفعلي في [سجل التحقق](VALIDATION_AR.md).
 
 ## العربية
 
@@ -26,7 +26,7 @@
 
 الجلسة العامة تستخدم ملف ارتباط HttpOnly مع عزل التقارير والمحادثات وPDF. حذف ملف الجلسة أو استخدام متصفح آخر لا يمنح الوصول إلى السجل القديم. مفاتيح OpenAI وبيانات الإدارة تبقى في الخادم.
 
-تشارك الرسائل ميزانية الدولار مع التقارير، لكنها لا تستهلك حصة **50 محاولة تقرير يوميًا**. أي بحث جديد تنشئه المحادثة يستهلك محاولة تقرير مستقلة. سقوف نشر 2.0 المستهدفة **900 دولار يوميًا و28000 شهريًا** هي حدود حماية محافظة، لا فواتير متوقعة؛ [التفصيل](OPERATIONS_AR.md).
+تشارك الرسائل ميزانية الدولار مع التقارير، لكنها لا تستهلك حصة **100 محاولة تقرير يوميًا عند ضبط الحصة الجديدة**. أي بحث جديد تنشئه المحادثة يستهلك محاولة تقرير مستقلة. سقوف نشر 2.0.3 المستهدفة **900 دولار يوميًا و28000 شهريًا** هي حدود حماية محافظة، لا فواتير متوقعة؛ [التفصيل](OPERATIONS_AR.md).
 
 عند غموض إرسال رسالة، احتفظ بالمفتاح والجسم نفسيهما للتحقق من المحاولة؛ لا ينفذ الخادم إعادة مدفوعة تلقائية. ظهور فشل PDF لا يعني فشل التقرير؛ يمكن إعادة إخراجه محليًا من النسخة نفسها.
 
@@ -42,7 +42,7 @@ A question requiring newer information can start an explicit background research
 
 New briefing news uses OpenAI live web research and publisher-page publication verification in a frozen **12-hour** window, with at most **20 items after validation and deduplication**. Historical and creative references are labelled background/reference material. The current workspace does not use NewsData or the old fixed publisher list.
 
-Chat messages share USD budgets but do not consume the 50-report-attempt quota; new research initiated from chat does. Matching idempotency keys and request bodies identify the same operation without an automatic paid retry. Deleting the anonymous session cookie does not create a recoverable cross-device account.
+Chat messages share USD budgets but do not consume the configured 100-report-attempt daily quota; new research initiated from chat does. Matching idempotency keys and request bodies identify the same operation without an automatic paid retry. Deleting the anonymous session cookie does not create a recoverable cross-device account.
 
 ## API الحالية والتوافق
 

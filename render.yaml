@@ -46,7 +46,7 @@ services:
       - key: AI_HUB_DATABASE_PATH
         value: /var/data/ai-hub/ai-hub.sqlite3
       - key: MAX_REPORTS_PER_DAY
-        value: "50"
+        value: "100"
       - key: DAILY_BUDGET_USD
         value: "900"
       - key: MONTHLY_BUDGET_USD
