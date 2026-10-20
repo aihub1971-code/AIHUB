@@ -237,8 +237,8 @@ def test_openai_key_alone_enables_native_search_with_positive_reservation(monkey
     estimate = service.runtime.estimate_reservation("iran-news", "أهم أخبار إيران اليوم")
     assert estimate["provider"] == "openai"
     assert estimate["estimated_cost_usd"] > 0
-    assert estimate["max_web_search_calls"] == 1
-    assert estimate["max_model_calls"] == 2
+    assert estimate["max_web_search_calls"] == 2
+    assert estimate["max_model_calls"] == 3
 
 
 def test_zero_estimate_with_billable_bound_is_blocked_before_runtime(store, fake_runtime, monkeypatch):

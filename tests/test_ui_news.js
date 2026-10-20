@@ -371,7 +371,7 @@ test("partial publisher research and separate event dates are visible and locali
 
 test("scripts initialize in order without chat requests before authentication; logout clears private state", async () => {
   const sources=[...html.matchAll(/<script src="([^"]+)"/g)].map(match=>match[1]);
-  assert.deepEqual(sources,["/static/i18n.js?v=1.4.1","/static/chat.js?v=1.4.1","/static/app.js?v=1.4.1"]);
+  assert.deepEqual(sources,["/static/i18n.js?v=1.4.2","/static/chat.js?v=1.4.2","/static/app.js?v=1.4.2"]);
   const ui=harness(null,{language:"en",fetch:(url,_options,respond)=>dashboardFixture(url,respond)});
   assert.equal(ui.chatCalls.create,1);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
   assert.equal(ui.chatConfig.getCurrentReport(),null);

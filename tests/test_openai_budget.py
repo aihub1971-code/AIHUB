@@ -1,8 +1,8 @@
-"""Unified native OpenAI discovery, two-stage usage and the spending gate.
+"""Unified OpenAI discovery, optional evidence recovery and the spending gate.
 
 All article text and HTTP replies below are synthetic fixtures. No network or
 paid request is permitted by the test suite. One research response includes the
-complete publisher allowlist, followed by at most one synthesis response.
+complete publisher allowlist; one reserved recovery may precede synthesis.
 """
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -84,18 +84,17 @@ def mock_openai(monkeypatch):
     original_client = httpx.Client
 
     def install(replies, before_request=None):
-        requests, seen_stages = [], set()
+        requests = []
 
         def dispatch(request):
             assert request.url == "https://api.openai.com/v1/responses"
             if before_request:
                 before_request()
             payload = json.loads(request.content)
-            index = 0 if payload["tools"] else 1
+            index = len(requests)
             if payload["tools"]:
                 assert payload["tools"][0]["filters"]["allowed_domains"] == NEWS_SOURCE_DOMAINS
-            assert index not in seen_stages, "The runtime repeated a paid stage."
-            seen_stages.add(index)
+            assert index < 3, "The runtime exceeded the reserved stage limit."
             requests.append(request)
             assert index < len(replies), "The runtime made an unreserved extra request."
             reply = replies[index]
@@ -125,7 +124,7 @@ def test_news_success_reconciles_both_stages_and_one_search_fee(store, mock_open
     assert record["cost_basis"] == "usage_estimate"
     assert record["reserved_cost_usd"] > record["estimated_cost_usd"]
     assert record["usage"] == result["usage"]
-    assert record["pricing_snapshot"]["max_model_calls"] == 2
+    assert record["pricing_snapshot"]["max_model_calls"] == 3
     assert store.usage_summary()["daily"]["attempts"] == 1
     replay = service.execute_report("iran-news", TASK, idempotency_key="two-stage", store=store)
     assert replay["report_id"] == result["report_id"] and replay["idempotency_replayed"]
@@ -152,7 +151,75 @@ def test_rejected_publisher_evidence_still_accounts_for_one_paid_discovery_reque
     assert store.usage_summary()["daily"]["attempts"] == 1
 
 
-def test_bound_covers_unified_search_context_and_enforces_two_stateless_requests(store, mock_openai, monkeypatch):
+def empty_native_discovery():
+    reply = research_reply()
+    reply["output"][1]["content"][0] = {
+        "type": "output_text", "text": "No usable article notes were returned in this synthetic discovery.",
+        "annotations": [],
+    }
+    return reply
+
+
+@pytest.mark.parametrize("agent_id", ["iran-news", "geopolitical-morning"])
+def test_missing_native_titles_recover_once_with_one_reservation_and_idempotent_replay(
+        store, mock_openai, agent_id):
+    estimate = runtime.estimate_reservation(agent_id, TASK)
+
+    def reserved_before_request():
+        usage = store.usage_summary()["daily"]
+        assert usage["attempts"] == 1 and usage["pending"] == 1
+        assert usage["estimated_cost_usd"] == estimate["estimated_cost_usd"]
+
+    requests = mock_openai([empty_native_discovery(), research_reply(), report_reply()],
+                           reserved_before_request)
+    result = service.execute_report(agent_id, TASK, idempotency_key="recover-empty", store=store)
+    assert result["item_count"] == 1 and len(requests) == 3
+    assert result["model_call_count"] == 3
+    assert result["web_search"]["request_count"] == 2
+    assert result["web_search"]["evidence_recovery_request_count"] == 1
+    assert result["web_search"]["evidence_recovery_status"] == "used"
+    assert [stage["stage"] for stage in result["usage_stages"]] == [
+        "research", "research_recovery", "report"]
+    assert result["usage"]["input_tokens"] == 1800
+    assert result["usage"]["output_tokens"] == 1100
+    assert result["usage"]["web_search_calls"] == 2
+    assert result["accounting"]["estimated_cost_usd"] == .0355
+    payloads = [json.loads(request.content) for request in requests]
+    for payload in payloads:
+        assert "previous_response_id" not in payload and "conversation" not in payload
+    for payload in payloads[:2]:
+        assert payload["max_tool_calls"] == 1 and payload["parallel_tool_calls"] is False
+        assert payload["tools"][0]["filters"]["allowed_domains"] == NEWS_SOURCE_DOMAINS
+    assert "UNTRUSTED_NATIVE_URL_CANDIDATES" in json.dumps(payloads[1])
+    assert estimate["research_request_input_tokens_bounds"][1] >= (
+        2 * (len(requests[1].content) + 4096) + 131072 + payloads[1]["max_output_tokens"])
+    repeated = service.execute_report(agent_id, TASK, idempotency_key="recover-empty", store=store)
+    assert repeated["report_id"] == result["report_id"] and repeated["idempotency_replayed"]
+    assert len(requests) == 3 and store.usage_summary()["daily"]["attempts"] == 1
+
+
+def test_empty_recovery_stops_without_a_third_search_or_report(store, mock_openai):
+    requests = mock_openai([empty_native_discovery(), empty_native_discovery()])
+    result = service.execute_report("iran-news", TASK, store=store)
+    assert len(requests) == 2 and result["item_count"] == 0
+    assert result["report_model_called"] is False
+    assert result["web_search"]["evidence_recovery_status"] == "empty"
+    assert result["accounting"]["estimated_cost_usd"] == .0235
+
+
+def test_recovery_timeout_retains_full_reservation_and_cannot_retry_same_attempt(store, mock_openai):
+    estimate = runtime.estimate_reservation("iran-news", TASK)
+    requests = mock_openai([empty_native_discovery(), "timeout"])
+    with pytest.raises(HTTPException) as error:
+        service.execute_report("iran-news", TASK, idempotency_key="recovery-timeout", store=store)
+    assert error.value.detail["code"] == "openai_timeout" and len(requests) == 2
+    assert store.usage_summary()["daily"]["estimated_cost_usd"] == estimate["estimated_cost_usd"]
+    with pytest.raises(HTTPException):
+        service.execute_report("iran-news", TASK, idempotency_key="recovery-timeout", store=store)
+    assert len(requests) == 2 and store.usage_summary()["daily"]["attempts"] == 1
+
+
+def test_bound_covers_optional_recovery_without_running_it_when_discovery_succeeds(store, mock_openai, monkeypatch):
     monkeypatch.setenv("OPENAI_RESEARCH_MAX_OUTPUT_TOKENS", "8192")
     monkeypatch.setenv("MAX_OUTPUT_TOKENS", "8192")
     estimate = runtime.estimate_reservation("iran-news", TASK)
@@ -168,9 +235,11 @@ def test_bound_covers_unified_search_context_and_enforces_two_stateless_requests
         assert "previous_response_id" not in payload and "conversation" not in payload
         assert payload["service_tier"] == "default"
         assert payload["max_output_tokens"] == 8192
-    assert estimate["research_request_count"] == 1
+    assert estimate["research_request_count"] == 2
+    assert estimate["initial_research_request_count"] == 1
+    assert estimate["max_evidence_recovery_requests"] == 1
     bounds = estimate["research_request_input_tokens_bounds"]
-    assert len(bounds) == 1
+    assert len(bounds) == 2
     assert research["max_tool_calls"] == 1 and research["parallel_tool_calls"] is False
     assert len(research["tools"]) == 1 and research["tools"][0]["type"] == "web_search"
     assert research["tools"][0]["return_token_budget"] == "default"
@@ -178,22 +247,23 @@ def test_bound_covers_unified_search_context_and_enforces_two_stateless_requests
     assert len(research_request.content) <= 50000
     assert bounds[0] >= 2 * (len(research_request.content) + 4096) + 131072 + 8192
     assert bounds[0] <= 247456 < 272000
+    assert bounds[1] == 2 * (50000 + 4096) + 131072 + 8192
     assert len(report_request.content) <= 200000
     assert estimate["research_input_tokens_bound"] == sum(bounds)
     assert estimate["report_input_tokens_bound"] >= len(report_request.content) + 4096
     assert estimate["report_input_tokens_bound"] <= 204096 < 272000
-    assert estimate["research_request_output_tokens_bounds"] == [8192]
-    assert estimate["research_output_tokens_bound"] == 8192
+    assert estimate["research_request_output_tokens_bounds"] == [8192, 8192]
+    assert estimate["research_output_tokens_bound"] == 16384
     assert estimate["report_output_tokens_bound"] == 8192
-    assert estimate["max_web_search_calls"] == 1 and estimate["max_model_calls"] == 2
-    assert estimate["estimated_cost_usd"] <= 1.30272
+    assert estimate["max_web_search_calls"] == 2 and estimate["max_model_calls"] == 3
+    assert estimate["estimated_cost_usd"] <= 2.01328
 
 
-def test_configured_search_fee_changes_the_single_reserved_and_accounted_action(store, mock_openai, monkeypatch):
+def test_configured_search_fee_reserves_two_possible_actions_but_charges_only_actual_use(store, mock_openai, monkeypatch):
     baseline = runtime.estimate_reservation("iran-news", TASK)
     monkeypatch.setenv("OPENAI_WEB_SEARCH_PRICE_USD_PER_CALL", ".037")
     configured = runtime.estimate_reservation("iran-news", TASK)
-    assert Decimal(str(configured["estimated_cost_usd"])) - Decimal(str(baseline["estimated_cost_usd"])) == Decimal(".027")
+    assert Decimal(str(configured["estimated_cost_usd"])) - Decimal(str(baseline["estimated_cost_usd"])) == Decimal(".054")
     requests = mock_openai(all_replies())
     result = service.execute_report("iran-news", TASK, store=store)
     assert len(requests) == 2

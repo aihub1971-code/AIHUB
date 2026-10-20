@@ -1,8 +1,8 @@
 """Bounded OpenAI Responses runtime and source-grounded bilingual news reports.
 
-Only OpenAI is called: news uses one unified bounded research request across
-the approved publishers, then one report response. Budget reservation and persistence belong to
-app.service. Native citations attest source URLs, not independently fetched
+Only OpenAI is called: news uses unified research across the approved publishers,
+with one optional bounded evidence recovery, then one report response. Budget
+reservation and persistence belong to app.service. Native citations attest source URLs, not independently fetched
 publisher bodies; report evidence is explicitly labelled model research notes.
 """
 from __future__ import annotations
@@ -11,6 +11,7 @@ import ipaddress
 import json
 import re
 import unicodedata
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from difflib import SequenceMatcher
@@ -24,6 +25,9 @@ from fastapi import HTTPException
 from app.config import get_setting
 from app.permissions import is_allowed
 from app.registry import get_agent, read_skill
+from app.news_recovery import (RECOVERY_MAX_INPUT_BYTES, build_evidence_recovery_payload,
+                               plan_evidence_recovery)
+from app.news_evidence import source_evidence_choices
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 DEFAULT_OPENAI_MODEL = "gpt-6.1-sol"
@@ -639,6 +643,30 @@ def _news_report_schema(language: str = "ar") -> dict[str, object]:
                            for key, value in NEWS_REPORT_SCHEMA["properties"].items()}}
 
 
+def _news_evidence_schema(language: str, sources: list[dict[str, object]]) -> dict[str, object]:
+    """Constrain copied evidence fields to exact values in the supplied notes.
+
+    Headline and summary remain generated prose. Local validation still checks
+    the selected quote/date against that specific source, including timestamps.
+    """
+    schema = deepcopy(_news_report_schema(language))
+    if not sources:
+        return schema
+    choices = [source.get("evidence_choices") or source_evidence_choices(source) for source in sources]
+    quotes = list(dict.fromkeys(quote for choice in choices for quote in choice["quotes"]))
+    publications = [entry for choice in choices for entry in choice["publications"]]
+    values = list(dict.fromkeys(entry["value"] for entry in publications))
+    notes = list(dict.fromkeys(entry["note"] for entry in publications))
+    for section in ("items", "background_items"):
+        fields = schema["properties"][section]["items"]["properties"]
+        fields["source_id"]["enum"] = [source["source_id"] for source in sources]
+        # Empty quotes cannot pass the validator; [] remains an allowed report.
+        fields["research_note_quote"]["enum"] = quotes or [""]
+        fields["published_date"]["enum"] = [*values, None]
+        fields["published_date_note"]["enum"] = [*notes, None]
+    return schema
+
+
 def _validate_language(language: str) -> None:
     if language not in {"ar", "en"}:
         raise _fail("invalid_language", "Use ar or en.", 422)
@@ -716,6 +744,11 @@ def _build_system_prompt(agent: dict[str, object], skills: str, news: bool,
             "or invent a URL. research_note_quote must be an EXACT short phrase from that source's "
             "content/title (15-240 characters, at most 35 words) supporting the summary. This is a "
             "quote of a MODEL RESEARCH NOTE, not a verified quote from a publisher. "
+            "Each source includes evidence_choices, and the structured output restricts copied "
+            "evidence fields to exact available values. Select a quote and matching publication "
+            "value/note from the SAME source's choices. Do not paraphrase these evidence fields "
+            "or combine a publication date with a separately labelled update clause. Only the "
+            "headline and summary are rewritten in the selected language. "
             "published_date must copy the entire literal publication/update date or timestamp "
             "reported in that source's note. Preserve its time and timezone when present; do not "
             "guess or shorten a timestamp to a date. Copy the short publication wording containing "
@@ -761,8 +794,12 @@ def _response_controls(model: str, output_cap: int) -> dict[str, object]:
 def _build_payload(model: str, system_prompt: str, task: str,
                    sources: list[dict[str, object]], search_status: str, news: bool,
                    *, language: str = "ar") -> dict[str, object]:
+    context_sources = _select_context_sources([
+        {**source, "evidence_choices": source_evidence_choices(source)} if news else source
+        for source in sources
+    ])
     user_content = (task + "\n\nResearch status: " + search_status
-                    + "\n<UNTRUSTED_SOURCE_DATA>\n" + _format_search_context(sources)
+                    + "\n<UNTRUSTED_SOURCE_DATA>\n" + _format_search_context(context_sources)
                     + "\n</UNTRUSTED_SOURCE_DATA>")
     payload = {**_response_controls(model, _max_output_tokens()), "input": [
         {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
@@ -770,7 +807,7 @@ def _build_payload(model: str, system_prompt: str, task: str,
     ], "tools": [], "tool_choice": "none"}
     if news:
         payload["text"] = {"format": {"type": "json_schema", "name": "ai_hub_news_report",
-                                      "strict": True, "schema": _news_report_schema(language)}}
+                                      "strict": True, "schema": _news_evidence_schema(language, context_sources)}}
     if _json_bytes(payload) > MAX_MODEL_INPUT_BYTES:
         raise _fail("model_input_too_large", "The complete request exceeds the bounded input size.", 413)
     return payload
@@ -913,7 +950,7 @@ def estimate_reservation(agent_id: str, task: str, *, language: str = "ar") -> d
 
     One research tool step can reread the original prompt. Reserve two prompt byte
     bounds, the full 128k native-search context, and one output-cap reread. The
-    publisher discovery requests are independent; the follow-on report receives
+    optional evidence recovery is stateless; the follow-on report receives
     only bounded merged notes, never a previous_response_id. Each request stays
     below the documented 272k long-context pricing threshold.
     This is a conservative app estimate, not an account-wide provider spend cap.
@@ -939,6 +976,10 @@ def estimate_reservation(agent_id: str, task: str, *, language: str = "ar") -> d
         report_input = min(MAX_MODEL_INPUT_BYTES + PROVIDER_INPUT_OVERHEAD_TOKENS,
                            _json_bytes(payload) + (2 * MAX_SEARCH_CONTEXT_BYTES if search_enabled else 0)
                            + 1024 + PROVIDER_INPUT_OVERHEAD_TOKENS)
+        if news and search_enabled:
+            # The strict evidence enums depend on returned source text. Reserve
+            # the full final payload ceiling before research starts.
+            report_input = MAX_MODEL_INPUT_BYTES + PROVIDER_INPUT_OVERHEAD_TOKENS
         report_output = _max_output_tokens()
         input_rate, output_rate = _pricing(provider, model)
     if search_enabled:
@@ -949,6 +990,14 @@ def estimate_reservation(agent_id: str, task: str, *, language: str = "ar") -> d
             research_input_bounds.append(
                 2 * (_json_bytes(research_payload) + PROVIDER_INPUT_OVERHEAD_TOKENS)
                 + NATIVE_SEARCH_CONTEXT_TOKENS + output_bound)
+        if news:
+            # The follow-up depends on evidence not yet received. Reserve its
+            # complete possible payload, not the smaller initial request size.
+            recovery_output = _research_output_tokens()
+            research_output_bounds.append(recovery_output)
+            research_input_bounds.append(
+                2 * (RECOVERY_MAX_INPUT_BYTES + PROVIDER_INPUT_OVERHEAD_TOKENS)
+                + NATIVE_SEARCH_CONTEXT_TOKENS + recovery_output)
         research_input = sum(research_input_bounds)
         research_output = sum(research_output_bounds)
         search_rate = _search_price()
@@ -964,6 +1013,8 @@ def estimate_reservation(agent_id: str, task: str, *, language: str = "ar") -> d
             "research_input_tokens_bound": research_input, "report_input_tokens_bound": report_input,
             "research_output_tokens_bound": research_output, "report_output_tokens_bound": report_output,
             "research_request_count": research_count,
+            "initial_research_request_count": int(search_enabled),
+            "max_evidence_recovery_requests": int(search_enabled and news),
             "research_request_input_tokens_bounds": research_input_bounds,
             "research_request_output_tokens_bounds": research_output_bounds,
             "research_input_bytes_limit": MAX_RESEARCH_INPUT_BYTES,
@@ -1104,7 +1155,7 @@ def _article_blocks(text: str, annotations: list[object],
     heading = re.compile(r"^[ \t]{0,3}(#{1,6})\s+\S")
     bullet = re.compile(r"^[ \t]{0,3}(?:[-+*]|\d{1,3}[.)])\s+\S")
     field = re.compile(
-        r"^(?:[-+*]\s+)?(?:\*\*|__)?(?:published|updated|publication|date|source|url|link|"
+        r"^(?:[-+*]\s+)?(?:\*\*|__)?(?:published(?:\s+date)?|updated(?:\s+date)?|publication(?:\s+date)?|date|source|url|link|"
         r"summary|notes?|details|facts|event|النشر|تاريخ النشر|التحديث|تاريخ التحديث|"
         r"المصدر|الرابط|الملخص|ملخص|التفاصيل|ملاحظات|تاريخ الحدث)\s*[:：]", re.IGNORECASE)
 
@@ -1150,7 +1201,21 @@ def _article_blocks(text: str, annotations: list[object],
         if kind is None and native_title_heading(start, end, content):
             kind = ("title", 0)
         if kind:
-            if active and active[2] == "heading" and kind[0] == "heading" and kind[1] > active[3]:
+            first_line = content.splitlines()[0]
+            line_end = start + len(first_line)
+            linked_article = any(
+                _publisher_source_url(raw.rstrip(".,;:!?)،؛")) in native_titles
+                for raw in _urls_in_text(first_line)
+            ) or any(
+                isinstance(annotation, dict) and annotation.get("type") == "url_citation"
+                and _publisher_source_url(annotation.get("url")) in native_titles
+                and type(annotation.get("start_index")) is int
+                and type(annotation.get("end_index")) is int
+                and start <= annotation["start_index"] < annotation["end_index"] <= line_end
+                for annotation in annotations
+            )
+            if (active and active[2] == "heading" and kind[0] == "heading"
+                    and kind[1] > active[3] and not linked_article):
                 active = (active[0], end, active[2], active[3])
                 continue
             if active:
@@ -1169,8 +1234,15 @@ def _research_note_title(content: str) -> str:
     """Use an explicit title from an already-attributed note, never a URL slug."""
     text = re.sub(r"^\s*(?:#{1,6}\s+|[-+*]\s+|\d{1,3}[.)]\s+)", "", content)
     text = _publication_plaintext(text)
+    # The URL was already authorized and associated with this note by the caller.
+    # Keep its explicit Markdown label as the title, never derive one from a slug.
+    linked_title = re.match(
+        r"(?:Title|Headline|العنوان|عنوان الخبر)\s*[:：]\s*\[([^\]\n]+)\]\(https?://[^\s)]+\)",
+        text, re.IGNORECASE,
+    )
     match = re.match(r"(?:Title|Headline|العنوان|عنوان الخبر)\s*[:：]\s*(.+?)(?=\s+https?://|\s+[—–|]|\bPublished\s*:|$)",
                      text, re.IGNORECASE)
+    match = linked_title or match
     if not match:
         # A bold leading article headline is also explicit. Arbitrary prose
         # and generic source labels cannot fill missing provider metadata.
@@ -1199,6 +1271,12 @@ def _native_research_sources(response: dict[str, object], agent_id: str) -> dict
         return url
 
     for call in response["native_calls"]:
+        # A completed native open_page action also attests its exact public URL.
+        # The title and note must still come from that response's attributed text.
+        if call["action"].get("type") == "open_page":
+            url = authorized_url(call["action"].get("url"))
+            if url:
+                allowed.setdefault(url, "")
         for source in call["action"].get("sources", []) if isinstance(call["action"].get("sources", []), list) else []:
             if isinstance(source, dict):
                 url = authorized_url(source.get("url"))
@@ -1290,7 +1368,7 @@ def _native_research_sources(response: dict[str, object], agent_id: str) -> dict
 
 
 def _merge_research_sources(searches: list[dict[str, object]]) -> dict[str, object]:
-    """Interleave independent source packs before deduplication and the shared cap."""
+    """Merge bounded discovery evidence before deduplication and the shared cap."""
     unique: list[dict[str, object]] = []
     seen_urls: set[str] = set()
     seen_titles: list[str] = []
@@ -1331,6 +1409,8 @@ def _merge_research_sources(searches: list[dict[str, object]]) -> dict[str, obje
         cross_pass_duplicate_count=duplicate_count,
         source_limit_omitted_count=max(0, len(unique) - len(selected)),
         research_passes=[{"pass": index + 1, "result_count": len(search["results"]),
+                          "purpose": search.get("purpose", "discovery"),
+                          "recovery_reason": search.get("recovery_reason"),
                           "publisher": search.get("publisher"),
                           "allowed_source_domains": search.get("research_scope_domains", list(ALLOWED_SOURCE_DOMAINS)),
                           "status": search["status"], "error_code": search.get("error_code"),
@@ -1712,8 +1792,14 @@ def _stage_record(stage: str, response: dict[str, object], search_calls: int = 0
             "usage_bound_matches": response["usage_bound_matches"]}
 
 
-def _collect_research(key: str, agent_id: str, payloads: list[dict[str, object]]) -> tuple[dict[str, object], list[dict[str, object]]]:
-    """Run the single unified search. A failure propagates without another paid call."""
+def _collect_research(key: str, agent_id: str, payloads: list[dict[str, object]], *,
+                      task: str = "", window: tuple[datetime, datetime] | None = None,
+                      as_of: datetime | None = None) -> tuple[dict[str, object], list[dict[str, object]]]:
+    """Unified discovery, with at most one reserved missing-evidence follow-up.
+
+    A failed provider call propagates immediately. Successful extraction skips
+    recovery. Both passes keep all publishers together and share one report.
+    """
     if len(payloads) != 1:
         raise _fail("invalid_research_plan", "A report requires one unified research request.", 503)
     payload = payloads[0]
@@ -1721,7 +1807,28 @@ def _collect_research(key: str, agent_id: str, payloads: list[dict[str, object]]
     source_pack = _native_research_sources(response, agent_id)
     source_pack["research_scope_domains"] = payload["tools"][0]["filters"]["allowed_domains"]
     stages = [_stage_record("research", response, int(source_pack["search_call_count"]))]
-    return _merge_research_sources([source_pack]), stages
+    source_pack["purpose"] = "discovery"
+    packs = [source_pack]
+    recovery_status = "not_needed"
+    if task and as_of is not None:
+        plan = plan_evidence_recovery(agent_id, response, source_pack, window, as_of)
+        if plan:
+            recovery_status = "input_limit_skipped"
+            followup = build_evidence_recovery_payload(
+                str(payload["model"]), agent_id, task, window, as_of, plan)
+            if followup:
+                recovered = _call_model(key, followup, research=True)
+                recovered_pack = _native_research_sources(recovered, agent_id)
+                recovered_pack["research_scope_domains"] = followup["tools"][0]["filters"]["allowed_domains"]
+                recovered_pack["purpose"] = "evidence_recovery"
+                recovered_pack["recovery_reason"] = plan["reason"]
+                packs.append(recovered_pack)
+                stages.append(_stage_record("research_recovery", recovered, int(recovered_pack["search_call_count"])))
+                recovery_status = "used" if recovered_pack["results"] else "empty"
+    merged = _merge_research_sources(packs)
+    merged["evidence_recovery_status"] = recovery_status
+    merged["evidence_recovery_request_count"] = len(packs) - 1
+    return merged, stages
 
 
 def _aggregate_usage(stages: list[dict[str, object]]) -> dict[str, object]:
@@ -1777,10 +1884,14 @@ def run_agent(agent_id: str, task: str, *, language: str = "ar") -> dict[str, ob
         _search_price()
     stages = []
     if research_payloads:
-        search, stages = _collect_research(key, agent_id, research_payloads)
+        search, stages = _collect_research(key, agent_id, research_payloads,
+                                           task=task, window=window, as_of=as_of)
     else:
         search = _empty_search(search_status)
     all_sources = search["results"]
+    if news:
+        all_sources = [{**source, "evidence_choices": source_evidence_choices(source)}
+                       for source in all_sources]
     sources = _select_context_sources(all_sources)
     search_status = str(search["status"])
     web_search = {name: value for name, value in search.items() if name != "results"}
