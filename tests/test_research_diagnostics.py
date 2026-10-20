@@ -290,7 +290,8 @@ def test_schema_limit_diagnostics_survive_internal_sanitization_only():
 @pytest.mark.parametrize("source_count", [0, 1, 40])
 def test_native_profile_schemas_obey_strict_contract_with_full_source_bound(agent, source_count):
     sources = [{"id": f"src_{index:016x}", "title": (f"Synthetic title {index} " + "a" * 499)[:499],
-        "excerpt": (f"Synthetic excerpt {index} " + "b" * 392)[:392], "role": "reference"}
+        "excerpt": (f"Synthetic excerpt {index} " + "b" * 392)[:392],
+        "role": "reference" if agent == "story-moodboard" else "background"}
         for index in range(source_count)]
     schema = research._schema(get_profile(agent), sources)
     Draft202012Validator.check_schema(schema)
@@ -313,7 +314,8 @@ def test_native_profile_schemas_obey_strict_contract_with_full_source_bound(agen
                 inspect(value)
 
     inspect(schema)
-    assert len(objects) == 5
+    assert len(objects) == 4
     assert sum(map(len, enums)) <= 1000
     assert sum(len(value) for choices in enums for value in choices) < 120000
-    assert len(schema["properties"]["items"]["items"]["properties"]["evidence_quote"]["enum"]) == max(1, source_count * 2)
+    assert schema["properties"]["items"] == {"type": "array", "items": {"type": "string"}, "maxItems": 0}
+    assert "evidence_quote" not in json.dumps(schema)

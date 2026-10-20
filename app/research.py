@@ -1005,23 +1005,29 @@ def _source_quotes(source: dict[str, Any]) -> list[str]:
 
 def _schema(profile: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any]:
     source_ids = [source["id"] for source in sources]
-    quotes = list(dict.fromkeys(quote for source in sources for quote in _source_quotes(source))) or [""]
     source_value = {"type": "string", **({"enum": source_ids} if source_ids else {})}
     source_list = {"type": "array", "items": source_value, "maxItems": MAX_PUBLISHER_PAGES if sources else 0}
     empty_source_list = {"type": "array", "items": {"type": "string"}, "maxItems": 0}
     moodboard = profile["kind"] == "moodboard"
-    item = {"type": "object", "additionalProperties": False, "properties": {
-        "source_id": source_value,
-        "supporting_source_ids": source_list,
-        "headline": {"type": "string", "minLength": 1, "maxLength": 350},
-        "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
-        "why_it_matters": {"type": "string", "minLength": 1, "maxLength": 1500},
-        "evidence_quote": {"type": "string", "enum": quotes},
-        "event_key": {"type": "string", "minLength": 1, "maxLength": 200},
-        "section": {"type": "string", "enum": ["conflict_diplomacy", "major_consequences"]
-                    if profile["id"] == "iran-news" else ["news"]}},
-        "required": ["source_id", "supporting_source_ids", "headline", "summary", "why_it_matters",
-                     "evidence_quote", "event_key", "section"]}
+    has_fresh = any(source["role"] == "fresh" for source in sources)
+    # Reference-only packs cannot emit news items. Do not send a complex unused
+    # item schema or publisher-text enum for an array that must remain empty.
+    item = {"type": "string"}
+    if has_fresh:
+        item = {"type": "object", "additionalProperties": False, "properties": {
+            "source_id": source_value,
+            "supporting_source_ids": source_list,
+            "headline": {"type": "string", "minLength": 1, "maxLength": 350},
+            "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+            "why_it_matters": {"type": "string", "minLength": 1, "maxLength": 1500},
+            # Exact membership in this item's own source choices is enforced
+            # by _validated_pack; publisher prose is not a provider enum.
+            "evidence_quote": {"type": "string", "minLength": 1, "maxLength": 500},
+            "event_key": {"type": "string", "minLength": 1, "maxLength": 200},
+            "section": {"type": "string", "enum": ["conflict_diplomacy", "major_consequences"]
+                        if profile["id"] == "iran-news" else ["news"]}},
+            "required": ["source_id", "supporting_source_ids", "headline", "summary", "why_it_matters",
+                         "evidence_quote", "event_key", "section"]}
     section = {"type": "object", "additionalProperties": False, "properties": {
         "id": {"type": "string", "enum": [part["id"] for part in profile["sections"]]},
         "body": {"type": "string", "minLength": 1, "maxLength": 9000}, "source_ids": source_list},
@@ -1035,7 +1041,7 @@ def _schema(profile: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str,
         "hex": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}}, "required": ["name", "hex"]}
     return {"type": "object", "additionalProperties": False, "properties": {
         "title": {"type": "string", "minLength": 1, "maxLength": 250},
-        "items": {"type": "array", "items": item, "maxItems": 40 if any(source["role"] == "fresh" for source in sources) else 0},
+        "items": {"type": "array", "items": item, "maxItems": 40 if has_fresh else 0},
         "sections": {"type": "array", "items": section, "minItems": len(profile["sections"]), "maxItems": len(profile["sections"])},
         "limitations": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1000}, "maxItems": 12},
         "visuals": {"type": "object", "additionalProperties": False, "properties": {

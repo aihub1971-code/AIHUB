@@ -4,6 +4,7 @@ Synthetic provider and publisher fixtures: no live requests or current claims.
 """
 from datetime import datetime, timezone
 from decimal import Decimal
+from copy import deepcopy
 import hashlib
 import html
 import json
@@ -12,6 +13,7 @@ import socket
 import httpx
 import pytest
 from fastapi import HTTPException
+from jsonschema import Draft202012Validator
 
 from app import research
 from app.agent_profiles import get_profile
@@ -828,6 +830,89 @@ def test_source_free_schema_forces_empty_reference_arrays_and_exposes_validator_
     raw["visuals"]["direction"] += "B"
     with pytest.raises(HTTPException):
         research._validated_pack(json.dumps(raw), profile, [], research._window(WINDOW))
+
+
+@pytest.mark.parametrize("agent,role", [("historical-reading-companion", "background"), ("story-moodboard", "reference")])
+def test_reference_only_synthesis_keeps_full_source_pack_without_unused_news_enum(agent, role):
+    profile = get_profile(agent)
+    sources = []
+    for index in range(research.MAX_PUBLISHER_PAGES):
+        title = f"Coastal archive record {index}: 'Memories at low tide' — drawings & oral histories"
+        body = (f"Archive record {index} documents the conservation of coastal drawings, handwritten maps, "
+                "and oral histories collected for a museum exhibition. The curator describes the collection "
+                "as a reference for interpretation, not a record of fictional memories carried by the tide.")
+        source, reason = verify(page_record(url=f"https://publisher.example/archive/{index}", title=title,
+                                           body=body, published="2018-01-01T08:00:00Z"), agent)
+        assert reason is None and source["role"] == role
+        sources.append(source)
+    payload, selected = research._synthesis_payload("gpt-6.1-sol", profile, profile["default_topic_en"], "en",
+                                                   research._window(WINDOW), sources, None)
+    schema = payload["text"]["format"]["schema"]
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    assert schema["properties"]["items"] == {"type": "array", "items": {"type": "string"}, "maxItems": 0}
+    assert "evidence_quote" not in json.dumps(schema)
+    source_pack = json.loads(payload["input"][1]["content"])["sources"]
+    assert len(selected) == len(source_pack) == research.MAX_PUBLISHER_PAGES
+    assert [value["id"] for value in source_pack] == [source["id"] for source in sources]
+    assert all(value["title"] == source["title"] and value["excerpt"] == source["excerpt"]
+               and value["evidence_quotes"] == research._source_quotes(source)
+               for value, source in zip(source_pack, sources))
+    raw = structured_pack(profile, selected, items=False)
+    validator.validate(raw)
+    pack, rejected = research._validated_pack(json.dumps(raw), profile, selected, research._window(WINDOW))
+    assert pack["items"] == [] and rejected == {}
+    assert all(section["source_ids"] == [sources[0]["id"]] for section in pack["sections"])
+    if profile["kind"] == "moodboard":
+        assert all(section["attribution"] == "reference_based" for section in pack["sections"])
+        assert pack["visuals"]["reference_source_ids"] == [sources[0]["id"]]
+    nonempty = deepcopy(raw)
+    nonempty["items"] = ["A news item is not permitted in a reference-only pack."]
+    assert not validator.is_valid(nonempty)
+    uncited = deepcopy(raw)
+    uncited["sections"][0]["source_ids"] = ["src_not_in_the_verified_pack"]
+    assert not validator.is_valid(uncited)
+    with pytest.raises(HTTPException):
+        research._validated_pack(json.dumps(uncited), profile, selected, research._window(WINDOW))
+    invalid_visual = deepcopy(raw)
+    invalid_visual["visuals"]["reference_source_ids"] = ["src_not_in_the_verified_pack"]
+    assert not validator.is_valid(invalid_visual)
+    with pytest.raises(HTTPException):
+        research._validated_pack(json.dumps(invalid_visual), profile, selected, research._window(WINDOW))
+
+
+@pytest.mark.parametrize("agent", ["iran-news", "historical-reading-companion", "story-moodboard"])
+def test_verified_fresh_source_retains_strict_news_item_schema_for_every_native_kind(agent):
+    profile = get_profile(agent)
+    source, reason = verify(page_record(), agent)
+    assert reason is None and source["role"] == "fresh"
+    other, reason = verify(page_record(url="https://publisher.example/news/separate-iran-talks",
+                                      title="Iran and US discuss a separate proposal for regional diplomacy"), agent)
+    assert reason is None and other["role"] == "fresh"
+    sources = [source, other]
+    schema = research._schema(profile, sources)
+    validator = Draft202012Validator(schema)
+    item_schema = schema["properties"]["items"]
+    assert item_schema["maxItems"] == 40
+    assert item_schema["items"]["additionalProperties"] is False
+    assert item_schema["items"]["properties"]["evidence_quote"] == {
+        "type": "string", "minLength": 1, "maxLength": 500}
+    raw = structured_pack(profile, [source])
+    validator.validate(raw)
+    pack, rejected = research._validated_pack(json.dumps(raw), profile, sources, research._window(WINDOW))
+    assert len(pack["items"]) == 1 and rejected == {}
+    for quote in ("An invented quotation absent from the verified source.", research._source_quotes(other)[0]):
+        assert quote not in research._source_quotes(source)
+        invalid = deepcopy(raw)
+        invalid["items"][0]["evidence_quote"] = quote
+        # A well-shaped string cannot bypass exact per-source evidence checks.
+        assert validator.is_valid(invalid)
+        pack, rejected = research._validated_pack(json.dumps(invalid), profile, sources, research._window(WINDOW))
+        assert pack["items"] == [] and rejected == {"unsupported_evidence_quote": 1}
+    for quote in ("", "x" * 501):
+        invalid = deepcopy(raw)
+        invalid["items"][0]["evidence_quote"] = quote
+        assert not validator.is_valid(invalid)
 
 
 @pytest.mark.parametrize("malformed", [False, True])
