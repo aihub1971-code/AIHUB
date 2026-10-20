@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import runtime as agent_runtime
 from app.auth import require_owner
+from app.chat import router as chat_router
 from app.config import docs_enabled, get_setting
 from app.permissions import require_capability
 from app.registry import get_agent, get_agents, read_skill
@@ -21,7 +22,7 @@ from app.service import execute_report
 from app.storage import StoreError, get_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 
 
 def runtime_is_ready() -> bool:
@@ -45,11 +46,12 @@ async def lifespan(application: FastAPI):
 _docs = docs_enabled()
 app = FastAPI(
     title="AI HUB", version=APP_VERSION,
-    description="Private Arabic assistant platform with reports, budgets and Dubai schedules.",
+    description="Private Arabic and English assistant platform with chat, reports, budgets and Dubai schedules.",
     docs_url="/docs" if _docs else None, redoc_url=None,
     openapi_url="/openapi.json" if _docs else None, lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=STATIC_ROOT), name="static")
+app.include_router(chat_router)
 
 
 @app.exception_handler(StoreError)
@@ -134,7 +136,8 @@ def submit_task(
     _: str = Depends(require_owner),
 ) -> dict[str, object]:
     require_capability(agent_id, "actions", "submit_task")
-    return execute_report(agent_id, request.task, idempotency_key=idempotency_key, trigger="manual")
+    options = {"language": request.language} if request.language != "ar" else {}
+    return execute_report(agent_id, request.task, idempotency_key=idempotency_key, trigger="manual", **options)
 
 
 @app.get("/v1/usage", tags=["reports"])

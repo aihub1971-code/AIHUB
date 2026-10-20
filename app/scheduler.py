@@ -94,9 +94,10 @@ class Scheduler:
                 continue
             report_id = None
             try:
+                language_options = {"language": claim["language"]} if claim.get("language", "ar") != "ar" else {}
                 response = self.execute_fn(
                     claim["agent_id"], claim["task"],
-                    idempotency_key=claim["occurrence_key"], trigger="scheduled", store=self.store,
+                    idempotency_key=claim["occurrence_key"], trigger="scheduled", store=self.store, **language_options,
                 )
                 report_id = response.get("report_id")
                 self.store.finish_occurrence(claim["occurrence_key"], status="succeeded", report_id=report_id)

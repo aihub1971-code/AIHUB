@@ -70,6 +70,7 @@ def execute_report(
     trigger: str = "manual",
     *,
     store: Store | None = None,
+    language: str = "ar",
 ) -> dict[str, Any]:
     """Reserve atomically, execute once without retries, and persist the result.
 
@@ -85,14 +86,18 @@ def execute_report(
         raise HTTPException(status_code=403, detail={"code": "agent_disabled", "message": "This agent is disabled."})
     if not isinstance(task, str) or not task.strip() or len(task) > 8000:
         raise HTTPException(status_code=422, detail={"code": "invalid_task", "message": "Task must contain 1 to 8000 characters."})
+    if language not in {"ar", "en"}:
+        raise HTTPException(status_code=422, detail={"code": "invalid_language", "message": "Use ar or en."})
+    language_options = {"language": language} if language != "ar" else {}
     database = store or get_store()
     try:
-        previous = database.lookup_idempotency(idempotency_key, agent_id, task)
+        previous = database.lookup_idempotency(idempotency_key, agent_id, task, **language_options)
         if previous is not None:
             return _replay(previous)
         if not runtime.runtime_is_ready():
             raise HTTPException(status_code=503, detail={"code": "runtime_not_configured", "message": "Configure OPENAI_API_KEY before running reports."})
-        estimate = runtime.estimate_reservation(agent_id, task)
+        estimate = runtime.estimate_reservation(agent_id, task, **language_options)
+        estimate["language"] = language
         # The runtime declares all three bounds as zero only for deterministic
         # local responses with no model/search calls. Free setup checks can be
         # saved without weakening the positive reservation gate for API work.
@@ -105,7 +110,7 @@ def execute_report(
             reservation_usd=estimate["estimated_cost_usd"],
             idempotency_key=idempotency_key, trigger=trigger,
             provider=estimate.get("provider", ""), model=estimate.get("model", ""),
-            pricing_snapshot=estimate, allow_zero_cost=no_external_calls,
+            pricing_snapshot=estimate, allow_zero_cost=no_external_calls, **language_options,
         )
     except StoreError as error:
         raise _http_store_error(error) from None
@@ -113,9 +118,10 @@ def execute_report(
         return _replay(reservation.report)
     report_id = reservation.report["report_id"]
     try:
-        result = runtime.run_agent(agent_id, task)
+        result = runtime.run_agent(agent_id, task, **language_options)
         if not isinstance(result, dict):
             raise ValueError("Runtime must return a report object")
+        result["language"] = language
         record = database.finish_run(
             report_id, result,
             estimated_cost_usd=result.get("estimated_cost_usd"),

@@ -42,7 +42,19 @@ class Element {
     }
   }
   replaceChildren(...nodes) { this.childNodes = []; this.append(...nodes); }
-  setAttribute(name, value) { this.attributes[name] = String(value); }
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+    if(name === "class") this.className=String(value);
+    if(["id","dir","lang","placeholder","value"].includes(name)) this[name]=String(value);
+    if(name === "disabled") this.disabled=true;
+    if(name === "checked") this.checked=true;
+  }
+  getAttribute(name) { return this.attributes[name] ?? null; }
+  querySelectorAll(selector) {
+    if(/^\[[\w-]+\]$/.test(selector)) return descendants(this,el=>el.getAttribute(selector.slice(1,-1))!==null);
+    if(selector.startsWith(".")) return descendants(this,el=>el.classList.contains(selector.slice(1)));
+    return descendants(this,el=>el.tagName===selector.toUpperCase());
+  }
   addEventListener(type, listener) { (this.events[type] ||= []).push(listener); }
   async click() { for (const listener of this.events.click || []) await listener({}); }
   remove() {
@@ -50,7 +62,12 @@ class Element {
   }
   scrollIntoView() {}
   focus() {}
-  reset() {}
+  reset() {
+    for(const el of descendants(this,()=>true)) {
+      if(["INPUT","TEXTAREA"].includes(el.tagName)) { el.value=el.getAttribute("value") || ""; el.checked=el.getAttribute("checked")!==null; }
+      if(el.tagName==="SELECT") el.value=el.children[0]?.value || "";
+    }
+  }
 }
 
 function descendants(root, predicate) {
@@ -59,40 +76,55 @@ function descendants(root, predicate) {
 const byClass = (root, name) => descendants(root, element => element.classList.contains(name));
 const byTag = (root, tag) => descendants(root, element => element.tagName === tag.toUpperCase());
 
-function harness(savedReport = null) {
-  const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(match => [match[1], new Element()]));
-  const body = new Element("body");
-  const requests = [];
-  let copied = "";
-  class TestURL extends URL {
-    static createObjectURL() { return "blob:ai-hub-test"; }
-    static revokeObjectURL() {}
+function harness(savedReport = null, options = {}) {
+  const elements = new Map(), tree = new Element("document"), stack = [tree];
+  const voidTags = new Set(["META","LINK","INPUT","BR","HR","IMG"]);
+  for(const match of html.matchAll(/<\/?([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>|([^<]+)/g)) {
+    if(match[3]!==undefined) { stack.at(-1).append(match[3]); continue; }
+    if(match[0].startsWith("</")) { if(stack.length>1) stack.pop(); continue; }
+    const element = new Element(match[1]);
+    for(const attribute of match[2].matchAll(/([a-zA-Z_][\w-]*)(?:="([^"]*)")?/g)) element.setAttribute(attribute[1],attribute[2] ?? "");
+    if(element.id) elements.set(element.id,element);
+    stack.at(-1).append(element);
+    if(!voidTags.has(element.tagName)) stack.push(element);
   }
-  const context = {
-    URL: TestURL,
-    document: {
-      body,
-      getElementById: id => elements.get(id) || null,
-      createElement: tag => new Element(tag),
-      createTextNode: text => ({nodeType: 3, textContent: String(text)})
-    },
-    navigator: {clipboard: {writeText: async value => { copied = value; }}},
-    window: {confirm: () => false},
-    setTimeout: () => 0,
-    fetch: async (url, options) => {
-      requests.push({url, options});
-      assert.match(url, /^\/v1\/reports\//, "Only fixture report routes may be requested.");
-      return {ok: true, text: async () => JSON.stringify(savedReport), blob: async () => ({})};
-    }
-  };
-  const instrumented = script.replace(/\n  fetchHealth\(\);\n\}\)\(\);\s*$/, `
-    globalThis.testUI = {displayResult, renderArchive, officialNewsSource,
-      setAgents: value => { agents = value; }};
+  const body = descendants(tree,el=>el.tagName==="BODY")[0];
+  const document = {body,documentElement:descendants(tree,el=>el.tagName==="HTML")[0],title:"",
+    getElementById:id=>elements.get(id) || null,createElement:tag=>new Element(tag),
+    createTextNode:text=>({nodeType:3,textContent:String(text)}),querySelectorAll:selector=>tree.querySelectorAll(selector)};
+  const requests=[], storage=new Map(options.language ? [["aihub.language",options.language]] : []), listeners=new Map();
+  const chatCalls={create:0,login:0,logout:0,language:0,context:0}; let chatConfig,copied="", uuid=0;
+  class TestURL extends URL { static createObjectURL(){return "blob:ai-hub-test";} static revokeObjectURL(){} }
+  const response = (data, status=200) => ({ok:status>=200&&status<300,status,text:async()=>JSON.stringify(data),blob:async()=>({})});
+  const context={URL:TestURL,document,AbortController,crypto:{randomUUID:()=>"ui-fixture-"+(++uuid)},
+    btoa:value=>Buffer.from(value,"binary").toString("base64"),
+    CustomEvent:class {constructor(type,init={}){this.type=type;this.detail=init.detail;}},
+    navigator:{clipboard:{writeText:async value=>{copied=value;}}},
+    window:{confirm:()=>false,location:{origin:"https://ai-hub.test"},
+      localStorage:{getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,String(value))},
+      addEventListener:(type,listener)=>{if(!listeners.has(type))listeners.set(type,[]);listeners.get(type).push(listener);},
+      dispatchEvent:event=>{for(const listener of listeners.get(event.type)||[])listener(event);},
+      AIHubChat:{create:config=>{chatCalls.create++;chatConfig=config;return {login:()=>chatCalls.login++,logout:()=>chatCalls.logout++,setLanguage:()=>chatCalls.language++,refreshReportContext:()=>chatCalls.context++};}}},
+    setTimeout:()=>0,
+    fetch:async(url,requestOptions)=>{
+      requests.push({url,options:requestOptions});
+      if(options.fetch) return options.fetch(url,requestOptions,response);
+      assert.match(url,/^\/v1\/reports\//,"Only fixture report routes may be requested.");
+      return response(savedReport);
+    }};
+  const instrumented=script.replace(/\n  fetchHealth\(\);\n\}\)\(\);\s*$/, `
+    globalThis.testUI={displayResult,renderArchive,renderSchedules,officialNewsSource,chooseAgent,
+      login,logout,runTask,saveSchedule,apiJson,getCurrentReport,showWorkspace,makeError,
+      setAgents:value=>{agents=value;},
+      setAuthenticated:()=>{authHeader="Basic fixture";sessionVersion++;}};
   })();`);
-  assert.notEqual(instrumented, script, "Test instrumentation must match the app entry point.");
-  vm.runInNewContext(instrumented, context, {filename: "app.js"});
-  context.testUI.setAgents([{id: "iran-news", name: "أخبار إيران", number: "01", runtime_ready: true}]);
-  return {...context.testUI, elements, requests, body, copied: () => copied};
+  assert.notEqual(instrumented,script,"Test instrumentation must match the app entry point.");
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(staticPath,"i18n.js"),"utf8"),context,{filename:"i18n.js"});
+  vm.runInContext(instrumented,context,{filename:"app.js"});
+  context.testUI.setAgents([{id:"iran-news",name:"أخبار إيران",number:"01",runtime_ready:true}]);
+  return {...context.testUI,elements,requests,body,document,storage,chatCalls,chatConfig,context,
+    I18n:context.window.AIHubI18n,copied:()=>copied,response};
 }
 
 function item(overrides = {}) {
@@ -200,6 +232,7 @@ test("opening archived news uses the same renderer while copy and download prese
   const data = report();
   const saved = {report_id: data.report_id, agent_id: "iran-news", status: "succeeded", result: data, estimated_cost_usd: 0.07};
   const ui = harness(saved);
+  ui.setAuthenticated();
   ui.renderArchive([{...saved, task: "أخبار إيران", created_at: data.generated_at}]);
   await byTag(ui.elements.get("archiveList"), "button")[0].click();
   assert.equal(byClass(ui.elements.get("responseBody"), "news-source-link")[0].href, item().url);
@@ -208,4 +241,181 @@ test("opening archived news uses the same renderer while copy and download prese
   await ui.elements.get("downloadBtn").click();
   assert.equal(ui.requests[0].url, "/v1/reports/rpt_ui_fixture");
   assert.equal(ui.requests[1].url, "/v1/reports/rpt_ui_fixture/download?format=md");
+});
+
+const fixtureAgents = JSON.parse(fs.readFileSync(path.join(__dirname,"../agents.json"),"utf8")).agents
+  .map(agent=>({...agent,runtime_ready:true,skill_ids:agent.skills.map(skill=>skill.id)}));
+function dashboardFixture(url, respond) {
+  if(url==="/v1/agents") return respond({agents:fixtureAgents});
+  if(url==="/v1/usage") return respond({daily:{attempts:2,limit:50,remaining:48,estimated_cost_usd:0.24,budget_usd:5},monthly:{estimated_cost_usd:1.2,budget_usd:100}});
+  if(url==="/v1/system") return respond({model_configured:true,search_configured:true,pricing_configured:true,scheduler_running:true});
+  if(url.startsWith("/v1/reports?")) return respond({reports:[]});
+  if(url==="/v1/schedules") return respond({schedules:[]});
+  if(url.startsWith("/v1/schedule-occurrences?")) return respond({occurrences:[]});
+  assert.fail("Unexpected fixture request: "+url);
+}
+
+test("English translates every static chrome label and all 13 assistants, with only language persisted", () => {
+  const ui=harness(null,{language:"en"});
+  assert.equal(ui.I18n.getLanguage(),"en");
+  assert.equal(ui.document.documentElement.lang,"en");
+  assert.equal(ui.document.documentElement.dir,"ltr");
+  for(const attribute of ["data-i18n","data-i18n-placeholder","data-i18n-aria-label","data-i18n-title"]){
+    for(const element of ui.document.querySelectorAll("["+attribute+"]")){
+      const key=element.getAttribute(attribute);
+      assert.ok(ui.I18n.has(key),"Missing translation: "+key);
+      assert.doesNotMatch(ui.I18n.t(key),/[\u0600-\u06ff]/,"Arabic remains in English chrome: "+key);
+      if(attribute!=="data-i18n")assert.equal(element.getAttribute(attribute.slice(10)),ui.I18n.t(key));
+    }
+  }
+  assert.equal(fixtureAgents.length,13);
+  ui.setAgents(fixtureAgents);
+  for(const agent of fixtureAgents){
+    assert.ok(ui.I18n.has("agent."+agent.id+".name"));
+    assert.ok(ui.I18n.has("agent."+agent.id+".description"));
+    ui.chooseAgent(agent.id);
+    assert.doesNotMatch(ui.elements.get("selectedName").textContent+ui.elements.get("selectedDescription").textContent,/[\u0600-\u06ff]/);
+  }
+  assert.equal(ui.I18n.t("chat.send"),"Send");
+  assert.equal(ui.I18n.t("chat.title"),"AI HUB Chat");
+  ui.I18n.setLanguage("ar");
+  assert.equal(ui.document.documentElement.dir,"rtl");
+  assert.equal(ui.elements.get("languageAR").getAttribute("aria-pressed"),"true");
+  assert.deepEqual([...ui.storage],[['aihub.language','ar']]);
+  assert.equal(ui.requests.length,0);
+});
+
+test("switching UI language preserves an open Arabic report, its attachment identity and task drafts without a request", async () => {
+  const ui=harness();ui.setAuthenticated();ui.chooseAgent("iran-news");
+  ui.elements.get("task").value="مسودة مهمة خاصة";
+  ui.elements.get("scheduleTask").value="مسودة جدول خاص";
+  const data=report({language:"ar"});ui.displayResult(data);
+  const requestCount=ui.requests.length;
+  await ui.elements.get("languageEN").click();
+  const body=ui.elements.get("responseBody");
+  assert.equal(body.dir,"rtl");assert.equal(body.lang,"ar");
+  assert.equal(byClass(body,"news-headline")[0].textContent,item().headline);
+  assert.equal(byClass(body,"news-summary")[0].textContent,item().summary);
+  assert.equal(byClass(body,"news-publisher")[0].textContent,"Al Jazeera");
+  assert.equal(byClass(body,"news-count")[0].textContent,"News items: 1");
+  assert.equal(byClass(body,"news-report-intro")[0].dir,"ltr");
+  assert.equal(ui.getCurrentReport().id,data.report_id);
+  assert.equal(ui.elements.get("task").value,"مسودة مهمة خاصة");
+  assert.equal(ui.elements.get("scheduleTask").value,"مسودة جدول خاص");
+  assert.equal(ui.elements.get("scheduleLanguage").value,"en");
+  await ui.elements.get("copyBtn").click();assert.equal(ui.copied(),data.response);
+  await ui.elements.get("languageAR").click();
+  assert.equal(byClass(body,"news-count")[0].textContent,"عدد الأخبار: 1");
+  assert.equal(ui.requests.length,requestCount);
+  assert.equal(ui.chatCalls.language,2);
+});
+
+test("partial publisher research and separate event dates are visible and localized", () => {
+  const ui=harness(null,{language:"en"});
+  ui.displayResult(report({language:"en",items:[item({headline:"A current article about an earlier event",summary:"Synthetic summary.",event_date:"2026-10-18",event_timing_relative_to_window:"before_window"})],web_search:{research_incomplete:true,failed_request_count:2}}));
+  const body=ui.elements.get("responseBody");
+  assert.match(byClass(body,"news-research-warning")[0].textContent,/did not complete.*\(2\)/);
+  assert.match(byClass(body,"news-event-date")[0].textContent,/Event date reported in research notes: 18 October 2026/);
+  assert.equal(byClass(body,"news-list").length,1);
+  assert.equal(byClass(body,"news-background").length,0);
+  assert.equal(body.dir,"ltr");
+  ui.I18n.setLanguage("ar");
+  assert.match(byClass(body,"news-research-warning")[0].textContent,/لم يكتمل البحث/);
+  assert.equal(body.dir,"ltr");
+});
+
+test("scripts initialize in order without chat requests before authentication; logout clears private state", async () => {
+  const sources=[...html.matchAll(/<script src="([^"]+)"/g)].map(match=>match[1]);
+  assert.deepEqual(sources,["/static/i18n.js?v=1.4.0","/static/chat.js?v=1.4.0","/static/app.js?v=1.4.0"]);
+  const ui=harness(null,{language:"en",fetch:(url,_options,respond)=>dashboardFixture(url,respond)});
+  assert.equal(ui.chatCalls.create,1);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
+  assert.equal(ui.chatConfig.getCurrentReport(),null);
+  ui.elements.get("username").value="fixture-user";ui.elements.get("password").value="fixture-password";
+  await ui.login();
+  assert.equal(ui.chatCalls.login,1);
+  assert.equal(ui.elements.get("password").value,"");
+  assert.equal(ui.elements.get("workspaceTabs").classList.contains("hidden"),false);
+  assert.equal(ui.elements.get("selectedName").textContent,"Global Geopolitical Briefing");
+  assert.match(ui.elements.get("schedulerNotice").textContent,/scheduler is running/);
+  ui.displayResult(report({language:"ar"}));ui.showWorkspace("chat");
+  assert.equal(ui.chatConfig.getCurrentReport().id,"rpt_ui_fixture");
+  assert.equal(ui.elements.get("chatView").classList.contains("hidden"),false);
+  ui.elements.get("task").value="private draft";ui.elements.get("scheduleTask").value="private schedule";
+  ui.logout();
+  assert.equal(ui.chatCalls.logout,1);assert.equal(ui.chatConfig.getCurrentReport(),null);
+  for(const id of ["responseBody","archiveList","scheduleList","selectedName","selectedDescription"])assert.equal(ui.elements.get(id).textContent,"");
+  for(const id of ["username","password","task","scheduleTask"])assert.equal(ui.elements.get(id).value,"");
+  assert.equal(ui.elements.get("chatView").classList.contains("hidden"),true);
+  assert.equal(ui.elements.get("workspaceTabs").classList.contains("hidden"),true);
+  assert.equal(ui.I18n.getLanguage(),"en");assert.deepEqual([...ui.storage],[['aihub.language','en']]);
+  const count=ui.requests.length;
+  await assert.rejects(ui.chatConfig.request("/v1/chat/conversations"),error=>error.status===401);
+  assert.equal(ui.requests.length,count);
+  assert.equal(ui.context.window.authHeader,undefined);
+});
+
+test("the chat request closure prevents cross-origin auth, ignores auth overrides and rejects stale session responses", async () => {
+  let release;
+  const ui=harness(null,{fetch:async(url,options,respond)=>{
+    if(url==="/v1/chat/conversations/pending")return new Promise(resolve=>{release=()=>resolve(respond({messages:[{content:"private response"}]}));});
+    return respond({conversations:[]});
+  }});
+  ui.setAuthenticated();
+  await assert.rejects(ui.chatConfig.request("https://unapproved.test/v1/chat/conversations"),error=>error.status===400);
+  assert.equal(ui.requests.length,0);
+  await ui.chatConfig.request("/v1/chat/conversations","POST",{title:"Fixture"},{Authorization:"unsafe override","Idempotency-Key":"fixture-key"});
+  assert.equal(ui.requests[0].options.headers.Authorization,"Basic fixture");
+  assert.equal(ui.requests[0].options.headers["Idempotency-Key"],"fixture-key");
+  assert.equal(ui.requests[0].url,"/v1/chat/conversations");
+  const pending=ui.chatConfig.request("/v1/chat/conversations/pending");
+  const signal=ui.requests.at(-1).options.signal;
+  ui.logout();assert.equal(signal.aborted,true);release();
+  await assert.rejects(pending,error=>error.code==="session_ended");
+  assert.doesNotMatch(ui.body.textContent,/private response/);
+});
+
+test("manual report language is explicit and changing it starts a distinct idempotent attempt", async () => {
+  const ui=harness(null,{fetch:async(url,options,respond)=>{
+    if(url.endsWith("/run"))throw new Error("Synthetic network failure");
+    return dashboardFixture(url,respond);
+  }});
+  ui.setAuthenticated();ui.chooseAgent("iran-news");ui.elements.get("task").value="Fixture news request";
+  await ui.runTask();await ui.runTask();ui.I18n.setLanguage("en");await ui.runTask();
+  const runs=ui.requests.filter(request=>request.url.endsWith("/run"));
+  assert.equal(runs.length,3);
+  assert.deepEqual(runs.map(request=>JSON.parse(request.options.body).language),["ar","ar","en"]);
+  assert.equal(runs[0].options.headers["Idempotency-Key"],runs[1].options.headers["Idempotency-Key"]);
+  assert.notEqual(runs[1].options.headers["Idempotency-Key"],runs[2].options.headers["Idempotency-Key"]);
+  assert.match(ui.elements.get("runNotice").textContent,/connection|confirm/i);
+});
+
+test("schedule creation follows the selected language and editing keeps the saved language", async () => {
+  const ui=harness(null,{language:"en",fetch:(url,options,respond)=>{
+    if(url.startsWith("/v1/schedules")&&options.method!=="GET")return respond({schedule_id:"fixture-schedule"});
+    return dashboardFixture(url,respond);
+  }});
+  ui.setAuthenticated();ui.chooseAgent("iran-news");ui.I18n.setLanguage("ar");ui.I18n.setLanguage("en");
+  ui.elements.get("scheduleAgent").value="iran-news";ui.elements.get("scheduleTask").value="Synthetic daily task";ui.elements.get("scheduleTimes").value="08:00, 13:00";
+  await ui.saveSchedule({preventDefault(){}});
+  const created=ui.requests.find(request=>request.options.method==="POST");
+  assert.equal(JSON.parse(created.options.body).language,"en");
+  ui.renderSchedules([{schedule_id:"fixture-schedule",name:"Saved schedule",language:"ar",agent_id:"iran-news",task:"المهمة الأصلية",times:["08:00"],enabled:false}]);
+  assert.match(ui.elements.get("scheduleList").textContent,/Report language: Arabic/);
+  await byTag(ui.elements.get("scheduleList"),"button")[0].click();
+  assert.equal(ui.elements.get("scheduleLanguage").value,"ar");
+  ui.I18n.setLanguage("ar");ui.I18n.setLanguage("en");
+  assert.equal(ui.elements.get("scheduleLanguage").value,"ar");
+  assert.equal(ui.elements.get("scheduleTask").value,"المهمة الأصلية");
+  await ui.saveSchedule({preventDefault(){}});
+  const changed=ui.requests.find(request=>request.options.method==="PATCH");
+  assert.equal(JSON.parse(changed.options.body).language,"ar");
+});
+
+test("known backend errors are localized without showing raw service messages", () => {
+  const ui=harness(null,{language:"en"});
+  const error=ui.makeError({detail:{code:"chat_history_changed",message:"RAW_PRIVATE_SERVER_MESSAGE"}},409);
+  assert.equal(error.code,"chat_history_changed");assert.equal(error.status,409);
+  assert.match(error.message,/conversation changed/);assert.doesNotMatch(error.message,/RAW_PRIVATE/);
+  ui.I18n.setLanguage("ar");
+  assert.match(ui.makeError({detail:{code:"invalid_chat_response"}},502).message,/لم يصل رد صالح/);
 });

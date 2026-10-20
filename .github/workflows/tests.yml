@@ -37,10 +37,13 @@ jobs:
         run: python -m compileall -q app scripts tests
       - name: Run isolated tests
         run: python -m pytest
-      - name: Check news presentation and link handling
+      - name: Check bilingual news and conversation UI
         run: |
           node --check app/static/app.js
+          node --check app/static/chat.js
+          node --check app/static/i18n.js
           node tests/test_ui_news.js
+          node tests/test_ui_chat.js
       - name: Validate the Render Blueprint
         run: python scripts/validate_blueprint.py
       - name: Build clean source handoff

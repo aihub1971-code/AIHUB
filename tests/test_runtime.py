@@ -152,23 +152,23 @@ def test_invalid_prices_fail_before_network(monkeypatch, bad_value):
     assert exc.value.detail["code"] == "pricing_not_configured"
 
 
-def test_reservation_covers_two_research_requests_and_report(mocked_http):
+def test_reservation_covers_six_publisher_research_requests_and_report(mocked_http):
     calls = mocked_http(lambda req: pytest.fail("Reservation must not issue paid network requests"))
     estimate = runtime.estimate_reservation("iran-news", "أخبار إيران ١٩ أكتوبر ٢٠٢٦")
     assert calls == []
-    assert estimate["max_web_search_calls"] == 2
-    assert estimate["max_model_calls"] == 3
-    assert estimate["research_request_count"] == 2
-    assert len(estimate["research_request_input_tokens_bounds"]) == 2
+    assert estimate["max_web_search_calls"] == 6
+    assert estimate["max_model_calls"] == 7
+    assert estimate["research_request_count"] == 6
+    assert len(estimate["research_request_input_tokens_bounds"]) == 6
     assert all(bound < 272000 for bound in estimate["research_request_input_tokens_bounds"])
     assert estimate["research_input_tokens_bound"] == sum(estimate["research_request_input_tokens_bounds"])
-    assert estimate["research_request_output_tokens_bounds"] == [4096, 4096]
+    assert estimate["research_request_output_tokens_bounds"] == [4096] * 6
     assert estimate["report_input_tokens_bound"] < 272000
     assert estimate["max_input_tokens"] == (estimate["research_input_tokens_bound"]
                                              + estimate["report_input_tokens_bound"])
-    assert estimate["max_output_tokens"] == 12288
+    assert estimate["max_output_tokens"] == 28672
     expected = (Decimal(estimate["max_input_tokens"]) * Decimal("2.5")
-                + Decimal(12288) * Decimal("10")) / Decimal(1000000) + Decimal(".02")
+                + Decimal(28672) * Decimal("10")) / Decimal(1000000) + Decimal(".06")
     assert Decimal(str(estimate["estimated_cost_usd"])) >= expected
     assert runtime.estimate_run_reservation("iran-news", "أخبار إيران ١٩ أكتوبر ٢٠٢٦") == estimate["estimated_cost_usd"]
 
