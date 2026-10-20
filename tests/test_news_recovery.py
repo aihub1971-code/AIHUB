@@ -122,9 +122,9 @@ def test_empty_news_with_missing_native_title_can_plan_observed_source(agent):
     assert plan == make_plan()
 
 
-def test_iran_newsdata_route_cannot_plan_openai_search_recovery():
-    assert plan_for(agent="iran-news") is None
-    assert build(agent="iran-news") is None
+def test_iran_profile_can_use_openai_research_after_workspace_migration():
+    assert plan_for(agent="iran-news") is not None
+    assert build(agent="iran-news") is not None
 
 
 def test_missing_notes_and_single_publisher_choose_their_distinct_followup_reasons():

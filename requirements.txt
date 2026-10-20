@@ -6,3 +6,7 @@ python-dotenv==1.2.4
 pydantic==2.14.1
 # IANA timezone database for Asia/Dubai on Windows and minimal containers.
 tzdata==2026.5
+
+# Local selectable Arabic/English PDFs; HarfBuzz ships in a manylinux wheel.
+fpdf2==2.8.9
+uharfbuzz==0.56.3

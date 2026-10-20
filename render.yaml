@@ -25,16 +25,8 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      # Existing services: add this secret manually in Environment; later Blueprint
-      # syncs ignore sync:false. Never put its value in this file.
-      - key: NEWSDATA_API_KEY
-        sync: false
-      - key: NEWSDATA_PLAN
-        value: unknown
-      - key: NEWSDATA_PAGE_SIZE
-        value: "10"
-      - key: NEWSDATA_DAILY_CREDIT_LIMIT
-        value: "200"
+      # Existing legacy NewsData values are preserved by omission. The research
+      # workspace only requires OpenAI; never add secret values to this file.
       - key: OPENAI_MODEL_NAME
         value: gpt-6.1-sol
       - key: OPENAI_REASONING_EFFORT
@@ -56,9 +48,13 @@ services:
       - key: MAX_REPORTS_PER_DAY
         value: "50"
       - key: DAILY_BUDGET_USD
-        value: "5"
+        value: "900"
       - key: MONTHLY_BUDGET_USD
-        value: "100"
+        value: "28000"
+      - key: REPORT_WORKER_ENABLED
+        value: "true"
+      - key: REPORT_JOB_WORKERS
+        value: "2"
       - key: SCHEDULER_ENABLED
         value: "false"
       - key: ENABLE_API_DOCS

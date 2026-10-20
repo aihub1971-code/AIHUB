@@ -15,6 +15,10 @@ from app import newsdata
 from app.auth import require_owner
 from app.chat import router as chat_router
 from app.public import router as public_router
+from app.workspace import router as workspace_router
+from app.workspace_chat import router as workspace_chat_router
+from app.report_jobs import ReportWorker
+from app.report_store import get_report_store
 from app.config import docs_enabled, get_setting
 from app.permissions import require_capability
 from app.registry import get_agent, get_agents, read_skill
@@ -24,7 +28,7 @@ from app.service import execute_report
 from app.storage import StoreError, get_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-APP_VERSION = "1.5.1"
+APP_VERSION = "2.0.0"
 
 
 def runtime_is_ready() -> bool:
@@ -43,22 +47,30 @@ async def lifespan(application: FastAPI):
     scheduler = Scheduler(store=store)
     application.state.scheduler = scheduler
     scheduler.start()
+    reports = get_report_store(store)
+    worker = ReportWorker(report_store=reports)
+    application.state.report_worker = worker
+    worker.start()
     try:
         yield
     finally:
+        worker.stop()
         scheduler.stop()
 
 
 _docs = docs_enabled()
 app = FastAPI(
     title="AI HUB", version=APP_VERSION,
-    description="Private Arabic and English assistant platform with chat, reports, budgets and Dubai schedules.",
+    description="Arabic and English research, persistent reports, PDFs and connected discussion, with protected administration.",
     docs_url="/docs" if _docs else None, redoc_url=None,
     openapi_url="/openapi.json" if _docs else None, lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=STATIC_ROOT), name="static")
+app.mount("/fonts", StaticFiles(directory=STATIC_ROOT.parent / "assets" / "fonts"), name="fonts")
 app.include_router(chat_router)
 app.include_router(public_router)
+app.include_router(workspace_router)
+app.include_router(workspace_chat_router)
 
 
 @app.exception_handler(StoreError)
@@ -85,7 +97,7 @@ async def response_headers(request: Request, call_next):
 
 @app.get("/", tags=["system"], response_class=HTMLResponse)
 def root() -> HTMLResponse:
-    return HTMLResponse(STATIC_ROOT.joinpath("public.html").read_text(encoding="utf-8"))
+    return HTMLResponse(STATIC_ROOT.joinpath("workspace.html").read_text(encoding="utf-8"))
 
 
 @app.get("/admin", tags=["system"], response_class=HTMLResponse)

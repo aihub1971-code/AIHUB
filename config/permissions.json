@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "default_policy": "deny",
-  "note": "Deny by default. Iran news may use the bounded server-side NewsData adapter only; its optional Arabic translation has no model tools. Other research agents retain OpenAI-hosted web_search. All external actions are denied. Provider calls require the quota gate, separate NewsData credit accounting and applicable OpenAI cost reservation.",
+  "note": "Deny by default. All research workspace retrieval uses bounded OpenAI web_search with quota and cost reservation. The legacy NewsData adapter remains registered for archived API compatibility; it is not called by the research workspace. Meeting notes, WhatsApp excerpts and literary translation remain tool-free. External actions are denied.",
   "agents": {
     "ubi-research": {
       "actions": [
@@ -24,6 +24,7 @@
         "submit_task"
       ],
       "tools": [
+        "web_search",
         "newsdata"
       ],
       "external_actions": [],
@@ -93,7 +94,9 @@
         "read_skill",
         "submit_task"
       ],
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "allowed_skill_ids": [
         "story-moodboard"

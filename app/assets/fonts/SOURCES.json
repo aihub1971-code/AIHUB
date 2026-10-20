@@ -1,0 +1,37 @@
+{
+  "license": "SIL Open Font License 1.1",
+  "copyright": "The Noto Project Authors",
+  "modifications": "None. Original font files; the PDF renderer embeds subsets.",
+  "files": [
+    {
+      "file": "NotoSans-Regular.ttf",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
+      "sha256": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+      "size_bytes": 569208
+    },
+    {
+      "file": "NotoSans-Bold.ttf",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf",
+      "sha256": "c976e4b1b99edc88775377fcc21692ca4bfa46b6d6ca6522bfda505b28ff9d6a",
+      "size_bytes": 575740
+    },
+    {
+      "file": "NotoSansArabic-Regular.ttf",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSansArabic/NotoSansArabic-Regular.ttf",
+      "sha256": "ceea25b464a656dc3b26849bab9356740401af62aedf1bfa8b7f0d9b75925b1b",
+      "size_bytes": 240456
+    },
+    {
+      "file": "NotoSansArabic-Bold.ttf",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSansArabic/NotoSansArabic-Bold.ttf",
+      "sha256": "ed2711b387750ae991b6a980b8dd16fdd65e6702b97e9f52adf3a8edf09ef4df",
+      "size_bytes": 248468
+    },
+    {
+      "file": "OFL.txt",
+      "source": "https://raw.githubusercontent.com/notofonts/noto-fonts/main/LICENSE",
+      "sha256": "0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb",
+      "size_bytes": 4377
+    }
+  ]
+}

@@ -101,8 +101,15 @@ def _owns(database: Store, session_id: str, report_id: object) -> bool:
     if not isinstance(report_id, str) or not _REPORT_ID.fullmatch(report_id):
         return False
     with database._connect() as connection:
-        return connection.execute("SELECT 1 FROM public_reports WHERE session_id=? AND report_id=?",
-                                  (session_id, report_id)).fetchone() is not None
+        if connection.execute("SELECT 1 FROM public_reports WHERE session_id=? AND report_id=?",
+                              (session_id, report_id)).fetchone() is not None:
+            return True
+        # Jobs establish ownership before their paid run begins. This does not
+        # make another visitor's or the owner's archived report public.
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='research_jobs'").fetchone():
+            return connection.execute("SELECT 1 FROM research_jobs WHERE owner_id=? AND report_id=?",
+                                      ("public:" + session_id, report_id)).fetchone() is not None
+        return False
 
 
 def _require_report(database: Store, session_id: str, report_id: object) -> None:

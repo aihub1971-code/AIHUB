@@ -94,7 +94,7 @@ def test_system_status_exposes_configuration_flags_only(client, monkeypatch):
     assert response.json()["provider"] == "openai"
     assert response.json()["search_provider"] == "newsdata"
     assert response.json()["configuration_check_only"] is True
-    assert response.json()["version"] == "1.5.1"
+    assert response.json()["version"] == "2.0.0"
     assert response.json()["news_items_per_report"] is None
     assert response.json()["news_count_mode"] == "provider_page"
     assert response.json()["news_item_limit"] == 20
