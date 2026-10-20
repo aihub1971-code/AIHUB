@@ -1,12 +1,12 @@
 # AI HUB — النشر والتحديث على GitHub وRender
 
-آخر مراجعة: **19 أكتوبر 2026**.
+آخر مراجعة: **20 أكتوبر 2026**.
 
 ## 1. الحالة المتحقق منها
 
-المصدر المباشر موجود في مستودع [aihub1971-code/AIHUB](https://github.com/aihub1971-code/AIHUB) العام. دُمج إصدار OpenAI 1.1.0 عبر [طلب الدمج #2](https://github.com/aihub1971-code/AIHUB/pull/2) في commit `eff3b2e4e81e81a376b664f2376dbd88426d32a5`. إصدار 1.2.0 يضيف حصر البحث في الناشرين المعتمدين ويلغي العدد الإلزامي للأخبار؛ راجع [سجل Actions](https://github.com/aihub1971-code/AIHUB/actions) للـcommit الذي تتبعه الخدمة.
+المصدر المباشر موجود في مستودع [aihub1971-code/AIHUB](https://github.com/aihub1971-code/AIHUB) العام. خط الأساس المنشور 1.2.1 هو commit `9fbb4b4d802d299fa1e8962392ea6da838998a43`. يحدّث 1.3.0 عرض الأخبار وجمع الأدلة على جولتين للمساعدين الإخباريين، ويحافظ على الناشرين المعتمدين والعدد المفتوح؛ راجع [سجل Actions](https://github.com/aihub1971-code/AIHUB/actions) للـcommit الذي تتبعه الخدمة.
 
-أُنشئت خدمة Render **ai-hub** في مساحة **AI's workspace**، التي وافق المالك على استخدامها. معرّف المساحة `tea-dbavcefbtjjs738oq61g` ومعرّف الخدمة `srv-dbb0v3s9v7es73a9o3j0`. رابطها المعروض هو [https://ai-hub-vc8w.onrender.com](https://ai-hub-vc8w.onrender.com). اكتمال إنشاء الخدمة لا يثبت البحث الحي. يُتحقق من نشر هذا الإصدار عبر commit في سجل Render وظهور `1.2.1` في `/health`، ثم مراجعة تقرير حي.
+أُنشئت خدمة Render **ai-hub** في مساحة **AI's workspace**، التي وافق المالك على استخدامها. معرّف المساحة `tea-dbavcefbtjjs738oq61g` ومعرّف الخدمة `srv-dbb0v3s9v7es73a9o3j0`. رابطها المعروض هو [https://ai-hub-vc8w.onrender.com](https://ai-hub-vc8w.onrender.com). اكتمال إنشاء الخدمة لا يثبت البحث الحي. يُتحقق من نشر هذا الإصدار عبر commit في سجل Render وظهور `1.3.0` في `/health`، ثم مراجعة تقرير حي.
 
 وافق المالك على نشر المصدر والوثائق في المستودع العام، واختار مساحة Render وحفظ إعداد إنشاء الخدمة المدفوعة. لا تعِد إنشاء الخدمة أو طلب الموافقات نفسها عند متابعة هذا العمل.
 
@@ -28,6 +28,8 @@ cd AIHUB
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m pytest
+node --check app/static/app.js
+node tests/test_ui_news.js
 python scripts/validate_blueprint.py
 python scripts/package_handoff.py --output dist/AI_HUB_Project.zip
 ```
@@ -36,7 +38,7 @@ python scripts/package_handoff.py --output dist/AI_HUB_Project.zip
 
 ### GitHub Actions
 
-يشغّل `.github/workflows/tests.yml` فحص Python والاختبارات والتحقق من Blueprint، ثم يجهّز حزمة حديثة من المصدر. يستخدم بيانات اصطناعية ولا يحتاج إلى مفتاح OpenAI أو أسرار Render. يحفظ Artifact مرتبطًا بمعرّف commit لمدة 7 أيام. تُراجع نتيجة التشغيل الخاصة بالـcommit المراد نشره؛ نجاح خط الأساس السابق لا يثبت صحة تحديث البحث الجديد.
+يشغّل `.github/workflows/tests.yml` فحص Python والاختبارات وفحص JavaScript واختبارات عارض الأخبار والتحقق من Blueprint، ثم يجهّز حزمة حديثة من المصدر. يستخدم بيانات اصطناعية ولا يحتاج إلى مفتاح OpenAI أو أسرار Render. يتطلب فحص الواجهة Node.js، لكنه ليس مطلوبًا لتشغيل خدمة Python على Render. يحفظ Artifact مرتبطًا بمعرّف commit لمدة 7 أيام. تُراجع نتيجة التشغيل الخاصة بالـcommit المراد نشره؛ نجاح خط الأساس السابق لا يثبت صحة تحديث البحث الجديد.
 
 الإعداد `autoDeployTrigger: checksPass` يتبع تحديثات الفرع بعد نجاح فحوص CI. قد يمنع تعذر الوصول إلى مخطط Render اجتياز فحص Blueprint حتى إعادة المحاولة بنجاح. لا تبدأ نشرًا يدويًا لتجاوز فحص فاشل دون فهم سببه.
 
@@ -60,7 +62,7 @@ python scripts/package_handoff.py --output dist/AI_HUB_Project.zip
 
 ## 4. تطبيق إصدار OpenAI على الخدمة الحالية
 
-1. تحقق من وجود تحديث 1.2.1 الخاص بالنطاقات المعتمدة والتغطية المفتوحة في الفرع الذي تتبعه الخدمة، ومن نجاح CI الخاص به.
+1. تحقق من وجود تحديث 1.3.0 الخاص بعرض الأخبار والتحليل وجولتَي البحث في الفرع الذي تتبعه الخدمة، ومن نجاح CI الخاص به.
 2. راجع Blueprint القائم في مساحة **AI's workspace** والخدمة ذات المعرّف أعلاه. أعد مزامنة إعداداته بعد تحديث `render.yaml` عند الحاجة؛ لا تنشئ نسخة ثانية من الخدمة.
 3. يضبط المالك ثلاثة حقول خاصة فقط في **Environment**: `APP_USERNAME` و`APP_PASSWORD` و`OPENAI_API_KEY`. البحث والتوليد يستخدمان مفتاح OpenAI نفسه. تُحفظ القيم الموجودة الصالحة؛ لا حاجة إلى استبدالها لمجرد تحديث الكود.
 4. راجع `OPENAI_MODEL_NAME` والأسعار وحدود البحث والميزانية بحسب `.env.example` و[دليل التشغيل](OPERATIONS_AR.md)، مع إبقاء `SCHEDULER_ENABLED=false`.

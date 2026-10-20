@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>AI HUB | منصة المساعدين الذكيين</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=1.3.0">
 </head>
 <body>
 <div class="shell">
@@ -20,7 +20,7 @@
   <section class="hero">
     <div class="hero-main">
       <div class="eyebrow">EXECUTIVE WORKSPACE</div>
-      <h2>أخبار موثّقة. تقارير محفوظة. رؤية أوضح.</h2>
+      <h2>أخبار مرتّبة. تقارير محفوظة. رؤية أوضح.</h2>
       <p>اختر من 13 مساعدًا متخصصًا. ابحث عبر OpenAI في المصادر التي اخترتها، واحصل على الأخبار المتاحة مع روابطها وتواريخها، ثم احفظ النتائج وجدولها بتوقيت دبي.</p>
     </div>
     <div class="hero-metric">
@@ -69,12 +69,12 @@
 
     <section class="panel">
       <div id="welcome" class="empty">
-        <div><div class="empty-icon">✳</div><strong style="color:#1b304a">مساحة عمل المساعد</strong><p>سجّل الدخول أولًا، ثم اختر مساعدًا لبدء الاختبار.</p></div>
+        <div><div class="empty-icon">✳</div><strong style="color:#1b304a">مساحة عمل المساعد</strong><p>سجّل الدخول أولًا، ثم اختر مساعدًا لبدء العمل.</p></div>
       </div>
       <div id="workArea" class="hidden">
         <div class="workspace-top">
           <div class="agent-title"><div id="selectedNum" class="agent-num">01</div><div><h2 id="selectedName">اسم المساعد</h2><p id="selectedId"></p></div></div>
-          <span id="selectedStatus" class="pill warn">بانتظار الاختبار</span>
+          <span id="selectedStatus" class="pill warn">بانتظار اختيار المساعد</span>
         </div>
         <p id="selectedDescription" class="agent-description"></p>
         <div class="meta" id="skillTags"></div>
@@ -87,9 +87,9 @@
         </div>
 
         <div id="responsePanel" class="response hidden">
-          <div class="response-head"><strong>نتيجة المساعد</strong><div class="actions"><button id="downloadBtn" class="textbutton hidden">تنزيل التقرير</button><button id="copyBtn" class="textbutton">نسخ الإجابة</button></div></div>
-          <div id="responseBody" class="response-body" dir="auto"></div>
-          <div style="padding:0 15px 15px"><div id="usage" class="usage"></div></div>
+          <div class="response-head"><strong id="responseHeading">نتيجة المساعد</strong><div class="actions"><button id="downloadBtn" class="textbutton hidden">تنزيل التقرير</button><button id="copyBtn" class="textbutton">نسخ الإجابة</button></div></div>
+          <div id="responseBody" class="response-body" dir="auto" role="region" aria-labelledby="responseHeading"></div>
+          <details class="usage-details"><summary>الاستخدام والتكلفة التقديرية</summary><div id="usage" class="usage"></div></details>
         </div>
         <div id="runNotice" class="notice hidden"></div>
       </div>
@@ -123,6 +123,6 @@
   </section>
   <footer class="footer"><span>AI HUB · بيئة تشغيل خاصة</span><span>تشغيل يدوي أو وفق الجداول التي تفعّلها.</span></footer>
 </div>
-<script src="/static/app.js" defer></script>
+<script src="/static/app.js?v=1.3.0" defer></script>
 </body>
 </html>

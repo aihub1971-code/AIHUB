@@ -108,7 +108,7 @@ def main() -> int:
         parser.error("Set APP_USERNAME and APP_PASSWORD in your private environment or .env.")
     try:
         # A live run can include two sequential 90-second OpenAI reads and connections.
-        with httpx.Client(base_url=base, timeout=240 if args.live else 180, follow_redirects=False) as client:
+        with httpx.Client(base_url=base, timeout=360 if args.live else 180, follow_redirects=False) as client:
             response = client.get("/health")
             response.raise_for_status()
             print("Health check: passed.")
