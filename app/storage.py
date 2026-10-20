@@ -24,7 +24,9 @@ from app.config import PROJECT_ROOT, get_setting
 from app.newsdata import MAX_NEWSDATA_RESULTS
 
 DUBAI = ZoneInfo("Asia/Dubai")
-MAX_DAILY_REPORTS = 50
+MAX_DAILY_REPORTS = 100
+# Increasing the manual/shared report allowance must not expand scheduled work.
+MAX_DAILY_SCHEDULE_SLOTS = 50
 MISSED_OCCURRENCE_GRACE_SECONDS = 300
 STALE_EXECUTION_SECONDS = 900
 _MICROS = Decimal("1000000")
@@ -89,9 +91,9 @@ class QuotaLimits:
 
     def __post_init__(self) -> None:
         if isinstance(self.max_reports_per_day, bool) or not isinstance(self.max_reports_per_day, int):
-            raise StoreError("invalid_quota_configuration", "MAX_REPORTS_PER_DAY must be an integer from 1 to 50.", 503)
+            raise StoreError("invalid_quota_configuration", f"MAX_REPORTS_PER_DAY must be an integer from 1 to {MAX_DAILY_REPORTS}.", 503)
         if not 1 <= self.max_reports_per_day <= MAX_DAILY_REPORTS:
-            raise StoreError("invalid_quota_configuration", "MAX_REPORTS_PER_DAY must be between 1 and 50.", 503)
+            raise StoreError("invalid_quota_configuration", f"MAX_REPORTS_PER_DAY must be between 1 and {MAX_DAILY_REPORTS}.", 503)
         _micros(self.daily_budget_usd)
         _micros(self.monthly_budget_usd)
         _credits(self.newsdata_daily_credit_limit)
@@ -1063,7 +1065,7 @@ class Store:
             raise StoreError("agent_disabled", "This agent cannot execute reports.", 403)
         if not isinstance(task, str) or not task.strip() or len(task) > 8000:
             raise StoreError("invalid_task", "Task must contain 1 to 8000 characters.")
-        if not isinstance(times, list) or not 1 <= len(times) <= MAX_DAILY_REPORTS:
+        if not isinstance(times, list) or not 1 <= len(times) <= MAX_DAILY_SCHEDULE_SLOTS:
             raise StoreError("invalid_schedule_times", "Provide between 1 and 50 daily times.")
         if any(not isinstance(item, str) or _TIME.fullmatch(item) is None for item in times):
             raise StoreError("invalid_schedule_times", "Daily times must use the 24-hour clock, for example 09:30.")
@@ -1081,7 +1083,7 @@ class Store:
             return
         rows = connection.execute("SELECT schedule_id,times_json FROM schedules WHERE enabled=1").fetchall()
         slots = sum(len(json.loads(row["times_json"])) for row in rows if row["schedule_id"] != exclude)
-        if slots + len(times) > MAX_DAILY_REPORTS:
+        if slots + len(times) > MAX_DAILY_SCHEDULE_SLOTS:
             raise StoreError("schedule_slot_limit", "Enabled schedules may contain at most 50 daily occurrences in total.", 409)
 
     def create_schedule(self, agent_id: str, task: str, times: list[str], *, enabled: bool = False, name: str = "", language: str = "ar", now: datetime | None = None) -> dict[str, Any]:

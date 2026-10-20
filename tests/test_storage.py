@@ -40,6 +40,87 @@ def test_failed_attempts_count_toward_fifty_report_limit(store):
     assert summary["daily"]["remaining"] == 0
 
 
+def test_environment_allows_one_hundred_reports_without_changing_budgets_or_default(monkeypatch):
+    monkeypatch.setenv("DAILY_BUDGET_USD", "900")
+    monkeypatch.setenv("MONTHLY_BUDGET_USD", "28000")
+    monkeypatch.setenv("MAX_REPORTS_PER_DAY", "100")
+    limits = QuotaLimits.from_environment()
+    assert limits.max_reports_per_day == 100
+    assert limits.daily_budget_usd == "900"
+    assert limits.monthly_budget_usd == "28000"
+    monkeypatch.setenv("MAX_REPORTS_PER_DAY", "101")
+    with pytest.raises(StoreError, match="between 1 and 100") as error:
+        QuotaLimits.from_environment()
+    assert error.value.code == "invalid_quota_configuration"
+    monkeypatch.delenv("MAX_REPORTS_PER_DAY")
+    assert QuotaLimits.from_environment().max_reports_per_day == 50
+    assert QuotaLimits().max_reports_per_day == 50
+
+
+def test_increasing_limit_preserves_fifty_prior_attempts_and_caps_concurrent_runs_at_one_hundred(tmp_path):
+    path = tmp_path / "increased-limit.sqlite3"
+    original = Store(path, QuotaLimits(50, "20", "100"), clock=lambda: NOW)
+    original.initialize()
+    prior_ids = []
+    for index in range(50):
+        accepted = reserve(original, idempotency_key=f"prior-{index}")
+        prior_ids.append(accepted.report["report_id"])
+        original.fail_run(accepted.report["report_id"], "provider_timeout")
+    with pytest.raises(StoreError) as error:
+        reserve(original)
+    assert error.value.code == "daily_report_limit"
+
+    # Reopen the same durable ledger with a higher allowance, without modifying
+    # accepted attempts, idempotency keys, or their retained cost reservations.
+    increased = Store(path, QuotaLimits(100, "20", "100"), clock=lambda: NOW)
+    summary = increased.usage_summary()
+    assert summary["daily"]["attempts"] == 50
+    assert summary["daily"]["remaining"] == 50
+    assert summary["daily"]["estimated_cost_usd"] == 5
+
+    def attempt(index):
+        try:
+            accepted = reserve(increased, idempotency_key=f"additional-{index}")
+            increased.fail_run(accepted.report["report_id"], "provider_timeout")
+            return accepted.created
+        except StoreError as error:
+            assert error.code == "daily_report_limit"
+            return False
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        outcomes = list(executor.map(attempt, range(80)))
+    assert sum(outcomes) == 50
+    summary = increased.usage_summary()
+    assert summary["daily"]["attempts"] == summary["daily"]["failed"] == 100
+    assert summary["daily"]["limit"] == 100
+    assert summary["daily"]["remaining"] == 0
+    assert summary["daily"]["estimated_cost_usd"] == 10
+    assert summary["daily"]["budget_usd"] == 20
+    assert summary["monthly"]["budget_usd"] == 100
+    with pytest.raises(StoreError) as error:
+        reserve(increased, idempotency_key="one-hundred-and-first")
+    assert error.value.code == "daily_report_limit"
+    replay = reserve(increased, idempotency_key="prior-0")
+    assert replay.created is False
+    assert replay.report["report_id"] == prior_ids[0]
+    assert increased.usage_summary()["daily"]["attempts"] == 100
+
+
+def test_one_hundred_report_allowance_keeps_fifty_daily_schedule_slots(store):
+    store._limits = QuotaLimits(100, "100", "1000")
+    times = [f"00:{minute:02}" for minute in range(51)]
+    with pytest.raises(StoreError) as error:
+        store.create_schedule("geopolitical-morning", "Scheduled report", times)
+    assert error.value.code == "invalid_schedule_times"
+    existing = store.create_schedule("geopolitical-morning", "Scheduled report", times[:50], enabled=True)
+    with pytest.raises(StoreError) as error:
+        store.create_schedule("geopolitical-morning", "Extra occurrence", ["01:00"], enabled=True)
+    assert error.value.code == "schedule_slot_limit"
+    assert [item["schedule_id"] for item in store.list_schedules()] == [existing["schedule_id"]]
+    assert store.usage_summary()["daily"]["limit"] == 100
+    assert store.usage_summary()["daily"]["attempts"] == 0
+
+
 def test_transactional_daily_quota_under_concurrent_requests(tmp_path):
     database = Store(tmp_path / "race.sqlite3", QuotaLimits(7, "100", "1000"), clock=lambda: NOW)
     database.initialize()
@@ -139,7 +220,7 @@ def test_errors_are_sanitized_and_invalid_limits_fail_closed(store):
     store.fail_run(record["report_id"], "provider secret=must-not-be-stored")
     assert store.get_report(record["report_id"])["error_code"] == "execution_failed"
     with pytest.raises(StoreError):
-        QuotaLimits(51)
+        QuotaLimits(101)
     for value in ("nan", "inf", "-0.1", "0"):
         with pytest.raises(StoreError):
             reserve(store, reservation_usd=value)

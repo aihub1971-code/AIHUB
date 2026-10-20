@@ -1,6 +1,6 @@
-# AI HUB 2.0 security model
+# AI HUB 2.0.3 security model
 
-This describes the 2.0 source before deployment verification. Actual test results, deployed commits and live checks belong in [validation](VALIDATION_AR.md); earlier release results are not evidence that this version is live.
+This describes the 2.0.3 source and configured allowance. Actual test results, deployed commits and live checks belong in [validation](VALIDATION_AR.md); earlier release results are not evidence that this version is live.
 
 ## Identity and public boundaries
 
@@ -14,7 +14,7 @@ Public serializers use explicit field projections. They omit keys, accounting, r
 
 The workspace uses `app/agent_profiles.py` and `app/research.py`; profile configuration governs its editorial scopes. It does not read old Iran skill instructions or use NewsData. Retrieval profiles must have `submit_task` and `web_search` permission. Missing capabilities deny the action. The three text utilities—meeting minutes, pasted WhatsApp messages and literary translation—do not gain web search or external account access. Their empty default prompts produce honest local starter packs without a provider call.
 
-Default research uses one live OpenAI Responses request with at most six native actions, followed by one tool-free structured synthesis when needed. Search/open/find are bounded separately from the final 20-news ceiling. There is no publisher allowlist and no per-publisher job fan-out. A configured alternative model requires explicit pricing and uses the conservative one-action compatibility path where long-context pricing is not verified. No paid provider request is automatically retried.
+Current-news research can use two live OpenAI Responses discovery stages within six native actions in total, followed by one tool-free structured synthesis when needed. The second stage runs only after a successful discovery produced no verified evidence; provider errors stop execution. Historical and creative retrieval retain one discovery stage. Search/open/find are bounded separately from the final 20-news ceiling. There is no publisher allowlist and no per-publisher job fan-out. A configured alternative model requires explicit pricing and uses the conservative one-action compatibility path where long-context pricing is not verified. No paid provider request is automatically retried.
 
 Only URLs supplied by native web-search source metadata, completed native page actions or native URL-citation annotations authorize publisher inspection. Free-form model prose and synthesis cannot create a second URL channel. The publisher fetcher permits HTTPS, resolves public IP addresses, rejects private/reserved/mixed DNS answers, and pins the TLS connection to a validated address while verifying the original hostname. Redirect destinations are checked again; a cross-host redirect must itself have native authorization. Page count, redirects, response bytes and socket operations have explicit bounds. Publisher blocks and unsupported formats become exclusion reasons, not permission to bypass access controls.
 
@@ -56,7 +56,9 @@ SQLite and PDFs contain private tasks, reports and conversation data. On Render,
 
 ## Reservations and service limits
 
-The intended 2.0 deployment sets `MAX_REPORTS_PER_DAY=50`, `DAILY_BUDGET_USD=900` and `MONTHLY_BUDGET_USD=28000`. These are conservative application ceilings, not expected invoices. Dollar budgets include research and chat; chat messages do not consume report attempts, but a fresh research job started from chat does. Limits apply across public and administrative execution through the shared ledger.
+The owner-requested 2.0.3 deployment sets `MAX_REPORTS_PER_DAY=100`, `DAILY_BUDGET_USD=900` and `MONTHLY_BUDGET_USD=28000`. These are conservative application ceilings, not expected invoices. Dollar budgets include research and chat; chat messages do not consume report attempts, but a fresh research job started from chat does. Limits apply across public and administrative execution through the shared ledger.
+
+The existing attempt ledger is retained when the configured allowance increases; attempts already made still count. An absent `MAX_REPORTS_PER_DAY` retains the fallback of 50. Active daily schedule times remain capped at 50, and scheduling remains disabled by default. The daily/monthly dollar budgets are unchanged and can block new work before the report allowance is exhausted.
 
 A transaction reserves quota and a conservative engineering cost estimate before paid work. The default research bound includes accumulated context re-reading, all possible search fees and long-context pricing headroom. Complete usage and billing metadata allow reconciliation; unknown, over-bound or interrupted results retain the reservation. There is no silent zero-cost fallback. Hosting, taxes, provider account terms and other uses of the key are outside this ledger. [Operational bounds](OPERATIONS_AR.md) explain the calculation.
 

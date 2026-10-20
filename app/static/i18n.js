@@ -25,7 +25,7 @@
     "capabilities.assistantsNote": ["مهارات محددة لكل مجال", "Focused skills for each field"],
     "capabilities.news": ["أول 20 نتيجة للأخبار", "First 20 news results"],
     "capabilities.newsNote": ["عناوين وملخصات وروابط مباشرة", "Headlines, summaries and direct links"],
-    "capabilities.reports": ["حتى 50 تقريرًا يوميًا", "Up to 50 reports a day"],
+    "capabilities.reports": ["حتى 100 محاولة تقرير يوميًا", "Up to 100 report attempts a day"],
     "capabilities.reportsNote": ["تشغيل يدوي وجدولة بتوقيت دبي", "Manual runs and Dubai-time schedules"],
     "capabilities.archive": ["أرشيف ومحادثات", "Reports and conversations"],
     "capabilities.archiveNote": ["نتائج محفوظة ومتابعة للميزانية", "Saved work with budget tracking"],

@@ -2,7 +2,7 @@
 
 ## الحالة المرجعية
 
-المصدر الجاري **2.0.0**، مبني على [aihub1971-code/AIHUB](https://github.com/aihub1971-code/AIHUB). اقرأ [سجل التحقق](docs/VALIDATION_AR.md) لمعرفة commit والنشر الحي الفعلي؛ لا تستنتج ذلك من رقم المصدر. راجع [التسليم](AI_HUB_Handoff_AR.md) و[README](README.md).
+المصدر الجاري **2.0.3**، مبني على [aihub1971-code/AIHUB](https://github.com/aihub1971-code/AIHUB). اقرأ [سجل التحقق](docs/VALIDATION_AR.md) لمعرفة commit والنشر الحي الفعلي؛ لا تستنتج ذلك من رقم المصدر. راجع [التسليم](AI_HUB_Handoff_AR.md) و[README](README.md).
 
 الخدمة القائمة [ai-hub-vc8w.onrender.com](https://ai-hub-vc8w.onrender.com)، بمعرّف `srv-dbb0v3s9v7es73a9o3j0`. احتفظ بالخدمة والقرص وقاعدة البيانات والأرشيف. لا تطلب المفاتيح في المحادثة ولا تنسخ قيم الأسرار إلى سجل الدعم.
 
@@ -26,7 +26,9 @@
 
 ## حدود النشر المستهدفة
 
-`MAX_REPORTS_PER_DAY=50`، `DAILY_BUDGET_USD=900`، `MONTHLY_BUDGET_USD=28000`، و`REPORT_JOB_WORKERS=2` داخل **عملية Uvicorn واحدة**. هذه سقوف تحفظ حجز البحث ولا تعني فاتورة متوقعة. `SCHEDULER_ENABLED=false`. SQLite وPDF على القرص الدائم نفسه عند `/var/data/ai-hub`.
+`MAX_REPORTS_PER_DAY=100`، `DAILY_BUDGET_USD=900`، `MONTHLY_BUDGET_USD=28000`، و`REPORT_JOB_WORKERS=2` داخل **عملية Uvicorn واحدة**. هذه سقوف تحفظ حجز البحث ولا تعني فاتورة متوقعة. `SCHEDULER_ENABLED=false`. SQLite وPDF على القرص الدائم نفسه عند `/var/data/ai-hub`.
+
+رفع الحصة إلى 100 بطلب المالك لا يصفر السجل. تبقى القيمة الافتراضية 50 إذا غاب المتغير وسقف مواعيد الجدولة النشطة 50؛ [ملاحظات 2.0.3](docs/FIXES_2_0_3.md).
 
 لا تُخفض تقدير التكلفة لتمرير الطلب تحت الميزانية القديمة. لا تعِد تلقائيًا استدعاءً مدفوعًا غامضًا. فشل PDF لا يبرر بحثًا جديدًا؛ أعد إخراجه من النسخة المحفوظة. استخدم معرّف الطلب نفسه عند التحقق من إعادة إرسال غامضة.
 
