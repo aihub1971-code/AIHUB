@@ -113,6 +113,117 @@
     }
     flushParagraph();
   }
+  const newsPublishers = [
+    ["ft.com", "Financial Times"], ["theatlantic.com", "The Atlantic"],
+    ["politico.com", "Politico"], ["politico.eu", "Politico"],
+    ["wsj.com", "The Wall Street Journal"], ["telegraph.co.uk", "The Daily Telegraph"],
+    ["aljazeera.com", "الجزيرة"], ["aljazeera.net", "الجزيرة"]
+  ];
+  function officialNewsSource(value){
+    if(typeof value !== "string" || /[\u0000-\u0020\u007f\\]/.test(value)) return null;
+    try{
+      const url = new URL(value);
+      if(!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.port) return null;
+      const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+      const publisher = newsPublishers.find(([domain]) => hostname === domain || hostname.endsWith("." + domain));
+      if(!publisher || !url.pathname || url.pathname === "/") return null;
+      return {url: url.href, publisher: publisher[1]};
+    }catch(_){ return null; }
+  }
+  function newsElement(tag, className, text){
+    const element = document.createElement(tag);
+    if(className) element.className = className;
+    if(text !== undefined) element.textContent = String(text);
+    return element;
+  }
+  function newsDay(value){
+    if(typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}(?:$|T)/.test(value)) return "";
+    const date = new Date(value.length === 10 ? value + "T12:00:00+04:00" : value);
+    if(Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString("ar-AE", {timeZone:"Asia/Dubai", year:"numeric", month:"long", day:"numeric"});
+  }
+  function renderNewsItem(item, background){
+    const article = newsElement("article", "news-item");
+    const headline = typeof item.headline === "string" ? item.headline : "خبر من المصادر المعتمدة";
+    article.append(newsElement("h3", "news-headline", headline));
+    article.append(newsElement("p", "news-summary", typeof item.summary === "string" && item.summary.trim() ? item.summary : "لم يتوفر ملخص لهذا الخبر."));
+    const source = officialNewsSource(item.url);
+    const meta = newsElement("div", "news-byline");
+    if(source) meta.append(newsElement("bdi", "news-publisher", source.publisher));
+    const published = item.published_day_dubai || item.published_date;
+    const day = newsDay(published);
+    if(day){
+      const time = newsElement("time", "news-published", "النشر: " + day);
+      time.dateTime = published;
+      meta.append(time);
+    }else{
+      meta.append(newsElement("span", "news-published", "تاريخ النشر غير متاح"));
+    }
+    if(background){
+      const labels = {prior_day_background:"من اليوم السابق", older_event_background:"حدث أقدم من الفترة", future_event_background:"حدث لاحق للفترة", additional_background:"سياق إضافي"};
+      meta.append(newsElement("span", "news-context-label", labels[item.classification] || "سياق إضافي"));
+    }
+    article.append(meta);
+    if(source){
+      const link = newsElement("a", "news-source-link", "فتح الخبر على الموقع الرسمي");
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.setAttribute("aria-label", "فتح الخبر على الموقع الرسمي — " + source.publisher + ": " + headline);
+      const icon = newsElement("span", "", "↗");
+      icon.setAttribute("aria-hidden", "true");
+      link.append(icon);
+      article.append(link);
+    }else{
+      article.append(newsElement("p", "news-link-unavailable", "الرابط الرسمي غير متاح لهذا الخبر."));
+    }
+    return article;
+  }
+  function renderNewsReport(target, data){
+    const validItem = item => item && typeof item === "object" && !Array.isArray(item);
+    const items = data.items.filter(validItem).slice(0, 20);
+    const background = data.background_items.filter(validItem).slice(0, 20 - items.length);
+    target.replaceChildren();
+    target.classList.add("news-reading");
+    target.dir = "rtl";
+    const intro = newsElement("header", "news-report-intro");
+    const title = agents.find(agent => agent.id === data.agent_id)?.name || selectedAgent?.name || "موجز الأخبار";
+    intro.append(newsElement("h2", "news-report-title", title));
+    const start = newsDay(data.coverage_window?.start), end = newsDay(data.coverage_window?.end);
+    if(start && end) intro.append(newsElement("p", "news-coverage", "فترة التغطية: " + (start === end ? start : start + " – " + end) + " · بتوقيت دبي"));
+    if(data.generated_at && Number.isFinite(Date.parse(data.generated_at))) intro.append(newsElement("p", "news-prepared", "أُعدّ في " + localDate(data.generated_at) + " · دبي"));
+    const requested = Number.isInteger(data.target_count) && data.target_count > 0 ? data.target_count : null;
+    intro.append(newsElement("p", "news-count", "عدد الأخبار: " + items.length + (requested === null ? "" : " من " + requested + " المطلوبة")));
+    target.append(intro);
+    if(requested !== null && items.length < requested){
+      const text = "التقرير أقل من العدد المطلوب بمقدار " + (requested - items.length) + " خبرًا." + (requested > 20 ? " الحد الأقصى للمحاولة 20 خبرًا." : " أُدرجت الأخبار التي دعمتها المصادر المتاحة.");
+      target.append(newsElement("p", "news-coverage-note", text));
+    }
+    if(items.length){
+      const list = newsElement("div", "news-list");
+      items.forEach(item => list.append(renderNewsItem(item, false)));
+      target.append(list);
+    }else{
+      const empty = newsElement("div", "news-empty");
+      empty.append(newsElement("p", "", "لم يعثر هذا البحث على أخبار قابلة للإدراج خلال الفترة المطلوبة."));
+      empty.append(newsElement("p", "", background.length ? "توجد مواد مرتبطة بالموضوع في قسم السياق أدناه، وهي منفصلة عن عدد أخبار الفترة المطلوبة." : "هذه النتيجة لا تعني عدم وجود أخبار؛ إنها تعكس ما أمكن العثور عليه من المصادر المحددة في هذه المحاولة."));
+      target.append(empty);
+    }
+    if(background.length){
+      const section = newsElement("section", "news-background");
+      section.setAttribute("aria-label", "سياق إضافي");
+      section.append(newsElement("h2", "news-section-title", "سياق إضافي"));
+      section.append(newsElement("p", "news-section-note", "مواد مرتبطة بالموضوع، لا تُحسب ضمن أخبار الفترة المطلوبة."));
+      background.forEach(item => section.append(renderNewsItem(item, true)));
+      target.append(section);
+    }
+    const notes = newsElement("details", "news-notes");
+    notes.append(newsElement("summary", "", "عن المصادر والتواريخ"));
+    notes.append(newsElement("p", "", "الملخصات والتواريخ مستخلصة من المعلومات المتاحة أثناء البحث، ولم يُتحقق من النص الكامل لكل مقال بصورة مستقلة. افتح المقال الأصلي لمراجعة التفاصيل والسياق؛ قد تتطلب بعض المواقع اشتراكًا."));
+    notes.append(newsElement("p", "", "تاريخ النشر قد يختلف عن تاريخ وقوع الحدث. هذه تغطية محدودة بما أعاده البحث، ولا تضمن تمثيل كل المصادر أو جميع أخبار الفترة."));
+    if(Number.isInteger(data.fresh_event_count)) notes.append(newsElement("p", "", "عدد الأخبار التي تذكر ملاحظات البحث تاريخ وقوع حدثها داخل الفترة: " + data.fresh_event_count + ". هذه قرائن من البحث وليست تحققًا مستقلًا من التواريخ."));
+    target.append(notes);
+  }
   async function fetchHealth(){
     try {
       const r = await fetch("/health", {cache:"no-store"});
@@ -266,7 +377,14 @@
   function displayResult(data){
     lastResponse=data.response || "";
     latestReportId=data.report_id || null;
-    renderMarkdown($("responseBody"),lastResponse || "لم تتوفر نتيجة نصية لهذا الطلب.");
+    const body = $("responseBody");
+    if(Array.isArray(data.items) && Array.isArray(data.background_items)){
+      renderNewsReport(body, data);
+    }else{
+      body.classList.remove("news-reading");
+      body.dir = "auto";
+      renderMarkdown(body,lastResponse || "لم تتوفر نتيجة نصية لهذا الطلب.");
+    }
     $("usage").replaceChildren();
     const u=data.usage || {}, search=data.web_search || {};
     const searchLabels={used:"تم البحث",empty:"لم تتوفر مصادر مطابقة",missing_key:"البحث غير مهيّأ",failed:"تعذّر البحث",recent_fallback:"سياق سابق للفترة",not_needed:"لم يلزم البحث",disabled_agent:"غير متاح لهذا المساعد",permission_denied:"صلاحية البحث معطلة"};

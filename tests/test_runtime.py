@@ -152,21 +152,36 @@ def test_invalid_prices_fail_before_network(monkeypatch, bad_value):
     assert exc.value.detail["code"] == "pricing_not_configured"
 
 
-def test_reservation_covers_both_model_stages_and_native_search(mocked_http):
+def test_reservation_covers_two_research_requests_and_report(mocked_http):
     calls = mocked_http(lambda req: pytest.fail("Reservation must not issue paid network requests"))
     estimate = runtime.estimate_reservation("iran-news", "أخبار إيران ١٩ أكتوبر ٢٠٢٦")
     assert calls == []
-    assert estimate["max_web_search_calls"] == 1
-    assert estimate["max_model_calls"] == 2
-    assert estimate["research_input_tokens_bound"] < 272000
+    assert estimate["max_web_search_calls"] == 2
+    assert estimate["max_model_calls"] == 3
+    assert estimate["research_request_count"] == 2
+    assert len(estimate["research_request_input_tokens_bounds"]) == 2
+    assert all(bound < 272000 for bound in estimate["research_request_input_tokens_bounds"])
+    assert estimate["research_input_tokens_bound"] == sum(estimate["research_request_input_tokens_bounds"])
+    assert estimate["research_request_output_tokens_bounds"] == [4096, 4096]
     assert estimate["report_input_tokens_bound"] < 272000
     assert estimate["max_input_tokens"] == (estimate["research_input_tokens_bound"]
                                              + estimate["report_input_tokens_bound"])
-    assert estimate["max_output_tokens"] == 8192
+    assert estimate["max_output_tokens"] == 12288
     expected = (Decimal(estimate["max_input_tokens"]) * Decimal("2.5")
-                + Decimal(8192) * Decimal("10")) / Decimal(1000000) + Decimal(".01")
+                + Decimal(12288) * Decimal("10")) / Decimal(1000000) + Decimal(".02")
     assert Decimal(str(estimate["estimated_cost_usd"])) >= expected
     assert runtime.estimate_run_reservation("iran-news", "أخبار إيران ١٩ أكتوبر ٢٠٢٦") == estimate["estimated_cost_usd"]
+
+
+def test_other_search_agents_keep_one_research_request_and_report():
+    estimate = runtime.estimate_reservation("pre-meeting-briefing", "ابحث عن أحدث الأخبار للاجتماع")
+    assert estimate["research_request_count"] == 1
+    assert estimate["max_web_search_calls"] == 1 and estimate["max_model_calls"] == 2
+    assert len(estimate["research_request_input_tokens_bounds"]) == 1
+    payloads = runtime._build_research_payloads("gpt-6.1-sol", "pre-meeting-briefing", "أخبار اليوم",
+                                               None, runtime._now_dubai())
+    assert len(payloads) == 1
+    assert payloads[0]["tools"][0]["filters"]["allowed_domains"] == list(runtime.ALLOWED_SOURCE_DOMAINS)
 
 
 def test_search_free_agents_never_search_even_when_task_asks(mocked_http):
