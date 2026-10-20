@@ -13,6 +13,7 @@ const markdown = fs.readFileSync(path.join(staticPath, "workspace-markdown.js"),
 const A = "geopolitical-morning", B = "education-observatory", PREFIX = "/v1/public/workspace";
 const SOURCE_ID = "src_" + "a".repeat(16);
 const clone = value => JSON.parse(JSON.stringify(value));
+const conversationId = number => "conv_" + number.toString(16).padStart(32, "0");
 
 class Element {
   constructor(tag = "div") {
@@ -138,7 +139,7 @@ function harness(options = {}) {
     const reportPath = pathname.match(/^\/v1\/public\/workspace\/reports\/([^/]+)$/);
     if (reportPath) return respond(server.reports.get(decodeURIComponent(reportPath[1])) || {detail: {code: "report_not_found"}}, server.reports.has(decodeURIComponent(reportPath[1])) ? 200 : 404);
     if (pathname === "/v1/public/chat/conversations") {
-      if (method === "POST") return respond({conversation_id: "conv_fixture_" + (++server.conversations)}, 201);
+      if (method === "POST") return respond({conversation_id: conversationId(++server.conversations)}, 201);
       return respond({conversations: []});
     }
     if (/^\/v1\/public\/chat\/conversations\/[^/]+$/.test(pathname)) return respond({messages: [], pagination: {has_more: false}});
@@ -167,7 +168,7 @@ function harness(options = {}) {
 }
 
 function answer(input = {}, overrides = {}) {
-  return {conversation_id: "conv_fixture_1", user_message: {id: "message_user_1", role: "user", content: input.message || "Question"},
+  return {conversation_id: conversationId(1), user_message: {id: "message_user_1", role: "user", content: input.message || "Question"},
     message: {id: "message_answer_1", role: "assistant", content: "**Saved evidence answer.** [Source](https://publisher.example/synthetic)"},
     context: {report_id: input.report_id, report_ids: input.report_id ? [input.report_id] : [], agent_ids: input.agent_id ? [input.agent_id] : []}, ...overrides};
 }
@@ -180,7 +181,7 @@ function seed(ui, agent = A, sequence = 1) { const saved = report(agent, sequenc
 
 test("the public workspace has no credential, cost, admin, or upload controls", async () => {
   assert.doesNotMatch(html, /type="(?:password|file)"|id="(?:username|password)"|\/admin|dailyCost|monthlyCost|accountOverview|usage-details|loginBox/);
-  assert.match(html, /workspace\.js\?v=2\.0\.1/);
+  assert.match(html, /workspace\.js\?v=2\.0\.2/);
   assert.doesNotMatch(html, /src="\/static\/(?:app|public)\.js/);
   const ui = await start();
   await assert.rejects(ui.request("/v1/usage"));
@@ -239,6 +240,55 @@ test("an unconfirmed generation retry keeps its idempotency key and hides diagno
   assert.equal(ui.generations()[0].options.headers["Idempotency-Key"], ui.generations()[1].options.headers["Idempotency-Key"]);
   assert.doesNotMatch(ui.body.textContent, /PRIVATE|provider key|cost diagnostic/);
 });
+
+for (const language of ["en", "ar"]) {
+  test(`an asynchronous daily report limit explains the Dubai reset in ${language} and keeps the saved report`, async () => {
+    const ui = await start({language}), saved = seed(ui);
+    await ui.openAgent(A, true); await ui.settle();
+    const queued = ui.current().job;
+    ui.server.jobs.set(queued.job_id, {job: {...queued, status: "failed", error_code: "daily_report_limit"}, report: null});
+    await ui.advance();
+    const notice = ui.elements.get("report-notice").textContent;
+    assert.match(notice, language === "en" ? /Today's report limit has been reached/ : /تم بلوغ حدّ التقارير لهذا اليوم/);
+    assert.match(notice, /00:00/); assert.match(notice, /UTC\+04:00/);
+    assert.match(notice, language === "en" ? /next midnight.*Dubai/ : /منتصف الليل التالي.*دبي/);
+    assert.doesNotMatch(notice, /start a new attempt|بدء محاولة جديدة|\$|USD|50|budget|cost/i);
+    assert.equal(ui.current().report.report_id, saved.report_id);
+    assert.equal(ui.elements.get("pdf-download").hidden, false);
+    assert.equal(ui.elements.get("job-progress").hidden, true);
+    await ui.advance(); await ui.advance();
+    assert.equal(ui.generations().length, 1, "A blocked terminal job must not retry research automatically.");
+  });
+}
+
+test("a synchronous report-limit rejection uses the same specific reset message", async () => {
+  const ui = await start({fetch: (url, request, respond) => {
+    if (request.method === "POST" && url.endsWith("/reports"))
+      return respond({detail: {code: "daily_report_limit", message: "PRIVATE diagnostics"}}, 429);
+  }});
+  const saved = seed(ui); await ui.openAgent(A, true); await ui.settle();
+  assert.match(ui.elements.get("report-notice").textContent, /Today's report limit.*00:00 Dubai time/);
+  assert.doesNotMatch(ui.body.textContent, /PRIVATE/);
+  assert.equal(ui.current().report.report_id, saved.report_id);
+});
+
+for (const [code, english, arabic] of [
+  ["daily_budget_limit", /daily allowance.*next midnight/, /الاستخدام اليومي.*منتصف الليل التالي/],
+  ["monthly_budget_limit", /monthly allowance.*next month/, /الاستخدام الشهري.*الشهر التالي/]
+]) {
+  test(`asynchronous ${code} describes the allowance without exposing costs in either language`, async () => {
+    const ui = await start(); seed(ui); await ui.openAgent(A, true); await ui.settle();
+    const queued = ui.current().job;
+    ui.server.jobs.set(queued.job_id, {job: {...queued, status: "failed", error_code: code,
+      error_message: "PRIVATE provider balance $99.99 USD"}, report: null});
+    await ui.advance();
+    assert.match(ui.elements.get("report-notice").textContent, english);
+    await ui.elements.get("language-ar").click();
+    assert.match(ui.elements.get("report-notice").textContent, arabic);
+    assert.doesNotMatch(ui.body.textContent, /PRIVATE|\$|USD|99\.99|budget|cost/i);
+    assert.equal(ui.generations().length, 1);
+  });
+}
 
 test("late older generation completion cannot replace a newer report or current job", async () => {
   const ui = await start(); seed(ui, A, 2); await ui.openAgent(A, false); await ui.settle();
@@ -345,6 +395,65 @@ test("fresh chat waits for the saved report then answers with the same request k
   assert.deepEqual(resumed, {...original, fresh_job_id: freshJob.job_id});
   assert.equal(ui.chatState(A).sending, false); assert.match(ui.elements.get("discussion-panel").textContent, /Saved evidence answer/);
   assert.equal(ui.current().report.report_id, newer.report_id); assert.equal(ui.generations().length, 0);
+});
+
+test("fresh chat preserves a failed research quota code and does not retry the blocked answer", async () => {
+  const freshJob = job(A, 2);
+  const ui = await start({fetch: (url, request, respond) => {
+    if (request.method === "POST" && url.endsWith("/messages"))
+      return respond({status: "researching", job: freshJob, agent_id: A}, 202);
+  }});
+  const saved = seed(ui);
+  ui.server.jobs.set(freshJob.job_id, {job: freshJob, report: null});
+  await ui.openAgent(A, false); await ui.settle();
+  const input = await typeChat(ui, "What has happened since this briefing?");
+  await input.emit("keydown", {key: "Enter"}); await ui.settle();
+  ui.server.jobs.set(freshJob.job_id, {job: {...freshJob, status: "failed", error_code: "daily_report_limit"}, report: null});
+  await ui.advance();
+  assert.equal(ui.chatState(A).sending, false);
+  assert.match(ui.elements.get("discussion-panel").textContent, /Today's report limit.*00:00 Dubai time/);
+  assert.doesNotMatch(ui.elements.get("discussion-panel").textContent, /start a new attempt|Check this attempt/);
+  assert.equal(ui.chatState(A).attempt, null);
+  assert.equal(ui.current().report.report_id, saved.report_id);
+  await ui.advance(); assert.equal(ui.messages().length, 1);
+  assert.equal(ui.generations().length, 0);
+});
+
+test("saved-conversation placeholder and invalid choices never request a conversation", async () => {
+  const existing = conversationId(7);
+  const ui = await start({language: "ar", fetch: (url, request, respond) => {
+    if (url === "/v1/public/chat/conversations?limit=50") return respond({conversations: [
+      {conversation_id: existing, title: "محادثة محفوظة"},
+      {conversation_id: "محادثات محفوظة", title: "Malformed saved entry"}
+    ]});
+  }});
+  seed(ui); await ui.openAgent(A, false); await ui.settle();
+  const select = byClass(ui.elements.get("discussion-panel"), "chat-history-select")[0];
+  const options = byTag(select, "option"), detailRequests = () => ui.requests.filter(request => /^\/v1\/public\/chat\/conversations\//.test(request.url));
+  assert.equal(options[0].getAttribute("value"), "", "An option without a value submits its translated label in a real browser.");
+  assert.equal(options[0].disabled, true);
+  assert.equal(options[0].textContent, "محادثات محفوظة");
+  assert.equal(options.length, 2, "Malformed saved conversation IDs must not become selectable.");
+  for (const value of ["", "محادثات محفوظة", conversationId(8), "../admin"]) {
+    select.value = value; await select.emit("change"); await ui.settle();
+  }
+  assert.equal(detailRequests().length, 0);
+  assert.equal(ui.chatState(A).id, null);
+  select.value = existing; await select.emit("change"); await ui.settle();
+  assert.equal(detailRequests().length, 1);
+  assert.equal(detailRequests()[0].url, "/v1/public/chat/conversations/" + existing);
+  assert.equal(ui.chatState(A).id, existing);
+  assert.equal(ui.session.get("aihub.workspace.chat." + A), existing);
+});
+
+test("a previously persisted translated placeholder is cleared before restoring conversation history", async () => {
+  const session = new Map([["aihub.workspace.agent", A], ["aihub.workspace.chat." + A, "محادثات محفوظة"]]);
+  const ui = await start({session, language: "ar"});
+  assert.equal(ui.chatState(A).id, null);
+  assert.equal(session.has("aihub.workspace.chat." + A), false);
+  assert.equal(ui.requests.some(request => /^\/v1\/public\/chat\/conversations\//.test(request.url)), false);
+  assert.equal(ui.chatState(A).error, null);
+  assert.equal(ui.chatState(A).loaded, true);
 });
 
 test("malicious source markup remains literal and unsafe publisher URLs are not clickable", async () => {

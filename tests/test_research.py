@@ -288,6 +288,16 @@ def test_iran_relevance_requires_direct_publisher_lead_not_incidental_body_keywo
     assert verify(page)[1] == "irrelevant"
 
 
+@pytest.mark.parametrize("title", ["Brent rises as attacks on ships raise supply concerns",
+    "Crude climbs as the conflict disrupts regional transport", "Freight costs rise after attacks on tankers",
+    "Fuel prices rise as Gulf supply routes come under pressure", "برنت يرتفع مع تعطل حركة السفن"])
+def test_iran_consequences_keep_explicit_publisher_conflict_connection(title):
+    description = "Iran-linked military attacks have raised concerns over regional energy shipments."
+    assert verify(page_record(title=title, description=description))[1] is None
+    assert verify(page_record(title=title, description="Quarterly business results and ordinary seasonal demand.",
+        body=title + ". An unrelated paragraph mentions Iran war among many historical risks."))[1] == "irrelevant"
+
+
 @pytest.mark.parametrize("title,agent", [("Irán anuncia negociaciones nucleares con Estados Unidos", "iran-news"),
     ("Une nouvelle politique pour les écoles et universités", "education-observatory"),
     ("Nuevas negociaciones para poner fin a la guerra", "geopolitical-morning"),
@@ -333,6 +343,18 @@ def test_discovery_interleaves_publishers_before_bounded_page_inspection():
     assert len(result) == research.MAX_PUBLISHER_PAGES
     assert result[1]["url"].startswith("https://second.example")
     assert result[2]["url"].startswith("https://third.example")
+
+
+def test_cited_and_opened_articles_survive_background_source_overflow():
+    background = [{"url": f"https://background.example/reference/{index}"} for index in range(90)]
+    cited = "https://news.example/article/current-development"
+    opened = "https://official.example/releases/announced-today"
+    response = {"native_calls": [native_call(sources=background), native_call("open_page", url=opened)],
+        "parts": [{"text": "Attributed note", "annotations": [{"type": "url_citation", "url": cited,
+            "title": TITLE, "start_index": 0, "end_index": 10}]}]}
+    urls = [item["url"] for item in research._discovered(response)]
+    assert cited in urls and opened in urls
+    assert len(urls) == research.MAX_PUBLISHER_PAGES
 
 
 @pytest.mark.parametrize("address", ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1", "fc00::1", "192.0.2.1"])
@@ -531,7 +553,9 @@ def test_no_evidence_is_concise_dated_and_does_not_make_a_synthesis_request(monk
         return httpx.Response(200, json=provider_response("No inspectable source was returned.", native=[native_call(sources=[])]))
     install_transport(monkeypatch, handler)
     result = research.generate_report("iran-news", language=language, research_window=WINDOW, progress=stages.append)
-    assert len(requests) == 1 and result["items"] == []
+    assert len(requests) == 2 and result["items"] == []
+    assert all(request["max_tool_calls"] == 3 for request in requests)
+    assert "coverage_feedback" in json.loads(requests[1]["input"][1]["content"])
     assert result["title"] == title
     assert [section["id"] for section in result["sections"]] == ["executive_summary"]
     body = result["sections"][0]["body"]
@@ -540,8 +564,9 @@ def test_no_evidence_is_concise_dated_and_does_not_make_a_synthesis_request(monk
     assert result["sections"][0]["source_ids"] == []
     assert result["status"] == "no_evidence"
     assert result["cost_tracking_complete"] is True
-    assert result["usage"]["web_search_calls"] == 1
-    assert stages == ["searching", "checking_sources", "analyzing"]
+    assert result["usage"]["web_search_calls"] == 2
+    assert result["web_search"]["request_count"] == 2
+    assert stages == ["searching", "checking_sources", "searching", "checking_sources", "analyzing"]
 
 
 def test_full_pipeline_uses_native_evidence_publisher_timestamp_and_one_synthesis(monkeypatch):
@@ -559,7 +584,7 @@ def test_full_pipeline_uses_native_evidence_publisher_timestamp_and_one_synthesi
     install_transport(monkeypatch, handler)
     result = research.generate_report("iran-news", language="en", research_window=WINDOW)
     assert len(requests) == 2
-    assert requests[0]["max_tool_calls"] == 6
+    assert requests[0]["max_tool_calls"] == 3
     assert requests[0]["tools"][0]["external_web_access"] is True
     assert "filters" not in requests[0]["tools"][0]
     assert requests[1]["tools"] == [] and requests[1]["text"]["format"]["strict"] is True
@@ -573,6 +598,78 @@ def test_full_pipeline_uses_native_evidence_publisher_timestamp_and_one_synthesi
     assert result["usage"]["native_actions"] == 3 and result["usage"]["web_search_calls"] == 1
     assert result["estimated_cost_usd"] == pytest.approx(.0415)
     assert URL in result["response"]
+
+
+def test_zero_coverage_gets_one_focused_stage_with_shared_page_and_action_bounds(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-real-key")
+    old = [f"https://archive.example/news/old-{index}" for index in range(40)]
+    new = [f"https://news.example/news/iran-followup-{index}" for index in range(40)]
+    downloads, requests = [], []
+    def download(url, allowed):
+        assert url in allowed
+        downloads.append(url)
+        return page_record(url=url, title=TITLE if url == new[0] else "Iran nuclear archive " + url.rsplit("-", 1)[-1],
+            published="2026-10-20T10:00:00Z" if url == new[0] else "2026-10-01T10:00:00Z")
+    monkeypatch.setattr(research, "_download_page", download)
+    def handler(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if len(requests) == 1:
+            return httpx.Response(200, json=provider_response("Old material.",
+                native=[native_call(sources=[{"url": url} for url in old]), native_call("open_page", url=old[0])]))
+        if len(requests) == 2:
+            data = json.loads(payload["input"][1]["content"])
+            assert data["window"]["start"] == WINDOW["start"] and data["window"]["end"] == WINDOW["end"]
+            assert data["coverage_feedback"]["excluded_source_counts"] == {"outside_window": research.FIRST_NEWS_PAGE_LIMIT}
+            assert data["coverage_feedback"]["previous_queries"] == ["synthetic Iran nuclear diplomacy"]
+            return httpx.Response(200, json=provider_response("New attributed finding.",
+                native=[native_call(sources=[{"url": url} for url in new]), native_call("open_page", url=new[0])],
+                annotations=[{"type": "url_citation", "url": new[0], "title": TITLE, "start_index": 0, "end_index": 22}]))
+        sources = json.loads(payload["input"][1]["content"])["sources"]
+        return httpx.Response(200, json=provider_response(json.dumps(structured_pack(get_profile("iran-news"), sources))))
+    install_transport(monkeypatch, handler)
+    result = research.generate_report("iran-news", language="en", research_window=WINDOW)
+    assert len(requests) == 3 and [p["max_tool_calls"] for p in requests[:2]] == [3, 3]
+    assert len(downloads) == len(set(downloads)) == research.MAX_PUBLISHER_PAGES
+    assert result["verification_diagnostics"]["discovered_url_count"] <= research.MAX_DISCOVERY_URLS
+    assert result["verification_diagnostics"]["inspected_url_count"] == research.MAX_PUBLISHER_PAGES
+    assert result["verification_diagnostics"]["excluded_sources"] == {"outside_window": 39}
+    assert result["items"][0]["url"] == new[0]
+    assert result["sources"][0]["citation_annotations"][0]["part_index"] == 1
+    assert len(result["_research_provenance"]["parts"]) == 2
+    assert len(result["_research_provenance"]["native_actions"]) == 4
+    assert result["usage"]["native_actions"] == 4 and result["web_search"]["request_count"] == 2
+    assert result["cost_tracking_complete"] is True
+
+
+def test_failed_focused_stage_is_never_retried_or_sent_to_synthesis(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-real-key")
+    requests = []
+    def handler(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(200, json=provider_response("No candidates.", native=[native_call(sources=[])]))
+        return httpx.Response(429, json={"error": {"message": "private provider diagnostic"}})
+    install_transport(monkeypatch, handler)
+    with pytest.raises(HTTPException) as error:
+        research.generate_report("iran-news", research_window=WINDOW)
+    assert len(requests) == 2 and error.value.detail["code"] == "openai_api_error"
+
+
+def test_focused_feedback_trims_to_reserved_payload_without_changing_window():
+    feedback = {"excluded_source_counts": {"outside_window": 24}, "previous_queries": ["q" * 400] * 6,
+        "inspected_urls": ["https://publisher.example/" + "x" * 1400 + str(index) for index in range(8)]}
+    payload = research._research_payload("gpt-6.1-sol", get_profile("iran-news"), "م" * 8000, "ar",
+        research._window(WINDOW), 3, coverage_feedback=feedback)
+    assert research.runtime._json_bytes(payload) <= research.MAX_RESEARCH_INPUT_BYTES
+    data = json.loads(payload["input"][1]["content"])
+    assert data["topic"] == "م" * 8000 and data["window"]["end"] == WINDOW["end"]
+
+
+def test_focused_feedback_preserves_native_multi_query_searches():
+    response = {"native_calls": [{"action": {"type": "search", "queries": ["Iran diplomacy latest", "إيران أخبار"]}}]}
+    feedback = research._research_feedback(response, {"outside_window": 2}, [])
+    assert feedback["previous_queries"] == ["Iran diplomacy latest", "إيران أخبار"]
 
 
 @pytest.mark.parametrize("missing", ["usage", "tier"])
@@ -637,11 +734,12 @@ def test_reservation_bounds_cover_all_actions_full_payload_and_output(monkeypatc
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-real-key")
     estimate = research.estimate_reservation("iran-news", research_window=WINDOW)
     assert estimate["max_native_actions"] == estimate["max_web_search_calls"] == 6
-    assert estimate["max_model_calls"] == 2
+    assert estimate["max_model_calls"] == 3
+    assert estimate["research_stage_action_limits"] == [3, 3]
     assert estimate["research_input_usd_per_million"] == "5.00"
     assert estimate["research_output_usd_per_million"] == "15.0"
     assert estimate["report_input_tokens_bound"] == research.MAX_SYNTHESIS_INPUT_BYTES + research.runtime.PROVIDER_INPUT_OVERHEAD_TOKENS
-    expected = (Decimal(estimate["research_input_tokens_bound"]) * 5 + Decimal(8192) * 15 + Decimal(estimate["report_input_tokens_bound"]) * Decimal("2.5") + Decimal(8192) * 10) / 1000000 + Decimal(".06")
+    expected = (Decimal(estimate["research_input_tokens_bound"]) * 5 + Decimal(16384) * 15 + Decimal(estimate["report_input_tokens_bound"]) * Decimal("2.5") + Decimal(8192) * 10) / 1000000 + Decimal(".06")
     assert estimate["estimated_cost_usd"] == pytest.approx(float(expected))
 
 

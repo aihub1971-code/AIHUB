@@ -86,11 +86,17 @@ def _text(value: Any) -> str:
     return "".join(c for c in value if c in "\n\t" or unicodedata.category(c) not in {"Cc", "Cs"}).strip()
 
 
-def _plain_markdown(value: Any) -> str:
+def _plain_markdown(value: Any, *, rtl: bool = False) -> str:
     text = _text(value)
     # PDF links are created from the saved source mapping, never from arbitrary HTML.
     text = re.sub(r"!?\[([^\]]+)\]\([^\n)]*\)", r"\1", text)
     text = re.sub(r"(?:\*\*|__|`)", "", text)
+    if rtl:
+        # A leading hash is neutral in bidi text, so letter-leading colour codes
+        # otherwise render as E8E5DA#. Isolate each complete token without
+        # changing the saved text, Arabic shaping, or clickable link targets.
+        text = re.sub(r"(?<![\w\u2066])#[0-9a-fA-F]{6}(?!\w)",
+                      lambda match: "\u2066" + match[0] + "\u2069", text)
     return text
 
 
@@ -266,7 +272,7 @@ def _build_pdf(report: dict[str, Any]) -> tuple[bytes, int]:
         def paragraph(self, content: Any, *, size: float | None = None, bold: bool = False,
                       color: tuple[int, int, int] = INK, indent: float = 0,
                       latin: bool = False, link: str | None = None, gap: float = 2.3) -> None:
-            content = _plain_markdown(content)
+            content = _plain_markdown(content, rtl=ar and not latin)
             if not content:
                 return
             self.font(size=size, bold=bold, latin=latin)
@@ -282,7 +288,7 @@ def _build_pdf(report: dict[str, Any]) -> tuple[bytes, int]:
             self.ln(gap)
 
         def text_height(self, content: Any, *, size: float | None = None, bold: bool = False) -> float:
-            content = _plain_markdown(content)
+            content = _plain_markdown(content, rtl=ar)
             if not content:
                 return 0
             self.font(size=size, bold=bold)
@@ -337,7 +343,7 @@ def _build_pdf(report: dict[str, Any]) -> tuple[bytes, int]:
                         self.paragraph(f"{headings[i] if i < len(headings) else i + 1}: {cell}")
                     self.ln(2)
                 return
-            rows = [[_plain_markdown(c) for c in row] + [""] * max(0, columns - len(row)) for row in rows]
+            rows = [[_plain_markdown(c, rtl=ar) for c in row] + [""] * max(0, columns - len(row)) for row in rows]
             if any(len(row) > columns for row in rows):
                 # Malformed tables remain readable; no cell is silently discarded.
                 for row in rows:
@@ -397,21 +403,28 @@ def _build_pdf(report: dict[str, Any]) -> tuple[bytes, int]:
             palette = [p for p in entries if isinstance(p, dict) and re.fullmatch(r"#[0-9a-fA-F]{6}", _text(p.get("hex")))]
             if not palette:
                 return
-            self.ensure(67)
-            self.heading(label("palette"))
-            for offset in range(0, len(palette), 5):
-                group = palette[offset:offset + 5]
+            # The saved-report schema permits six colours. Keep that complete
+            # palette on one row instead of stretching its sixth swatch across
+            # a second page. Measure labels before placing the section heading.
+            columns = min(len(palette), 6)
+            w = (self.epw - 4 * (columns - 1)) / columns
+            groups = []
+            for offset in range(0, len(palette), columns):
+                group = palette[offset:offset + columns]
                 self.font(size=8.3, bold=True)
                 label_height = max(float(self.multi_cell(
-                    (self.epw - 4 * (len(group) - 1)) / len(group), 4.5,
+                    w, 4.5,
                     _text(entry.get("name")), dry_run=True, output=MethodReturnValue.HEIGHT,
                 )) for entry in group)
                 panel_height = 25 + max(label_height, 5) + 13
+                groups.append((group, label_height, panel_height))
+            self.ensure(24 + groups[0][2])
+            self.heading(label("palette"))
+            for group, label_height, panel_height in groups:
                 self.ensure(panel_height)
                 y = self.get_y()
-                w = (self.epw - 4 * (len(group) - 1)) / len(group)
                 for i, entry in enumerate(group):
-                    position = len(group) - 1 - i if ar else i
+                    position = columns - 1 - i if ar else i
                     x = self.l_margin + position * (w + 4)
                     rgb = tuple(int(entry["hex"][j:j + 2], 16) for j in (1, 3, 5))
                     self.set_fill_color(*rgb)
