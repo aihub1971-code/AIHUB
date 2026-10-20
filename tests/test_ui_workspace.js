@@ -181,7 +181,7 @@ function seed(ui, agent = A, sequence = 1) { const saved = report(agent, sequenc
 
 test("the public workspace has no credential, cost, admin, or upload controls", async () => {
   assert.doesNotMatch(html, /type="(?:password|file)"|id="(?:username|password)"|\/admin|dailyCost|monthlyCost|accountOverview|usage-details|loginBox/);
-  assert.match(html, /workspace\.js\?v=2\.0\.2/);
+  assert.match(html, /workspace\.js\?v=2\.0\.3/);
   assert.doesNotMatch(html, /src="\/static\/(?:app|public)\.js/);
   const ui = await start();
   await assert.rejects(ui.request("/v1/usage"));
