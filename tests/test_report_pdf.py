@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -77,6 +78,53 @@ def test_long_table_rows_and_source_urls_are_not_lost(tmp_path, language):
     assert report["sources"][0]["url"] in _uris(reader)
     assert result["page_count"] > 2
     assert all(len(p.extract_text().strip()) > 35 for p in reader.pages)
+
+
+@pytest.mark.parametrize("language", ["ar", "en"])
+def test_six_colour_palette_stays_on_one_equal_width_row(tmp_path, language):
+    report = report_fixture(language, "moodboard")
+    report["visuals"]["palette"].extend([
+        {"name": "أخضر الزجاج المبتل" if language == "ar" else "Rain on green glass", "hex": "#719D98"},
+        {"name": "كهرمان الذاكرة" if language == "ar" else "Memory in amber", "hex": "#C98B57"},
+    ])
+    path = tmp_path / "six-colours.pdf"
+    report_pdf.render_report_pdf(report, path)
+    reader = PdfReader(path)
+    swatches = []
+    for page_index, page in enumerate(reader.pages):
+        for args, operator in page.get_contents().operations:
+            if operator == b"re" and abs(abs(float(args[3])) - 22 * 72 / 25.4) < .02:
+                swatches.append((page_index, tuple(map(float, args))))
+    assert len(swatches) == 6
+    assert len({index for index, _ in swatches}) == 1
+    assert len({rectangle[1] for _, rectangle in swatches}) == 1
+    assert len({rectangle[2] for _, rectangle in swatches}) == 1
+    # Compare actual PDF geometry, including the printable bounds, rather than
+    # relying on a layout helper that could share the renderer's mistake.
+    assert all(56.68 <= x and x + width <= 538.60 and y + height >= 62.35
+               for _, (x, y, width, height) in swatches)
+    page_text = reader.pages[swatches[0][0]].extract_text()
+    assert all(colour["hex"] in page_text for colour in report["visuals"]["palette"])
+
+
+def test_arabic_paragraph_and_table_preserve_left_to_right_colour_codes(tmp_path):
+    report = report_fixture("ar")
+    codes = ["#E8E5DA", "#BDA98A", "#C98B57", "#173F4A", "#283039"]
+    report.update(items=[], sources=[], citation_mappings={}, limitations=[], sections=[{
+        "id": "palette", "title": "الألوان", "source_ids": [],
+        "body": "ألوان مرجعية: " + "، ".join(codes)
+                + "\n\n| اللون | الرمز |\n|---|---|\n"
+                + "\n".join("| لون | " + code + " |" for code in codes),
+    }])
+    original = json.dumps(report, ensure_ascii=False, sort_keys=True)
+    path = tmp_path / "arabic-colour-codes.pdf"
+    report_pdf.render_report_pdf(report, path)
+    assert json.dumps(report, ensure_ascii=False, sort_keys=True) == original
+    # Extract the selectable text. Invisible bidi controls are presentation
+    # metadata; every visible code must still have its leading hash in both uses.
+    text = "".join(char for page in PdfReader(path).pages for char in page.extract_text()
+                   if not char.isspace() and unicodedata.category(char) != "Cf")
+    assert all(text.count(code) == 2 for code in codes)
 
 
 def test_no_evidence_stays_concise_and_does_not_invent_sources(tmp_path):

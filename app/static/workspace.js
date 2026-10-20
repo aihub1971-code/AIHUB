@@ -48,6 +48,9 @@
     reportError:["تعذر إكمال هذا التقرير. بقيت النسخة السابقة محفوظة. يمكنك بدء محاولة جديدة.","This report could not be completed. Your previous snapshot is preserved. You can start a new attempt."],
     interrupted:["توقفت المهمة أثناء إعادة تشغيل الخدمة. لم يُعد البحث المدفوع تلقائيًا. ابدأ تقريرًا جديدًا للمتابعة.","The job was interrupted by a service restart. Research was not retried automatically. Start a new report to continue."],
     pdfFailed:["التقرير محفوظ ويمكن قراءته. تعذر تجهيز PDF؛ أعد تجهيز الملف دون إعادة البحث.","Your report is saved and readable. PDF creation failed; retry the PDF without researching again."],
+    dailyReportLimit:["تم بلوغ حدّ التقارير لهذا اليوم. يتجدد الحد عند منتصف الليل التالي، الساعة 00:00 بتوقيت دبي (UTC+04:00). تبقى التقارير المحفوظة وملفات PDF متاحة؛ إعادة المحاولة قبل ذلك لن تبدأ بحثًا جديدًا.","Today's report limit has been reached. It resets at the next midnight, 00:00 Dubai time (UTC+04:00). Saved reports and PDFs remain available; retrying before then will not start new research."],
+    dailyUsageLimit:["بلغت الخدمة حدّ الاستخدام اليومي المتاح لهذا الطلب. يتجدد الحد عند منتصف الليل التالي، الساعة 00:00 بتوقيت دبي (UTC+04:00). تبقى التقارير المحفوظة وملفات PDF متاحة.","The service's daily allowance cannot cover this request. The daily allowance resets at the next midnight, 00:00 Dubai time (UTC+04:00). Saved reports and PDFs remain available."],
+    monthlyUsageLimit:["بلغت الخدمة حدّ الاستخدام الشهري المتاح لهذا الطلب. يتجدد الحد في بداية الشهر التالي بتوقيت دبي. تبقى التقارير المحفوظة وملفات PDF متاحة.","The service's monthly allowance cannot cover this request. The monthly allowance resets at the start of the next month, Dubai time. Saved reports and PDFs remain available."],
     busy:["الخدمة مشغولة أو وصلت إلى حدّ الاستخدام الحالي. جرّب لاحقًا؛ تقاريرك المحفوظة متاحة.","The service is busy or has reached its current usage limit. Try later; saved reports remain available."],
     queueFull:["لديك مهام قيد الإعداد. انتظر اكتمال إحداها قبل بدء موضوع آخر.","You have reports in progress. Wait for one to finish before starting another topic."],
     unavailable:["الخدمة غير متاحة مؤقتًا. جرّب مجددًا بعد قليل.","The service is temporarily unavailable. Try again shortly."],
@@ -102,7 +105,19 @@
   function defaultTopic(id){return profile(id)?.["default_topic_"+lang]||"";}
   function saveNavigation(){try{if(view==="workspace"&&selectedId)sessionStorage.setItem("aihub.workspace.agent",selectedId);else sessionStorage.removeItem("aihub.workspace.agent");}catch(_){}}
   function showNotice(node,key){node.hidden=!key;node.textContent=key?T(key):"";}
-  function errorKey(error){if(error?.code==="chat_source_mismatch")return "sourceMismatch";if(error?.status===401||error?.status===404)return "expired";if(["report_queue_full","owner_job_limit","report_job_limit","owner_queue_full"].includes(error?.code))return "queueFull";if(error?.status===429)return "busy";if(error?.status===503)return "unavailable";return error?.network?"network":"reportError";}
+  function errorKey(error){
+    if(error?.code==="daily_report_limit")return "dailyReportLimit";
+    if(error?.code==="daily_budget_limit")return "dailyUsageLimit";
+    if(error?.code==="monthly_budget_limit")return "monthlyUsageLimit";
+    if(error?.jobStatus==="interrupted")return "interrupted";
+    if(error?.jobStatus==="pdf_failed")return "pdfFailed";
+    if(error?.code==="chat_source_mismatch")return "sourceMismatch";
+    if(error?.status===401||error?.status===404)return "expired";
+    if(["report_queue_full","report_queue_session_limit","owner_job_limit","report_job_limit","owner_queue_full"].includes(error?.code))return "queueFull";
+    if(error?.status===429)return "busy";if(error?.status===503)return "unavailable";
+    return error?.network?"network":"reportError";
+  }
+  function jobFailure(job){return {status:502,code:job?.error_code||"report_generation_failed",jobStatus:job?.status};}
   async function request(path,{method="GET",body,key}={}){
     if(!path.startsWith("/v1/public/")||/[\u0000-\u0020\u007f\\]/.test(path))throw new Error("Invalid public request");
     const headers={};if(body!==undefined)headers["Content-Type"]="application/json";if(key)headers["Idempotency-Key"]=key;
@@ -196,7 +211,7 @@
           const data=await request("/v1/public/workspace/jobs/"+encodeURIComponent(jobId));errors=0;
           acceptJob(id,data.job);if(data.report)acceptReport(id,data.report);
           const s=state(id);
-          if(["failed","interrupted","pdf_failed"].includes(data.job.status)&&s.job?.job_id===jobId){s.notice=data.job.status==="interrupted"?"interrupted":data.job.status==="pdf_failed"?"pdfFailed":"reportError";if(selectedId===id)renderWorkspace();}
+          if(["failed","interrupted","pdf_failed"].includes(data.job.status)&&s.job?.job_id===jobId){s.notice=errorKey(jobFailure(data.job));if(selectedId===id)renderWorkspace();}
           if(!activeJob(data.job))return data;
         }catch(error){if(++errors>=4){const s=state(id);s.notice=errorKey(error);if(selectedId===id)renderWorkspace();return null;}}
         await pause(1800);
@@ -334,18 +349,21 @@
     }catch(error){s.notice=errorKey(error);if(selectedId===id)renderWorkspace();}finally{$("pdf-retry").disabled=false;}
   }
   function chatKey(){return view==="chat"?"main":selectedId;}
+  function validConversationId(value){return typeof value==="string"&&/^conv_[a-f0-9]{32}$/.test(value);}
   function chatState(key){
     if(!chatStates.has(key)){let id=null;try{id=sessionStorage.getItem("aihub.workspace.chat."+key);}catch(_){}
+      if(id&&!validConversationId(id)){id=null;try{sessionStorage.removeItem("aihub.workspace.chat."+key);}catch(_){}}
       chatStates.set(key,{key,id,messages:[],draft:"",sending:false,loading:false,loaded:false,error:null,status:null,attempt:null,context:null,history:[],before:null});}
     return chatStates.get(key);
   }
-  function saveConversation(c){try{if(c.id)sessionStorage.setItem("aihub.workspace.chat."+c.key,c.id);else sessionStorage.removeItem("aihub.workspace.chat."+c.key);}catch(_){}}
+  function saveConversation(c){try{if(validConversationId(c.id))sessionStorage.setItem("aihub.workspace.chat."+c.key,c.id);else sessionStorage.removeItem("aihub.workspace.chat."+c.key);}catch(_){}}
   function visibleChat(c){return (view==="workspace"||view==="chat")&&chatKey()===c.key;}
   function chatRoot(){return view==="chat"?$("main-discussion-panel"):$("discussion-panel");}
   function renderVisibleChat(){if(view==="home"||!chatKey())return;const c=chatState(chatKey());renderChat(c);if(!c.loaded&&!c.loading)loadConversation(c);}
   async function loadConversation(c,earlier=false){
     if(c.loading)return;c.loading=true;if(visibleChat(c))renderChat(c);
     try{
+      if(c.id&&!validConversationId(c.id)){c.id=null;saveConversation(c);}
       if(c.id){
         const data=await request("/v1/public/chat/conversations/"+encodeURIComponent(c.id)+(earlier&&c.before?"?before="+c.before:""));
         c.messages=earlier?[...(data.messages||[]),...c.messages]:(data.messages||[]);c.before=data.pagination?.has_more?data.pagination.next_before:null;
@@ -363,9 +381,10 @@
     row.append(heading,button(T("newChat"),"quiet-button",()=>{if(c.sending)return;c.id=null;c.messages=[];c.context=null;c.attempt=null;c.error=null;c.draft="";saveConversation(c);renderChat(c);}));
     const context=el("p","chat-context");context.append(el("span","context-indicator"),document.createTextNode(T(c.key==="main"?"autoMain":state(c.key).report?"autoContext":"autoAgent")));
     head.append(row,context);
-    if(c.history.length){const select=el("select","chat-history-select");select.setAttribute("aria-label",T("chatHistory"));select.append(el("option","",T("chatHistory")));
-      for(const item of c.history){const option=el("option","",item.title||moment(item.created_at));option.value=item.conversation_id;select.append(option);}select.value="";
-      select.disabled=c.sending;select.addEventListener("change",()=>{if(!select.value||c.sending)return;c.id=select.value;c.messages=[];c.draft="";c.attempt=null;saveConversation(c);loadConversation(c);});head.append(select);}
+    if(c.history.length){const select=el("select","chat-history-select");select.setAttribute("aria-label",T("chatHistory"));
+      const placeholder=el("option","",T("chatHistory"));placeholder.setAttribute("value","");placeholder.disabled=true;placeholder.selected=true;select.append(placeholder);
+      for(const item of c.history){if(!validConversationId(item.conversation_id))continue;const option=el("option","",item.title||moment(item.created_at));option.value=item.conversation_id;select.append(option);}select.value="";
+      select.disabled=c.sending||c.loading;select.addEventListener("change",()=>{if(c.sending||c.loading||!validConversationId(select.value)||!c.history.some(item=>item.conversation_id===select.value))return;c.id=select.value;c.messages=[];c.context=null;c.draft="";c.attempt=null;saveConversation(c);loadConversation(c);});head.append(select);}
     const scroll=el("div","chat-scroll");scroll.setAttribute("role","log");scroll.setAttribute("aria-label",T("savedMessages"));
     if(c.before)scroll.append(button(T("loadEarlier"),"quiet-button",()=>loadConversation(c,true)));
     if(!c.messages.length&&!c.sending){const welcome=el("div","chat-welcome");welcome.append(el("h3","",T("chatWelcome")),el("p","",T(c.key==="main"?"chatWelcomeMain":"chatWelcomeNote")));
@@ -405,7 +424,7 @@
     c.sending=true;c.error=null;c.status="chatThinking";
     if(visibleChat(c))renderChat(c);
     try{
-      if(!c.id){const conversation=await request("/v1/public/chat/conversations",{method:"POST",body:{language:attempt.body.language,title:c.key==="main"?"AI HUB":nameOf(profile(c.key))}});c.id=conversation.conversation_id;saveConversation(c);}
+      if(!validConversationId(c.id)){const conversation=await request("/v1/public/chat/conversations",{method:"POST",body:{language:attempt.body.language,title:c.key==="main"?"AI HUB":nameOf(profile(c.key))}});if(!validConversationId(conversation.conversation_id))throw {status:502,code:"invalid_response"};c.id=conversation.conversation_id;saveConversation(c);}
       let answer;
       for(;;){
         answer=await request("/v1/public/workspace/chat/conversations/"+encodeURIComponent(c.id)+"/messages",{method:"POST",body:attempt.body,key:attempt.key});
@@ -420,7 +439,7 @@
           await pause(1800);
           const update=await request("/v1/public/workspace/jobs/"+encodeURIComponent(answer.job.job_id));
           if(update.report){acceptReport(answer.agent_id,update.report);saved=true;}
-          else if(["failed","interrupted"].includes(update.job.status))throw {status:502,code:"chat_research_failed"};
+          else if(["failed","interrupted"].includes(update.job.status))throw jobFailure(update.job);
         }
         c.status="chatThinking";if(visibleChat(c))renderChat(c);
       }
