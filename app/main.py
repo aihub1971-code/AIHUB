@@ -11,22 +11,27 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import runtime as agent_runtime
+from app import newsdata
 from app.auth import require_owner
 from app.chat import router as chat_router
 from app.config import docs_enabled, get_setting
 from app.permissions import require_capability
 from app.registry import get_agent, get_agents, read_skill
-from app.schemas import ScheduleCreate, ScheduleUpdate, TaskRequest
+from app.schemas import ScheduleCreate, ScheduleUpdate, RunRequest
 from app.scheduler import Scheduler
 from app.service import execute_report
 from app.storage import StoreError, get_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.5.0"
 
 
 def runtime_is_ready() -> bool:
     return agent_runtime.runtime_is_ready()
+
+
+def _agent_ready(agent_id: str) -> bool:
+    return agent_runtime.agent_runtime_is_ready(agent_id) if agent_id == "iran-news" else runtime_is_ready()
 
 
 @asynccontextmanager
@@ -89,7 +94,6 @@ def health() -> dict[str, object]:
 
 @app.get("/v1/agents", tags=["agents"])
 def list_agents(_: str = Depends(require_owner)) -> dict[str, object]:
-    ready = runtime_is_ready()
     agents = get_agents()
     return {
         "count": len(agents),
@@ -99,7 +103,7 @@ def list_agents(_: str = Depends(require_owner)) -> dict[str, object]:
             "description": a.get("description", ""),
             "skill_ids": [s["id"] for s in a.get("skills", [])],
             "enabled": bool(a.get("enabled", False)),
-            "runtime_ready": ready and bool(a.get("enabled", False)),
+            "runtime_ready": _agent_ready(a["id"]) and bool(a.get("enabled", False)),
         } for a in agents],
     }
 
@@ -116,7 +120,7 @@ def agent_detail(agent_id: str, _: str = Depends(require_owner)) -> dict[str, ob
         "description": agent.get("description", ""),
         "skills": [{"id": s["id"], "path": s["path"], "sha256": s["sha256"]}
                    for s in agent.get("skills", [])],
-        "runtime_ready": runtime_is_ready() and bool(agent.get("enabled", False)),
+        "runtime_ready": _agent_ready(agent_id) and bool(agent.get("enabled", False)),
     }
 
 
@@ -131,12 +135,14 @@ def get_skill(agent_id: str, skill_id: str, _: str = Depends(require_owner)) -> 
 
 @app.post("/v1/agents/{agent_id}/run", tags=["reports"])
 def submit_task(
-    agent_id: str, request: TaskRequest,
+    agent_id: str, request: RunRequest,
     idempotency_key: str | None = Header(default=None, max_length=200),
     _: str = Depends(require_owner),
 ) -> dict[str, object]:
     require_capability(agent_id, "actions", "submit_task")
     options = {"language": request.language} if request.language != "ar" else {}
+    if request.continue_from_report_id is not None:
+        options["continue_from_report_id"] = request.continue_from_report_id
     return execute_report(agent_id, request.task, idempotency_key=idempotency_key, trigger="manual", **options)
 
 
@@ -158,16 +164,38 @@ def system_status(_: str = Depends(require_owner)) -> dict[str, object]:
             pricing_ready = True
         except HTTPException as exc:
             configuration_issue = exc.detail.get("code") if isinstance(exc.detail, dict) else "configuration_incomplete"
+    newsdata_issue = None
+    try:
+        page_size = newsdata.page_size_setting()
+    except HTTPException as exc:
+        page_size = None
+        newsdata_issue = exc.detail.get("code", "newsdata_configuration_incomplete")
+    plan = (get_setting("NEWSDATA_PLAN", "unknown") or "unknown").lower()
+    if plan not in {"free", "paid"}:
+        plan = "unknown"
+    news_ready = newsdata.is_ready()
     return {
         "app": "AI HUB", "version": APP_VERSION, "timezone": "Asia/Dubai",
-        "news_items_per_report": None, "news_count_mode": "available",
-        "news_item_limit": agent_runtime.MAX_NEWS_ITEMS,
-        "allowed_source_domains": list(agent_runtime.ALLOWED_SOURCE_DOMAINS),
+        "news_items_per_report": None, "news_count_mode": "provider_page",
+        "news_item_limit": None, "allowed_source_domains": [],
+        "iran_news": {
+            "provider": "newsdata", "configured": news_ready,
+            "query": newsdata.NEWSDATA_QUERY, "query_semantics": "iran AND war",
+            "window_hours": 48, "source_language": "en", "page_size": page_size,
+            "plan": plan, "free_plan_delay_hours": 12,
+            "translation_provider": "openai", "translation_configured": openai,
+            "configuration_issue": newsdata_issue or (None if news_ready else "newsdata_not_configured"),
+        },
+        "other_news": {
+            "provider": "openai", "configured": openai,
+            "processing_limit": agent_runtime.MAX_NEWS_ITEMS,
+            "allowed_source_domains": list(agent_runtime.ALLOWED_SOURCE_DOMAINS),
+        },
         "model_configured": runtime_is_ready(),
         "provider": "openai" if openai else None,
         "model": get_setting("OPENAI_MODEL_NAME", agent_runtime.DEFAULT_OPENAI_MODEL),
-        "search_configured": openai,
-        "search_provider": "openai" if openai else None,
+        "search_configured": news_ready,
+        "search_provider": "newsdata" if news_ready else None,
         "pricing_configured": pricing_ready, "configuration_issue": configuration_issue,
         "scheduler_enabled": (get_setting("SCHEDULER_ENABLED", "false") or "").lower() in {"1", "true", "yes"},
         "scheduler_running": bool(scheduler and scheduler.is_running),
@@ -200,6 +228,7 @@ def report_detail(report_id: str, _: str = Depends(require_owner)) -> dict:
 @app.get("/v1/reports/{report_id}/download", tags=["reports"])
 def download_report(
     report_id: str, format: Literal["md", "json"] = "md",
+    language: Literal["ar", "en"] | None = None,
     _: str = Depends(require_owner),
 ) -> Response:
     record = _report_or_404(report_id)
@@ -208,7 +237,8 @@ def download_report(
         mime = "application/json"
     else:
         result = record.get("result") or {}
-        content = "# AI HUB\n\n" + str(result.get("response") or "لم تتوفر نتيجة مكتملة لهذا التقرير.")
+        localized = result.get("response_" + language) if language and result.get("provider") == "newsdata" else None
+        content = "# AI HUB\n\n" + str(localized or result.get("response") or "لم تتوفر نتيجة مكتملة لهذا التقرير.")
         mime = "text/markdown"
     filename = "AI_HUB_Report_" + str(record["report_id"]) + "." + format
     return Response(content, media_type=mime,

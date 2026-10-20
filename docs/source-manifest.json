@@ -2,7 +2,7 @@
   "project": "AI HUB",
   "adapted_from": "User-supplied project handoff; branding and selected instructions adapted for AI HUB.",
   "source_snapshot_date": "2026-10-12",
-  "handoff_date": "2026-10-19",
+  "handoff_date": "2026-10-20",
   "agent_count": 13,
   "skill_file_count": 14,
   "skills": [
@@ -16,7 +16,7 @@
       "agent_id": "iran-news",
       "skill_id": "iran-news",
       "path": "skills/iran-news/iran-news.md",
-      "sha256": "0a6f029ea1a5dd8f810cda39106b214ec4b3b10a08d4efc9e9d44d0a9a9f0ed6"
+      "sha256": "1ca429ead1e5239d0e69c5fb250282f0d313469d0bbf39055a67aae50c747dd3"
     },
     {
       "agent_id": "uae-eu-trade-talks",

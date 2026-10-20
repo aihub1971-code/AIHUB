@@ -149,6 +149,84 @@ function report(overrides = {}) {
   };
 }
 
+function publisherCoverage(counts = {"Al Jazeera": {item_count: 1}}) {
+  return [
+    ["Financial Times",["ft.com"]],["The Atlantic",["theatlantic.com"]],
+    ["Politico",["politico.com","politico.eu"]],["The Wall Street Journal",["wsj.com"]],
+    ["The Daily Telegraph",["telegraph.co.uk"]],["Al Jazeera",["aljazeera.com","aljazeera.net"]]
+  ].map(([publisher,domains])=>({publisher,domains,item_count:0,background_count:0,...counts[publisher]}));
+}
+
+test("publisher coverage is a collapsed bilingual summary of all six actual counts in one report", async () => {
+  const ui=harness();ui.displayResult(report({publisher_coverage:publisherCoverage()}));
+  const body=ui.elements.get("responseBody");
+  let coverage=byClass(body,"news-source-coverage")[0];
+  assert.equal(coverage.tagName,"DETAILS");assert.equal(coverage.getAttribute("open"),null);
+  assert.equal(coverage.dir,"rtl");assert.equal(coverage.lang,"ar");
+  assert.equal(byTag(coverage,"summary")[0].textContent,"المصادر في هذا التقرير");
+  assert.deepEqual(byClass(coverage,"news-publisher-name").map(el=>el.textContent),
+    ["Financial Times","The Atlantic","Politico","The Wall Street Journal","The Daily Telegraph","الجزيرة"]);
+  assert.equal(byClass(coverage,"news-publisher-row").length,6);
+  assert.equal(byClass(coverage,"news-publisher-item-count").at(-1).textContent,"أخبار الفترة: 1");
+  assert.equal(byClass(coverage,"news-publisher-background-count").at(-1).textContent,"السياق الإضافي: 0");
+  assert.equal(byClass(coverage,"news-publisher-missing").length,5);
+  assert.equal(byClass(coverage,"news-publisher-missing")[0].textContent,"لم يُدرج خبر مستوفٍ للشروط من هذا المصدر في هذا التقرير.");
+  await ui.elements.get("languageEN").click();coverage=byClass(body,"news-source-coverage")[0];
+  assert.equal(coverage.dir,"ltr");assert.equal(coverage.lang,"en");
+  assert.equal(byTag(coverage,"summary")[0].textContent,"Sources in this report");
+  assert.equal(byClass(coverage,"news-publisher-name").at(-1).textContent,"Al Jazeera");
+  assert.equal(byClass(coverage,"news-publisher-item-count").at(-1).textContent,"News in period: 1");
+  assert.equal(byClass(coverage,"news-publisher-missing")[0].textContent,"No eligible article was included for this publisher in this report.");
+  assert.equal(byClass(body,"news-report-title").length,1);
+  assert.equal(byClass(body,"news-item").length,1);assert.equal(byClass(body,"news-source-link").length,1);
+  assert.equal(ui.requests.length,0,"Expanding coverage or changing labels needs no publisher request.");
+});
+
+test("publisher coverage separates background counts from period news and does not claim missing publications", () => {
+  const ui=harness(null,{language:"en"});
+  ui.displayResult(report({items:[],item_count:0,
+    background_items:[item({url:"https://www.ft.com/content/synthetic-previous-day",classification:"prior_day_background",published_day_dubai:"2026-10-19"})],
+    publisher_coverage:publisherCoverage({"Financial Times":{background_count:1}})}));
+  const body=ui.elements.get("responseBody"),coverage=byClass(body,"news-source-coverage")[0];
+  const ft=byClass(coverage,"news-publisher-row")[0];
+  assert.equal(byClass(ft,"news-publisher-item-count")[0].textContent,"News in period: 0");
+  assert.equal(byClass(ft,"news-publisher-background-count")[0].textContent,"Additional context: 1");
+  assert.equal(byClass(ft,"news-publisher-missing").length,0,"An included background article is not absent from the report.");
+  assert.equal(byClass(coverage,"news-publisher-missing").length,5);
+  assert.equal(byClass(body,"news-count")[0].textContent,"News items: 0");
+  assert.equal(byClass(body,"news-background").length,1);
+  assert.doesNotMatch(coverage.textContent,/not searched|did not publish|no articles? (?:exists?|published)/i);
+});
+
+test("legacy and incomplete publisher metadata do not invent coverage or replace the existing report", () => {
+  const ui=harness();
+  for(const coverage of [undefined,null,[],publisherCoverage().slice(0,5),
+    publisherCoverage().map((row,index)=>index===0 ? {...row,item_count:"0"} : row),
+    publisherCoverage().map((row,index)=>index===0 ? {...row,publisher:"<img src=x onerror=alert(1)>"} : row)]){
+    ui.displayResult(report({publisher_coverage:coverage}));
+    const body=ui.elements.get("responseBody");
+    assert.equal(byClass(body,"news-source-coverage").length,0);
+    assert.equal(byClass(body,"news-headline")[0].textContent,item().headline);
+    assert.equal(byClass(body,"news-source-link")[0].href,item().url);
+    assert.equal(byClass(body,"news-notes").length,1);
+  }
+});
+
+test("archived publisher coverage uses the same renderer while copy and download retain the saved report", async () => {
+  const data=report({publisher_coverage:publisherCoverage()});
+  const saved={report_id:data.report_id,agent_id:"iran-news",status:"succeeded",result:data};
+  const ui=harness(saved);ui.setAuthenticated();
+  ui.renderArchive([{...saved,task:"Synthetic archived report",created_at:data.generated_at}]);
+  await byTag(ui.elements.get("archiveList"),"button")[0].click();
+  const coverage=byClass(ui.elements.get("responseBody"),"news-source-coverage")[0];
+  assert.equal(byClass(coverage,"news-publisher-row").length,6);
+  assert.equal(byClass(coverage,"news-publisher-item-count").at(-1).textContent,"أخبار الفترة: 1");
+  await ui.elements.get("copyBtn").click();assert.equal(ui.copied(),data.response);
+  await ui.elements.get("downloadBtn").click();
+  assert.equal(ui.requests[0].url,"/v1/reports/rpt_ui_fixture");
+  assert.equal(ui.requests[1].url,"/v1/reports/rpt_ui_fixture/download?format=md");
+});
+
 test("news presents a headline, summary, publisher, publication date and direct official link", () => {
   const ui = harness();
   ui.displayResult(report());
@@ -355,23 +433,23 @@ test("switching UI language preserves an open Arabic report, its attachment iden
   assert.equal(ui.chatCalls.language,2);
 });
 
-test("partial publisher research and separate event dates are visible and localized", () => {
+test("an incomplete follow-up and separate event dates are visible and localized", () => {
   const ui=harness(null,{language:"en"});
-  ui.displayResult(report({language:"en",items:[item({headline:"A current article about an earlier event",summary:"Synthetic summary.",event_date:"2026-10-18",event_timing_relative_to_window:"before_window"})],web_search:{research_incomplete:true,failed_request_count:2}}));
+  ui.displayResult(report({language:"en",items:[item({headline:"A current article about an earlier event",summary:"Synthetic summary.",event_date:"2026-10-18",event_timing_relative_to_window:"before_window"})],web_search:{research_incomplete:true,failed_request_count:1}}));
   const body=ui.elements.get("responseBody");
-  assert.match(byClass(body,"news-research-warning")[0].textContent,/did not complete.*\(2\)/);
+  assert.match(byClass(body,"news-research-warning")[0].textContent,/additional search could not complete.*coverage remains incomplete/);
   assert.match(byClass(body,"news-event-date")[0].textContent,/Event date reported in research notes: 18 October 2026/);
   assert.equal(byClass(body,"news-list").length,1);
   assert.equal(byClass(body,"news-background").length,0);
   assert.equal(body.dir,"ltr");
   ui.I18n.setLanguage("ar");
-  assert.match(byClass(body,"news-research-warning")[0].textContent,/لم يكتمل البحث/);
+  assert.match(byClass(body,"news-research-warning")[0].textContent,/تعذر إكمال البحث الاستكمالي/);
   assert.equal(body.dir,"ltr");
 });
 
 test("scripts initialize in order without chat requests before authentication; logout clears private state", async () => {
   const sources=[...html.matchAll(/<script src="([^"]+)"/g)].map(match=>match[1]);
-  assert.deepEqual(sources,["/static/i18n.js?v=1.4.2","/static/chat.js?v=1.4.2","/static/app.js?v=1.4.2"]);
+  assert.deepEqual(sources,["/static/i18n.js?v=1.5.0","/static/chat.js?v=1.5.0","/static/app.js?v=1.5.0"]);
   const ui=harness(null,{language:"en",fetch:(url,_options,respond)=>dashboardFixture(url,respond)});
   assert.equal(ui.chatCalls.create,1);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
   assert.equal(ui.chatConfig.getCurrentReport(),null);
@@ -463,4 +541,125 @@ test("known backend errors are localized without showing raw service messages", 
   assert.match(error.message,/conversation changed/);assert.doesNotMatch(error.message,/RAW_PRIVATE/);
   ui.I18n.setLanguage("ar");
   assert.match(ui.makeError({detail:{code:"invalid_chat_response"}},502).message,/لم يصل رد صالح/);
+});
+
+function newsdataReport(overrides={}) {
+  return report({provider:"newsdata",language:"ar",task:"iran war",report_id:"rpt_newsdata_page_1",
+    items:[item({article_id:"fixture-1",publisher:"Reuters",url:"https://www.reuters.com/world/middle-east/fixture-article",
+      headline_en:"Original English headline",summary_en:"Original English description.",
+      headline_ar:"عنوان مترجم إلى العربية",summary_ar:"ملخص الخبر مترجم إلى العربية.",translation_status:"translated",
+      published_date:"2026-10-20T03:00:00+00:00"})],
+    pagination:{has_more:true,page_index:1,page_size:10,parent_report_id:null,root_report_id:"rpt_newsdata_page_1",total_results:127},
+    newsdata:{provider_total_results:127},freshness:{plan:"free"},
+    response_ar:"## تقرير عربي محفوظ\n\nعنوان مترجم إلى العربية",
+    response_en:"## Saved English report\n\nOriginal English headline",...overrides});
+}
+
+test("NewsData displays any validated publisher and switches saved translations instantly", async () => {
+  const ui=harness();ui.setAuthenticated();ui.chooseAgent("iran-news");const data=newsdataReport();ui.displayResult(data);
+  const body=ui.elements.get("responseBody");
+  assert.equal(byClass(body,"news-headline")[0].textContent,"عنوان مترجم إلى العربية");
+  assert.equal(byClass(body,"news-publisher")[0].textContent,"Reuters");
+  assert.equal(byClass(body,"news-source-link")[0].href,data.items[0].url);
+  assert.equal(byClass(body,"news-source-coverage").length,0,"Iran must not show the old six-publisher list.");
+  assert.match(body.textContent,/12|١٢/);
+  assert.match(byClass(body,"news-provider-total")[0].textContent,/127|١٢٧/);
+  ui.I18n.setLanguage("en");
+  assert.equal(body.dir,"ltr");assert.equal(body.lang,"en");
+  assert.equal(byClass(body,"news-headline")[0].textContent,"Original English headline");
+  assert.equal(byClass(body,"news-summary")[0].textContent,"Original English description.");
+  assert.equal(byClass(body,"news-count")[0].textContent,"Page 1 · 1 articles shown");
+  await ui.elements.get("copyBtn").click();assert.equal(ui.copied(),data.response_en);
+  ui.I18n.setLanguage("ar");
+  await ui.elements.get("copyBtn").click();assert.equal(ui.copied(),data.response_ar);
+  assert.equal(ui.requests.length,0,"Language switching and copying must not refetch or translate.");
+  assert.equal(ui.getCurrentReport().id,data.report_id);
+});
+
+test("NewsData Arabic translation failures retain English and unsafe links never become clickable", () => {
+  const ui=harness();const data=newsdataReport();
+  data.items[0]={...data.items[0],translation_status:"original_only",headline_ar:null,summary_ar:null};
+  data.items.push({...data.items[0],url:"https://127.0.0.1/private"});
+  data.item_count=2;ui.displayResult(data);const body=ui.elements.get("responseBody");
+  assert.equal(byClass(body,"news-headline")[0].textContent,"Original English headline");
+  assert.equal(byClass(body,"news-item")[0].lang,"en");
+  assert.match(byClass(body,"news-translation-note")[0].textContent,/الترجمة العربية غير متاحة/);
+  assert.equal(byClass(body,"news-source-link").length,1);
+  assert.equal(byClass(body,"news-link-unavailable").length,1);
+  assert.equal(ui.requests.length,0);
+});
+
+test("NewsData paid pages may show more than 20 items without applying a six-story target", () => {
+  const ui=harness(null,{language:"en"}),data=newsdataReport({freshness:{plan:"paid"}});
+  data.items=Array.from({length:25},(_,i)=>({...data.items[0],article_id:"fixture-"+i,headline_en:"Article "+i}));
+  data.item_count=25;data.pagination.page_size=25;ui.displayResult(data);
+  assert.equal(byClass(ui.elements.get("responseBody"),"news-item").length,25);
+  assert.match(byClass(ui.elements.get("responseBody"),"news-count")[0].textContent,/25 articles/);
+  assert.doesNotMatch(ui.elements.get("responseBody").textContent,/12-hour|20 news|of 6/);
+});
+
+test("Next and Previous show saved report pages and preserve the original request language", async () => {
+  const first=newsdataReport({task:"Original scheduled task"});
+  const second=newsdataReport({report_id:"rpt_newsdata_page_2",task:first.task,
+    pagination:{has_more:false,page_index:2,page_size:10,parent_report_id:first.report_id,root_report_id:first.report_id},
+    items:[{...first.items[0],headline_en:"Second page only"}]});
+  const savedFirst={report_id:first.report_id,agent_id:"iran-news",status:"succeeded",language:"ar",task:first.task,
+    result:first,pagination:{...first.pagination,next_report_id:second.report_id,next_report_status:"succeeded"}};
+  const savedSecond={report_id:second.report_id,agent_id:"iran-news",status:"succeeded",language:"ar",task:first.task,result:second};
+  const ui=harness(null,{language:"en",fetch:(url,options,respond)=>{
+    if(url.endsWith("/run"))return respond(second);
+    if(url==="/v1/reports/"+first.report_id)return respond(savedFirst);
+    if(url==="/v1/reports/"+second.report_id)return respond(savedSecond);
+    return dashboardFixture(url,respond);
+  }});
+  ui.setAuthenticated();ui.chooseAgent("iran-news");ui.displayResult(first);
+  let body=ui.elements.get("responseBody");
+  await byClass(body,"news-page-next")[0].click();
+  const run=ui.requests.find(request=>request.url.endsWith("/run"));
+  assert.deepEqual(JSON.parse(run.options.body),{task:first.task,language:"ar",continue_from_report_id:first.report_id});
+  assert.equal(ui.getCurrentReport().id,second.report_id);
+  assert.equal(byClass(body,"news-item").length,1);
+  assert.equal(byClass(body,"news-headline")[0].textContent,"Second page only");
+  assert.equal(byClass(body,"news-page-next")[0].disabled,true);
+  await byClass(body,"news-page-previous")[0].click();
+  assert.equal(ui.getCurrentReport().id,first.report_id);
+  await byClass(body,"news-page-next")[0].click();
+  assert.equal(ui.getCurrentReport().id,second.report_id);
+  assert.equal(ui.requests.filter(request=>request.url.endsWith("/run")).length,1,"Saved page navigation must not charge a second time.");
+});
+
+test("an interrupted continuation keeps its idempotency key and the current page visible", async () => {
+  const ui=harness(null,{fetch:(url,_options,respond)=>{
+    if(url.endsWith("/run"))throw new Error("Synthetic interrupted response");
+    return dashboardFixture(url,respond);
+  }});
+  ui.setAuthenticated();ui.chooseAgent("iran-news");const data=newsdataReport();ui.displayResult(data);
+  const body=ui.elements.get("responseBody");
+  await byClass(body,"news-page-next")[0].click();await byClass(body,"news-page-next")[0].click();
+  const runs=ui.requests.filter(request=>request.url.endsWith("/run"));
+  assert.equal(runs.length,2);
+  assert.equal(runs[0].options.headers["Idempotency-Key"],runs[1].options.headers["Idempotency-Key"]);
+  assert.equal(ui.getCurrentReport().id,data.report_id);
+  assert.equal(byClass(body,"news-item").length,1);
+});
+
+test("NewsData download requests the visible language and a failed child is not retried", async () => {
+  const ui=harness(null,{language:"en"});ui.setAuthenticated();
+  const data=newsdataReport();data.pagination.next_report_id="rpt_failed_page";data.pagination.next_report_status="failed";
+  ui.displayResult(data);await ui.elements.get("downloadBtn").click();
+  assert.equal(ui.requests[0].url,"/v1/reports/"+data.report_id+"/download?format=md&language=en");
+  assert.equal(byClass(ui.elements.get("responseBody"),"news-page-next")[0].disabled,true);
+  assert.match(ui.elements.get("responseBody").textContent,/next-page attempt could not complete/);
+});
+
+test("Iran’s manual query is fixed to iran war even if the form value is changed", async () => {
+  const ui=harness(null,{fetch:(url,options,respond)=>{
+    if(url.endsWith("/run"))return respond(newsdataReport());
+    return dashboardFixture(url,respond);
+  }});
+  ui.setAuthenticated();ui.chooseAgent("iran-news");
+  assert.equal(ui.elements.get("task").readOnly,true);assert.equal(ui.elements.get("task").value,"iran war");
+  ui.elements.get("task").value="unrelated topic";await ui.runTask();
+  const run=ui.requests.find(request=>request.url.endsWith("/run"));assert.equal(JSON.parse(run.options.body).task,"iran war");
+  assert.equal(ui.elements.get("task").value,"iran war");
 });

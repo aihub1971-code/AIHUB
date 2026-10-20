@@ -81,6 +81,44 @@ def test_mixed_live_note_keeps_publication_date_separate_from_time_only_update()
     assert_exact_choices(choices, original)
 
 
+@pytest.mark.parametrize("label,value,qualifier", [
+    ("Published:", "20 أكتوبر 2026", "دون ساعة نشر معلنة"),
+    ("Published:", "20 أكتوبر 2026", "دون ساعة نشر مُعلَنة"),
+    ("تاريخ النشر:", "٢٠ أكتوبر ٢٠٢٦", "دون ساعة نشر معلنة"),
+])
+def test_explicit_absent_publication_clock_keeps_exact_date_without_qualifier(label, value, qualifier):
+    clause = f"{label} {value}"
+    original = source(f"{clause}، {qualifier}. "
+                      "افتتح مركز تدريب افتراضي في مدينة اختبار ضمن هذه البيانات الاصطناعية.",
+                      title="افتتاح مركز تدريب افتراضي ضمن سيناريو الاختبار")
+    choices = evidence.source_evidence_choices(original)
+    assert choices["publications"] == [{"value": value, "note": clause}]
+    assert qualifier not in choices["publications"][0]["note"]
+    assert runtime._validated_publication(publication_choice(value, clause), original) == (
+        value, date(2026, 10, 20))
+    assert_exact_choices(choices, original)
+
+
+@pytest.mark.parametrize("note", [
+    "Published: 20 أكتوبر 2026، يناقش تقرير اصطناعي برامج التعليم.",
+    "Published: 20 أكتوبر 2026، 13:00:00 UTC.",
+    "Published: 20 أكتوبر 2026، الساعة 25:99 UTC.",
+    "Published: 20 أكتوبر 2026، الساعة غير معروفة في هذا المثال.",
+    "Published: 20 أكتوبر 2026، دون ساعة نشر معلنة، 13:00:00 UTC.",
+    "Published: 2026-10-20T13:00:00Z، دون ساعة نشر معلنة.",
+    "Published: 2026-10-20T25:99:00Z، دون ساعة نشر معلنة.",
+    "Published: 20 أكتوبر 2026**T13:00:00Z، دون ساعة نشر معلنة.",
+    "Published: unknown، دون ساعة نشر معلنة. وقع حدث افتراضي في 20 أكتوبر 2026.",
+    "وقع حدث افتراضي في 20 أكتوبر 2026، دون ساعة نشر معلنة.",
+    "Published: https://www.aljazeera.net/news/2026/10/20/synthetic-fixture، دون ساعة نشر معلنة.",
+])
+def test_no_clock_exception_never_truncates_prose_clocks_or_nonpublication_dates(note):
+    original = source(note, title="سيناريو اصطناعي مختلف لا يثبت تاريخ نشر")
+    choices = evidence.source_evidence_choices(original)
+    assert choices["publications"] == []
+    assert_exact_choices(choices, original)
+
+
 @pytest.mark.parametrize("value", [
     "2026-10-20T07:00:00Z", "2026-10-20T07:00:00+04:00",
     "2026-10-20T07:00:00.123Z", "2026-10-20 07:00:00 UTC",

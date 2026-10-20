@@ -19,6 +19,10 @@ _PUBLICATION_FILLER = re.compile(
     r"[\s:：,؛-]*(?:(?:date|time|on|at|في|بتاريخ|يوم)\b[\s:：,؛-]*)*",
     re.IGNORECASE,
 )
+_NO_CLOCK_QUALIFIER = re.compile(
+    r"(?:دون|بدون|بلا)\s+(?:ساعة|وقت|توقيت)\s+(?:نشر|النشر)\s+"
+    r"(?:معلن(?:ة)?|محدد(?:ة)?|مذكور(?:ة)?)"
+)
 _ISO_CLOCK = re.compile(
     r"\d{4}-\d{1,2}-\d{1,2}[Tt ]\d{1,2}:\d{2}"
     r"(?::\d{2}(?:[.,]\d+)?)?"
@@ -77,6 +81,26 @@ def _clause_end(text: str, start: int) -> int:
     return min(len(text), start + 301)
 
 
+def _date_before_no_clock_qualifier(text: str, start: int, end: int, runtime: object) -> int:
+    """Separate an explicit no-clock note from a complete original calendar date.
+
+    Only the qualifier is normalized for Arabic vowel marks. A date must still
+    parse in full, so clocks, zones, unknown metadata and arbitrary comma prose
+    cannot be discarded. The original complete source is validated afterwards.
+    """
+    for comma in re.finditer(r"[،,]", text[start:end]):
+        boundary = start + comma.start()
+        qualifier = re.sub(r"[\u0640\u064b-\u065f\u0670]", "", text[boundary + 1:end]).strip()
+        if not _NO_CLOCK_QUALIFIER.fullmatch(qualifier):
+            continue
+        date_end = boundary
+        while date_end > start and text[date_end - 1].isspace():
+            date_end -= 1
+        if runtime._parse_date_phrase(text[start:date_end]):
+            return date_end
+    return end
+
+
 def _publication_choices(content: str, source: dict[str, object], runtime: object) -> list[dict[str, str]]:
     plain, offsets, pairs = _plain_offsets(content)
     choices: list[dict[str, str]] = []
@@ -87,6 +111,7 @@ def _publication_choices(content: str, source: dict[str, object], runtime: objec
         end = _clause_end(plain, start)
         while end > start and plain[end - 1].isspace():
             end -= 1
+        end = _date_before_no_clock_qualifier(plain, start, end, runtime)
         if not 1 <= end - start <= 100:
             continue
         value = plain[start:end]

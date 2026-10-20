@@ -64,15 +64,23 @@ def test_english_run_uses_english_schema_and_returns_english_markdown(monkeypatc
     monkeypatch.setattr(runtime, "_now_dubai", lambda: datetime(2026, 10, 20, 9, tzinfo=runtime.DUBAI))
     source, item = english_fixture()
     payloads = []
+    research_calls = 0
 
     def provider(_key, payload, *, research=False):
+        nonlocal research_calls
         payloads.append(payload)
         if research:
-            assert payload["tools"][0]["filters"]["allowed_domains"] == list(runtime.ALLOWED_SOURCE_DOMAINS)
-            text = f"Title: {source['title']} — {source['url']} {source['content']}"
-            sources = [{"type": "url", "url": source["url"], "title": source["title"]}]
+            research_calls += 1
+            assert research_calls <= 2
+            expected_domains = (list(runtime.ALLOWED_SOURCE_DOMAINS) if research_calls == 1 else
+                                [domain for domain in runtime.ALLOWED_SOURCE_DOMAINS if domain != "ft.com"])
+            assert payload["tools"][0]["filters"]["allowed_domains"] == expected_domains
+            text = f"Title: {source['title']} — {source['url']} {source['content']}" if research_calls == 1 else ""
+            sources = ([{"type": "url", "url": source["url"], "title": source["title"]}]
+                       if research_calls == 1 else [])
             return {"content": text, "parts": [{"text": text, "annotations": []}],
-                    "native_calls": [{"action": {"type": "search", "sources": sources}}],
+                    "native_calls": [{"type": "web_search_call", "status": "completed",
+                                      "action": {"type": "search", "sources": sources}}],
                     "usage": runtime._normalise_usage({"input_tokens": 100, "output_tokens": 100}),
                     "tier_matches": True, "usage_bound_matches": True}
         assert "headline_en" in payload["text"]["format"]["schema"]["properties"]["items"]["items"]["required"]
@@ -83,10 +91,10 @@ def test_english_run_uses_english_schema_and_returns_english_markdown(monkeypatc
                 "tier_matches": True, "usage_bound_matches": True}
 
     monkeypatch.setattr(runtime, "_call_model", provider)
-    result = runtime.run_agent("iran-news", "أخبار اليوم", language="en")
+    result = runtime.run_agent("geopolitical-morning", "أخبار اليوم", language="en")
     assert result["language"] == "en" and result["item_count"] == 1
-    assert len(payloads) == 2 and result["model_call_count"] == 2
-    assert result["response"].startswith("## Iran news briefing")
+    assert len(payloads) == 3 and result["model_call_count"] == 3
+    assert result["response"].startswith("## Geopolitical briefing")
 
 
 def test_language_persists_and_is_part_of_report_idempotency(client, monkeypatch):

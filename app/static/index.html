@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">
 <title>AI HUB | منصة المساعدين الذكيين</title>
-<link rel="stylesheet" href="/static/style.css?v=1.4.2">
-<link rel="stylesheet" href="/static/chat.css?v=1.4.2">
+<link rel="stylesheet" href="/static/style.css?v=1.5.0">
+<link rel="stylesheet" href="/static/chat.css?v=1.5.0">
 </head>
 <body><div class="shell">
 <header class="topbar">
@@ -33,7 +33,7 @@
   <article><span data-i18n="overview.attempts"></span><strong id="dailyCount">—</strong><small id="dailyRemaining">—</small></article>
   <article><span data-i18n="overview.dailyCost"></span><strong id="dailyCost">—</strong><small id="dailyBudget">—</small></article>
   <article><span data-i18n="overview.monthlyCost"></span><strong id="monthlyCost">—</strong><small id="monthlyBudget">—</small></article>
-  <article><span data-i18n="overview.configuration"></span><strong id="providerStatus">—</strong><small id="scheduleStatus">—</small></article>
+  <article><span data-i18n="overview.configuration"></span><strong id="providerStatus">—</strong><small id="scheduleStatus">—</small><small id="newsdataCredits">—</small></article>
 </section>
 <nav id="workspaceTabs" class="workspace-tabs hidden" role="tablist" data-i18n-aria-label="tabs.label">
   <button id="reportsTab" type="button" role="tab" aria-controls="reportsView" aria-selected="true" data-i18n="tabs.reports"></button>
@@ -66,6 +66,7 @@
     <div class="runner">
       <div class="runner-head"><h3 data-i18n="task.title"></h3><span data-i18n="task.eyebrow"></span></div>
       <div class="field"><label for="task" data-i18n="task.label"></label><textarea id="task" dir="auto" maxlength="8000" aria-describedby="newsCoverageHint reportLanguageHint" data-i18n-placeholder="task.placeholder"></textarea><small id="newsCoverageHint" class="hint" data-i18n="task.coverage"></small><small id="reportLanguageHint" class="hint" data-i18n="task.languageNote"></small></div>
+      <p id="iranQueryNotice" class="notice hidden" data-i18n="newsdata.queryNote"></p>
       <div class="examples"><button type="button" id="worldNewsPreset" class="textbutton" data-i18n="task.worldPreset"></button><button type="button" id="iranNewsPreset" class="textbutton" data-i18n="task.iranPreset"></button></div>
       <div class="actions"><button id="runBtn" class="primary" type="button" data-i18n="task.run"></button><button id="clearBtn" class="secondary" type="button" data-i18n="task.clear"></button><span class="hint" id="runHint" data-i18n="task.runHint"></span></div>
     </div>
@@ -108,8 +109,8 @@
 <section id="chatView" class="hidden" role="tabpanel" aria-labelledby="chatTab"><div id="chatRoot"></div></section>
 <footer class="footer"><span data-i18n="footer.brand"></span><span data-i18n="footer.note"></span></footer>
 </div>
-<script src="/static/i18n.js?v=1.4.2" defer></script>
-<script src="/static/chat.js?v=1.4.2" defer></script>
-<script src="/static/app.js?v=1.4.2" defer></script>
+<script src="/static/i18n.js?v=1.5.0" defer></script>
+<script src="/static/chat.js?v=1.5.0" defer></script>
+<script src="/static/app.js?v=1.5.0" defer></script>
 </body>
 </html>

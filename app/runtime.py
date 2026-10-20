@@ -1,9 +1,9 @@
-"""Bounded OpenAI Responses runtime and source-grounded bilingual news reports.
+"""Bounded report runtime with NewsData Iran news and OpenAI assistants.
 
-Only OpenAI is called: news uses unified research across the approved publishers,
-with one optional bounded evidence recovery, then one report response. Budget
-reservation and persistence belong to app.service. Native citations attest source URLs, not independently fetched
-publisher bodies; report evidence is explicitly labelled model research notes.
+Iran dispatches structured NewsData articles plus optional Arabic translations.
+Other news uses OpenAI research with one bounded follow-up and a report response.
+Reservation and persistence belong to app.service. Native citations attest URLs,
+not independently fetched publisher bodies; each route labels its own evidence.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.config import get_setting
-from app.permissions import is_allowed
+from app.permissions import is_allowed, require_capability
 from app.registry import get_agent, read_skill
 from app.news_recovery import (RECOVERY_MAX_INPUT_BYTES, build_evidence_recovery_payload,
                                plan_evidence_recovery)
@@ -36,6 +36,29 @@ MAX_NEWS_ITEMS = 20
 ALLOWED_SOURCE_DOMAINS = (
     "ft.com", "theatlantic.com", "politico.com", "politico.eu", "wsj.com",
     "telegraph.co.uk", "aljazeera.com", "aljazeera.net",
+)
+APPROVED_PUBLISHERS = (
+    ("Financial Times", ("ft.com",)),
+    ("The Atlantic", ("theatlantic.com",)),
+    ("Politico", ("politico.com", "politico.eu")),
+    ("The Wall Street Journal", ("wsj.com",)),
+    ("The Daily Telegraph", ("telegraph.co.uk",)),
+    ("Al Jazeera", ("aljazeera.com", "aljazeera.net")),
+)
+NEWS_QUERY_GUIDANCE = (
+    "Research the subject across the approved domains supplied for THIS request together in one unified search. "
+    "The native allowed_domains filter already restricts publishers. Use one concise natural-language "
+    "query with the main subject and period in ordinary words. Query language is independent of "
+    "the requested report language: use English to discover English-language reporting, and Arabic "
+    "for complementary Arabic reporting. Do not concatenate translations or every city/topic example. "
+    "Do not repeat publisher names or domains, site: clauses, Boolean OR/AND lists, parentheses, "
+    "after: or before: operators. Never put a calendar date in quotation marks or require its exact "
+    "spelling in the query. For current news, use a simple subject-led latest-news query rather than "
+    "generic terms such as important international official decisions. Assess publication dates "
+    "after retrieval against the frozen requested window. A newly published report about an earlier "
+    "event can qualify; keep that event's actual timing clear. Do not allocate a quota to individual "
+    "publishers or split the result into publisher reports. Return all useful distinct articles "
+    "you can support within the response budget, without a target count."
 )
 MAX_TASK_CHARS = 8000
 MAX_SKILL_CONTEXT_CHARS = 50000
@@ -87,9 +110,16 @@ def _provider_config() -> tuple[str, str, str, str]:
 
 
 def runtime_is_ready() -> bool:
-    """One OpenAI key supplies both the model and hosted web search."""
+    """Readiness for OpenAI assistants and chat; Iran uses its own provider."""
     _, model, key, _ = _provider_config()
     return bool(model and key)
+
+
+def agent_runtime_is_ready(agent_id: str) -> bool:
+    if agent_id == "iran-news":
+        from .newsdata import is_ready
+        return is_ready()
+    return runtime_is_ready()
 
 
 def _max_output_tokens() -> int:
@@ -519,8 +549,10 @@ def _is_article_url(title: str, url: str) -> bool:
     path = unquote(urlsplit(url).path).strip("/").casefold()
     if not path or path in {"news", "iran", "world", "latest", "middle-east", "middleeast"}:
         return False
-    if re.search(r"(?:^|/)(?:category|categories|tag|tags|author|authors|search|archive|"
-                 r"archives|topic|topics)(?:/|$)", path):
+    if (re.search(r"(?:^|/)(?:category|categories|tag|tags|author|authors|search|archive|"
+                  r"archives|topic|topics|where)(?:/|$)", path)
+            or re.search(r"(?:^|/)sitemap(?:[./?]|$)", path)
+            or re.search(r"\.(?:pdf|xml|rss|json)(?:[/?]|$)", path)):
         return False
     live = re.search(r"(?:^|/)(?:live|liveblog|live-blog|live_blog|live-updates?)(?:/|$)", path)
     if live:
@@ -860,6 +892,8 @@ def _build_research_payload(model: str, agent_id: str, task: str,
         + topics.get(agent_id, "Research the specific subject in the user task.")
         + f" Frozen current time: {as_of:%Y-%m-%d %H:%M:%S} Asia/Dubai (UTC+04:00)."
     )
+    if agent_id in NEWS_REPORT_AGENT_IDS:
+        prompt += " " + NEWS_QUERY_GUIDANCE
     if query_instruction:
         prompt += " " + query_instruction
     if window:
@@ -867,10 +901,19 @@ def _build_research_payload(model: str, agent_id: str, task: str,
                    f"{window[1]:%Y-%m-%d} 23:59 Dubai. Treat UTC offsets carefully. "
                    "A prior-day source may be retained as explicitly separate background when "
                    "today's material is sparse. Never call older or future events new today.")
+        if window[0].date() <= as_of.date() <= window[1].date():
+            prompt += (
+                " For this CURRENT-DAY request, keep the calendar date and year OUT of the search "
+                "query completely. Use latest/current news and the subject only. The date above is "
+                "the publication-validation window, not search keywords. Adding a month, day or year "
+                "can overmatch old newspaper files or indexes. Never infer freshness from retrieval "
+                "rank: retain only explicit eligible publication evidence after the search."
+            )
     payload = {**_response_controls(model, _research_output_tokens()), "input": [
         {"role": "system", "content": [{"type": "input_text", "text": prompt}]},
         {"role": "user", "content": [{"type": "input_text", "text": task}]},
-    ], "tools": [{"type": "web_search", "search_context_size": "low",
+    ], "tools": [{"type": "web_search", "search_context_size": "high",
+                   "external_web_access": True,
                    "return_token_budget": "default",
                    "filters": {"allowed_domains": list(domains)}}],
         "tool_choice": "required", "max_tool_calls": MAX_NATIVE_TOOL_CALLS,
@@ -886,17 +929,11 @@ def _build_research_payloads(model: str, agent_id: str, task: str,
                              as_of: datetime) -> list[dict[str, object]]:
     """One unified discovery request; publishers are sources, not separate jobs."""
     instruction = (
-        "Research the subject across ALL approved domains together in one unified search. "
-        "The native allowed_domains filter already restricts publishers. Use one concise natural-language "
-        "query in the task language, with the main subject and period in ordinary words. Do not repeat "
-        "publisher names or domains, site: clauses, Boolean OR/AND lists, parentheses, after: or before: "
-        "operators. Do not concatenate translations or all city/topic examples into the search string. "
-        "Those examples help assess relevance after retrieval; they are not mandatory query terms. "
-        "Do not allocate a quota to individual publishers or split the result into publisher reports. "
-        "Use the publication period to assess returned articles; avoid a query that requires the exact "
-        "date spelling to appear in the article title. A new report about an earlier event still "
-        "qualifies by its publication date. Keep that event's actual timing clear. Return all useful "
-        "distinct articles you can support within the response budget, without a target count."
+        "This is the initial unified discovery pass. Start with one clear subject-led query; "
+        "the task language is a useful starting point, not a restriction on source languages. "
+        "For an international briefing, search for current world news rather than repeating the "
+        "whole assignment or its administrative wording. City and topic examples are relevance "
+        "guidance, not a required keyword list."
     ) if agent_id in NEWS_REPORT_AGENT_IDS else ""
     return [_build_research_payload(model, agent_id, task, window, as_of,
                                      query_instruction=instruction)]
@@ -945,7 +982,8 @@ def _rounded_usd(value: Decimal) -> float:
     return float(value.quantize(Decimal("0.000001"), rounding=ROUND_CEILING))
 
 
-def estimate_reservation(agent_id: str, task: str, *, language: str = "ar") -> dict[str, object]:
+def estimate_reservation(agent_id: str, task: str, *, language: str = "ar",
+                         newsdata_context: dict[str, object] | None = None) -> dict[str, object]:
     """Preflight all bounded Responses requests without network or quota mutation.
 
     One research tool step can reread the original prompt. Reserve two prompt byte
@@ -957,6 +995,12 @@ def estimate_reservation(agent_id: str, task: str, *, language: str = "ar") -> d
     """
     _validate_language(language)
     agent, skills = _agent_instructions(agent_id, task)
+    if agent_id == "iran-news":
+        require_capability(agent_id, "tools", "newsdata")
+        from .newsdata import estimate_reservation as estimate_newsdata
+        return estimate_newsdata(language=language, newsdata_context=newsdata_context)
+    if newsdata_context is not None:
+        raise _fail("newsdata_context_not_supported", "Saved news pages belong to the Iran news agent.", 422)
     provider, model, key, _ = _provider_config()
     if not key:
         raise _fail("agent_runtime_not_configured", "Configure OPENAI_API_KEY.", 503)
@@ -1363,7 +1407,9 @@ def _native_research_sources(response: dict[str, object], agent_id: str) -> dict
                          request_count=1, tool_call_count=len(calls),
                          search_call_count=sum(call["action"]["type"] == "search" for call in calls),
                          native_source_count=len(allowed),
-                         search_context_size="low", return_token_budget="default",
+                         search_context_size="high", return_token_budget="default",
+                         native_source_publishers=[name for name, _ in APPROVED_PUBLISHERS
+                             if any(_source_publisher(url) == name for url in allowed)],
                          date_validation_stage="report", source_urls=[source["url"] for source in sources])
 
 
@@ -1404,7 +1450,9 @@ def _merge_research_sources(searches: list[dict[str, object]]) -> dict[str, obje
         billing_uncertain=any(search.get("billing_uncertain", False) for search in searches),
         failed_request_count=sum(int(search.get("failed_request_count", 0)) for search in searches),
         research_incomplete=any(search.get("failed_request_count", 0) for search in searches),
-        search_context_size="low", return_token_budget="default", date_validation_stage="report",
+        search_context_size="high", return_token_budget="default", date_validation_stage="report",
+        native_source_publishers=[name for name, _ in APPROVED_PUBLISHERS
+            if any(name in search.get("native_source_publishers", []) for search in searches)],
         source_urls=[source["url"] for source in selected],
         cross_pass_duplicate_count=duplicate_count,
         source_limit_omitted_count=max(0, len(unique) - len(selected)),
@@ -1418,6 +1466,43 @@ def _merge_research_sources(searches: list[dict[str, object]]) -> dict[str, obje
                           "excluded": dict(search.get("excluded", {}))}
                          for index, search in enumerate(searches)],
     )
+
+
+def _source_publisher(raw_url: object) -> str | None:
+    """Map an authorized URL to one publisher family, including language editions."""
+    url = _publisher_source_url(raw_url)
+    if not url:
+        return None
+    host = urlsplit(url).hostname or ""
+    return next((name for name, domains in APPROVED_PUBLISHERS
+                 if any(host == domain or host.endswith("." + domain) for domain in domains)), None)
+
+
+def _publisher_coverage(report: dict[str, object], search: dict[str, object]) -> list[dict[str, object]]:
+    """Count only accepted articles; configured or observed domains are not news."""
+    included = [_source_publisher(item.get("url")) for item in report.get("items", [])]
+    background = [_source_publisher(item.get("url")) for item in report.get("background_items", [])]
+    observed = search.get("native_source_publishers", [])
+    return [{"publisher": name, "domains": list(domains),
+             "item_count": included.count(name), "background_count": background.count(name),
+             "native_reference_seen": name in observed}
+            for name, domains in APPROVED_PUBLISHERS]
+
+
+def _render_publisher_coverage(coverage: list[dict[str, object]], language: str) -> str:
+    if language == "en":
+        lines = ["### Sources in this report", "", "| Publisher | Included articles | Background |",
+                 "| --- | ---: | ---: |"]
+        note = ("A zero means that no eligible article from that publisher was included in this report; "
+                "it does not establish that the publisher had no relevant news.")
+    else:
+        lines = ["### المصادر في هذا التقرير", "", "| المصدر | الأخبار المدرجة | خلفية سابقة |",
+                 "| --- | ---: | ---: |"]
+        note = ("الصفر يعني أن التقرير لم يتضمن مادة مؤهلة من هذا المصدر، "
+                "ولا يعني أن المصدر لم ينشر أخبارًا ذات صلة.")
+    lines.extend(f"| {entry['publisher']} | {entry['item_count']} | {entry['background_count']} |"
+                 for entry in coverage)
+    return "\n".join([*lines, "", note])
 
 
 def _quote_in_source(quote: str, source: dict[str, object]) -> bool:
@@ -1795,10 +1880,12 @@ def _stage_record(stage: str, response: dict[str, object], search_calls: int = 0
 def _collect_research(key: str, agent_id: str, payloads: list[dict[str, object]], *,
                       task: str = "", window: tuple[datetime, datetime] | None = None,
                       as_of: datetime | None = None) -> tuple[dict[str, object], list[dict[str, object]]]:
-    """Unified discovery, with at most one reserved missing-evidence follow-up.
+    """Unified discovery, with at most one reserved evidence or breadth follow-up.
 
-    A failed provider call propagates immediately. Successful extraction skips
-    recovery. Both passes keep all publishers together and share one report.
+    Initial/empty-evidence failures propagate. If optional breadth work fails,
+    retain first-pass evidence and the full cost reservation, without retrying.
+    Discovery covers all publishers; a single collective follow-up can focus on
+    missing publisher families, with both passes merged into the same report.
     """
     if len(payloads) != 1:
         raise _fail("invalid_research_plan", "A report requires one unified research request.", 503)
@@ -1817,14 +1904,29 @@ def _collect_research(key: str, agent_id: str, payloads: list[dict[str, object]]
             followup = build_evidence_recovery_payload(
                 str(payload["model"]), agent_id, task, window, as_of, plan)
             if followup:
-                recovered = _call_model(key, followup, research=True)
-                recovered_pack = _native_research_sources(recovered, agent_id)
+                try:
+                    recovered = _call_model(key, followup, research=True)
+                    recovered_pack = _native_research_sources(recovered, agent_id)
+                    stages.append(_stage_record("research_recovery", recovered,
+                                                int(recovered_pack["search_call_count"])))
+                    recovery_status = "used" if recovered_pack["results"] else "empty"
+                except HTTPException as error:
+                    if not source_pack["results"]:
+                        raise
+                    code = error.detail.get("code", "research_failed") if isinstance(error.detail, dict) else "research_failed"
+                    if not isinstance(code, str) or not re.fullmatch(r"[a-z0-9_]{1,80}", code):
+                        code = "research_failed"
+                    recovered_pack = _empty_search("failed", request_count=1,
+                        failed_request_count=1, billing_uncertain=True, error_code=code)
+                    stages.append({"stage": "research_recovery", "usage": {
+                        **_normalise_usage(None), "web_search_calls": 0},
+                        "web_search_calls": 0, "tier_matches": False,
+                        "usage_bound_matches": False, "error_code": code})
+                    recovery_status = "failed_partial_evidence"
                 recovered_pack["research_scope_domains"] = followup["tools"][0]["filters"]["allowed_domains"]
                 recovered_pack["purpose"] = "evidence_recovery"
                 recovered_pack["recovery_reason"] = plan["reason"]
                 packs.append(recovered_pack)
-                stages.append(_stage_record("research_recovery", recovered, int(recovered_pack["search_call_count"])))
-                recovery_status = "used" if recovered_pack["results"] else "empty"
     merged = _merge_research_sources(packs)
     merged["evidence_recovery_status"] = recovery_status
     merged["evidence_recovery_request_count"] = len(packs) - 1
@@ -1862,10 +1964,17 @@ def _cost_metadata(provider: str, model: str, usage: dict[str, object],
             "cost_basis": "all_responses_reported_tokens_plus_native_search_actions_with_cache_write_allowance"}
 
 
-def run_agent(agent_id: str, task: str, *, language: str = "ar") -> dict[str, object]:
+def run_agent(agent_id: str, task: str, *, language: str = "ar",
+              newsdata_context: dict[str, object] | None = None) -> dict[str, object]:
     """Execute a bounded report. Production callers must use service.execute_report."""
     _validate_language(language)
     agent, skills = _agent_instructions(agent_id, task)
+    if agent_id == "iran-news":
+        require_capability(agent_id, "tools", "newsdata")
+        from .newsdata import run_report
+        return run_report(language=language, newsdata_context=newsdata_context)
+    if newsdata_context is not None:
+        raise _fail("newsdata_context_not_supported", "Saved news pages belong to the Iran news agent.", 422)
     provider, model, key, _ = _provider_config()
     if not key:
         raise _fail("agent_runtime_not_configured", "Configure OPENAI_API_KEY.", 503)
@@ -1931,13 +2040,15 @@ def run_agent(agent_id: str, task: str, *, language: str = "ar") -> dict[str, ob
                   "limit_omitted_item_count": 0, "fresh_event_count": 0,
                   "discarded_item_count": 0, "discarded_item_reasons": {}, "status": "no_evidence"}
     if news:
+        report["publisher_coverage"] = _publisher_coverage(report, search)
         content = _render_news(agent_id, report, window, as_of, search_status,
                                int(web_search["request_count"]), language=language)
+        content += "\n\n" + _render_publisher_coverage(report["publisher_coverage"], language)
         if web_search.get("research_incomplete"):
-            warning = ("Some publisher research requests could not complete. This report uses the available "
+            warning = ("The additional search could not complete. This report uses the available "
                        "results; coverage is incomplete and the conservative cost reservation was retained."
                        if language == "en" else
-                       "تعذر إكمال بعض طلبات البحث في الصحف. يعتمد التقرير على النتائج المتاحة؛ "
+                       "تعذر إكمال البحث الاستكمالي. يعتمد التقرير على النتائج المتاحة؛ "
                        "التغطية غير مكتملة واحتُفظ بحجز التكلفة الاحترازي.")
             content += "\n\n" + warning
     usage = _aggregate_usage(stages)

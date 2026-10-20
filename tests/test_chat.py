@@ -241,6 +241,108 @@ def test_selected_report_context_is_whitelisted_untrusted_and_explicitly_removab
     assert first.json()["user_message"]["report_id"] == selected["report_id"]
 
 
+def test_platform_help_distinguishes_newsdata_policy_and_instant_saved_languages(store, monkeypatch):
+    monkeypatch.setenv("NEWSDATA_API_KEY", "private-newsdata-context-sentinel")
+    monkeypatch.setenv("OPENAI_API_KEY", "private-openai-context-sentinel")
+    context = chat._platform_context(store)
+    iran = context["news_policy"]["iran_news"]
+    assert iran["agent_id"] == "iran-news" and iran["provider"] == "newsdata"
+    assert iran["query"] == "iran war" and iran["query_semantics"] == "iran AND war"
+    assert iran["coverage_window_hours"] == 48 and iran["source_language"] == "en"
+    assert iran["fixed_item_count"] is None and iran["total_item_cap"] is None
+    assert iran["default_page_size"] == 10 and iran["maximum_page_size"] == 50
+    assert "One page is one saved report" in iran["pagination"]
+    assert "Previous page" in iran["pagination"] and "server-held cursor" in iran["pagination"]
+    assert "OpenAI" in iran["translation"] and "even when the interface is English" in iran["translation"]
+    assert "12 hours" in iran["freshness"]
+    other = context["news_policy"]["other_news"]
+    assert other["allowed_source_domains"] == list(runtime.ALLOWED_SOURCE_DOMAINS)
+    assert other["processing_ceiling"] == 20 and other["provider"] == "openai"
+    controls = context["language_control"]
+    assert controls["buttons"] == ["العربية", "English"]
+    assert "instantly" in controls["newsdata_pages"] and "does not fetch" in controls["newsdata_pages"]
+    assert "requires a NewsData API key" in context["credentials"]
+    assert "Without OpenAI" in context["credentials"]
+    serialized = json.dumps(context)
+    assert "private-newsdata-context-sentinel" not in serialized
+    assert "private-openai-context-sentinel" not in serialized
+
+
+def test_newsdata_attachment_uses_saved_translation_and_public_publisher_link_per_chat_language(client, store, mock_openai):
+    previous = saved_report(store, "Private previous-page text must not enter this attachment")
+    article = {
+        "headline_en": "Synthetic Reuters fixture headline", "summary_en": "Synthetic original summary.",
+        "headline_ar": "عنوان تجريبي مترجم", "summary_ar": "ملخص تجريبي مترجم.",
+        "headline": "Synthetic Reuters fixture headline", "summary": "Synthetic original summary.",
+        "publisher": "Reuters", "url": "https://www.reuters.com/world/ai-hub-synthetic-fixture/",
+        "published_date": "2026-10-20T05:00:00+00:00", "translation_status": "translated",
+    }
+    selected = saved_report(
+        store, "Stored English response", provider="newsdata", language="en",
+        response_en="Saved English page text", response_ar="نص الصفحة العربية المحفوظة",
+        translation_status="partial",
+        items=[article, {**article, "headline_ar": None, "summary_ar": None,
+                         "headline_en": "Synthetic untranslated fixture", "translation_status": "original_only"},
+               {**article, "url": "http://127.0.0.1/private-fixture"}],
+        pagination={"page_index": 2, "page_size": 10, "has_more": True,
+                    "parent_report_id": previous["report_id"], "root_report_id": previous["report_id"],
+                    "cursor": "private-cursor-sentinel"},
+        newsdata_context={"cursor": "private-context-sentinel"},
+    )
+    requests = mock_openai([reply(), reply()])
+    conversation = create(client)
+    for index, language in enumerate(("ar", "en")):
+        response = send(client, conversation, "Explain this saved page", key=f"language-{language}",
+                        language=language, report_id=selected["report_id"])
+        assert response.status_code == 200, response.text
+        payload = requests[index]
+        attachment = payload["input"][-2]["content"]
+        context = json.loads(attachment.split("<UNTRUSTED_REPORT_JSON>\n", 1)[1]
+                             .split("\n</UNTRUSTED_REPORT_JSON>", 1)[0])
+        assert context["report_id"] == selected["report_id"]
+        assert context["language"] == context["requested_language"] == language
+        assert context["response"] == ("نص الصفحة العربية المحفوظة" if language == "ar" else "Saved English page text")
+        item = context["items"][0]
+        assert item["headline"] == article["headline_" + language]
+        assert item["summary"] == article["summary_" + language]
+        assert item["publisher"] == "Reuters" and item["url"] == article["url"]
+        assert item["display_language"] == language
+        assert context["items"][1]["headline"] == "Synthetic untranslated fixture"
+        assert context["items"][1]["display_language"] == "en"
+        assert context["items"][1]["translation_status"] == "original_only"
+        assert context["items"][2]["url"] is None
+        assert context["pagination"]["page_index"] == 2
+        assert context["pagination"]["parent_report_id"] == previous["report_id"]
+        for excluded in ("Private previous-page text", "private-cursor-sentinel", "private-context-sentinel",
+                         "http://127.0.0.1/private-fixture"):
+            assert excluded not in attachment
+        assert payload["tools"] == [] and runtime._json_bytes(payload) <= chat.MAX_CHAT_INPUT_BYTES
+    assert len(requests) == 2  # One ordinary chat response per explicit send; no translation or retrieval request.
+    assert store.get_report(selected["report_id"])["result"]["language"] == "en"
+
+
+def test_newsdata_attachment_accepts_more_than_twenty_items_with_unchanged_byte_bounds(store):
+    items = [{"headline_en": f"Synthetic fixture {index}", "summary_en": "Short fixture summary.",
+              "publisher": "Reuters", "url": f"https://www.reuters.com/world/synthetic-fixture-{index}/",
+              "translation_status": "original_only"} for index in range(50)]
+    selected = saved_report(store, "Synthetic single page", provider="newsdata", items=items)
+    context = chat._report_context(store, selected["report_id"], language="en")
+    assert len(context["items"]) == 50 and context["omitted_item_count"] == 0
+    assert context["truncated"] is False
+    assert runtime._json_bytes(context) <= chat.MAX_CHAT_REPORT_BYTES
+    long_page = saved_report(store, "تقرير افتراضي " * 10000, provider="newsdata",
+                             items=[{**item, "summary_en": "س" * 3000} for item in items])
+    bounded = chat._report_context(store, long_page["report_id"], language="en")
+    assert 0 < len(bounded["items"]) < 50
+    assert bounded["truncated"] is True
+    assert bounded["omitted_item_count"] == 50 - len(bounded["items"])
+    assert runtime._json_bytes(bounded) <= chat.MAX_CHAT_REPORT_BYTES
+    legacy = saved_report(store, "Synthetic original-provider report", provider="openai", items=items)
+    legacy_context = chat._report_context(store, legacy["report_id"], language="en")
+    assert len(legacy_context["items"]) == 20
+    assert all(item["url"] is None for item in legacy_context["items"])
+
+
 def test_unavailable_report_is_rejected_before_reservation_or_request(client, store, mock_openai):
     requests = mock_openai([])
     conversation = create(client)

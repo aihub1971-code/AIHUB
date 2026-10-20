@@ -53,7 +53,14 @@ def _print_live_summary(result: dict) -> None:
         "search_calls": _count(search.get("search_call_count")),
     }
     count_text = "; ".join(f"{name}={value if value is not None else 'unknown'}" for name, value in counts.items())
-    print(f"OpenAI web search: status={_safe_label(search.get('status'))}; {count_text}.")
+    if result.get("provider") == "newsdata":
+        provider = result.get("newsdata") or {}
+        pagination = result.get("pagination") or {}
+        translation = result.get("translation") or {}
+        print(f"NewsData Latest: query=iran war; page={_count(pagination.get('page_index'))}; provider_matches={_count(provider.get('provider_total_results'))}.")
+        print(f"Arabic translation: {_safe_label(translation.get('status'))}; translated_items={_count(translation.get('translated_item_count'))}.")
+    else:
+        print(f"OpenAI web search: status={_safe_label(search.get('status'))}; {count_text}.")
     count, target = _count(result.get("item_count")), _count(result.get("target_count"))
     if count is None:
         print("News item count: not reported for this response. Review the saved output.")
@@ -78,6 +85,8 @@ def _print_live_summary(result: dict) -> None:
             print("Report quality: target count reached; evidence, dates and relevance still require review.")
     accounting = result.get("accounting")
     accounting = accounting if isinstance(accounting, dict) else {}
+    if result.get("provider") == "newsdata":
+        print(f"Accounted NewsData credits: {_count(accounting.get('newsdata_credits'))}; separate from USD.")
     print(
         f"Accounted estimate: USD {_usd(accounting.get('estimated_cost_usd'))}; "
         f"basis={_safe_label(accounting.get('cost_basis'))}. This is not an invoice."
@@ -146,7 +155,7 @@ def main() -> int:
             if isinstance(detail, dict):
                 provider_status = detail.get("provider_status")
                 if type(provider_status) is int and 400 <= provider_status <= 599:
-                    print(f"OpenAI HTTP status: {provider_status}", file=sys.stderr)
+                    print(f"Provider HTTP status: {provider_status}", file=sys.stderr)
         except (ValueError, AttributeError):
             pass
         return 1
