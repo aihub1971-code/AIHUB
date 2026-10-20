@@ -49,6 +49,11 @@ def verify(page, agent="iran-news", native=None):
     return research._verify_page(native or source_record(page["url"]), page, get_profile(agent), "Iran US conflict", research._window(WINDOW))
 
 
+def reference_page(markup):
+    return {"url": URL, "html": markup, "retrieved_at": "2026-10-20T12:01:00Z",
+            "sha256": hashlib.sha256(markup.encode()).hexdigest()}
+
+
 def native_call(action="search", sources=None, url=URL):
     detail = {"type": action}
     if action == "search":
@@ -84,6 +89,8 @@ def structured_pack(profile, sources, *, items=True):
                 "evidence_quote": quotes[0], "event_key": "synthetic distinct event " + str(index),
                 "section": "conflict_diplomacy" if profile["id"] == "iran-news" else "news"})
     if profile["kind"] == "moodboard":
+        for section in result["sections"]:
+            section["attribution"] = "reference_based" if sources else "original_creative"
         result["visuals"] = {"palette": [{"name": "Ocean", "hex": "#124578"}, {"name": "Sand", "hex": "#DCBA98"},
                                             {"name": "Ink", "hex": "#112233"}],
                              "direction": "Original creative interpretation: layer an archive grid over tidal curves.", "reference_source_ids": source_ids[:1]}
@@ -119,6 +126,20 @@ def test_frozen_window_is_exactly_twelve_hours_and_cutoff_is_not_recomputed():
         assert error.value.detail["code"] == "invalid_research_window"
     with pytest.raises(HTTPException):
         research._window(WINDOW, "2026-10-20T11:00:00Z")
+
+
+@pytest.mark.parametrize("agent,is_current", [("iran-news", True), ("geopolitical-morning", True),
+                                             ("historical-reading-companion", False), ("story-moodboard", False)])
+def test_current_discovery_uses_remaining_bounded_actions_without_calendar_query_tokens(agent, is_current):
+    payload = research._research_payload("gpt-6.1-sol", get_profile(agent), "Synthetic topic", "ar",
+                                         research._window(WINDOW), 6)
+    instructions = payload["input"][0]["content"]
+    assert ("Omit calendar date and year tokens" in instructions) is is_current
+    assert ("within the remaining native-action budget" in instructions) is is_current
+    assert payload["max_tool_calls"] == 6 and len(payload["tools"]) == 1
+    assert "filters" not in payload["tools"][0]
+    assert json.loads(payload["input"][1]["content"])["window"]["end"] == WINDOW["end"]
+    assert research.runtime._json_bytes(payload) <= research.MAX_RESEARCH_INPUT_BYTES
 
 
 @pytest.mark.parametrize("published,reason", [("2026-10-19T23:59:59Z", "outside_window"), ("2026-10-20T12:00:01Z", "future_publication"),
@@ -157,6 +178,64 @@ def test_unbound_sidebar_headline_cannot_supply_this_articles_timestamp():
     assert verify(page)[1] == "unbound_article_metadata"
     page = page_record(extra={"url": None})
     assert verify(page)[1] is None  # Headline is explicitly bound to this article's H1.
+
+
+@pytest.mark.parametrize("label", ["Checking your browser - reCAPTCHA", "Just a moment...",
+                                  "Verify you are human", "Attention Required! | Cloudflare"])
+def test_browser_challenges_cannot_become_historical_references(label):
+    markup = '<html><head><title>' + html.escape(label) + '</title></head><body><h1>' + html.escape(label)
+    markup += '</h1><p>Please complete the browser verification before viewing the requested research article.</p></body></html>'
+    source, reason = verify(reference_page(markup), "historical-reading-companion",
+                            source_record(title="A synthetic study of ancient manuscripts"))
+    assert source is None and reason == "publisher_interstitial"
+
+
+def test_real_article_about_captcha_is_not_rejected_for_its_topic_or_widget():
+    title = "A synthetic history of CAPTCHA and online accessibility"
+    page = page_record(title=title, published="2018-01-01T08:00:00Z",
+        body="This synthetic research article examines CAPTCHA design and its accessibility implications over time.",
+        html_suffix='<aside><h1>Verify you are human</h1><div class="g-recaptcha">Verification widget</div></aside>')
+    source, reason = verify(page, "historical-reading-companion")
+    assert reason is None and source["title"] == title
+    assert source["role"] == "background"
+
+
+def test_reference_title_preserves_one_complete_article_h1_without_modal_headings():
+    markup = ('<html><body><header><h1>Archive navigation</h1></header><article>'
+              '<h1>A <em>synthetic</em> manuscript history</h1>'
+              '<p>This fictional reference describes the cataloguing of manuscripts in a teaching archive.</p>'
+              '</article><aside><h1>Save article to a reading list</h1><h1>Bibliographic and Citation Tools</h1>'
+              '</aside></body></html>')
+    source, reason = verify(reference_page(markup), "historical-reading-companion")
+    assert reason is None and source["title"] == "A synthetic manuscript history"
+    assert "Save article" not in source["title"] and "navigation" not in source["title"]
+
+
+def test_reference_open_graph_title_precedes_generic_and_article_navigation_h1():
+    title = "A synthetic study of translation manuscripts"
+    markup = ('<html><head><meta property="og:title" content="' + title + '"></head><body>'
+              '<h1>Archive browser</h1><article><h1>Reading options</h1>'
+              '<p>This synthetic study examines how translated manuscripts were catalogued and shared.</p>'
+              '</article><h1>Save article</h1></body></html>')
+    source, reason = verify(reference_page(markup), "historical-reading-companion")
+    assert reason is None and source["title"] == title
+
+
+def test_reference_document_title_precedes_category_and_later_tools_headings():
+    title = "Synthetic manuscript classification in digital archives"
+    markup = ('<html><head><title>' + title + '</title></head><body>'
+              '<h1>History and Philosophy of Science</h1><h1>' + title + '</h1>'
+              '<p>This synthetic reference discusses the classification of historical manuscripts for teaching.</p>'
+              '<h1>Bibliographic and Citation Tools</h1></body></html>')
+    source, reason = verify(reference_page(markup), "historical-reading-companion")
+    assert reason is None and source["title"] == title
+
+
+def test_unbound_article_binding_uses_article_heading_without_later_modal_titles():
+    page = page_record(extra={"url": None}, html_suffix='<aside><h1>Save article</h1><h1>Bibliographic tools</h1></aside>')
+    source, reason = verify(page)
+    assert reason is None and source["title"] == TITLE
+    assert source["publication_verification"]["verified"] is True
 
 
 def test_conflicting_publisher_dates_are_rejected_not_cherry_picked():
@@ -401,6 +480,32 @@ def test_invalid_factual_section_reference_or_link_fails_safe():
         research._validated_pack(json.dumps(data), profile, [source], research._window(WINDOW))
 
 
+@pytest.mark.parametrize("heading", ["## السياق التاريخي", "###   Historical   context: ###",
+                                     "## **السياق التاريخي:**", "Historical context\n---"])
+def test_report_section_strips_its_repeated_leading_heading_only(heading):
+    profile = get_profile("historical-reading-companion")
+    source, _ = verify(page_record(title="Synthetic archive of translation manuscripts", published=None), profile["id"])
+    data = structured_pack(profile, [source], items=False)
+    original = "A source-attributed historical interpretation.\n\n### A distinct subtopic\nKeep this supporting discussion."
+    data["sections"][0]["body"] = heading + "\n\n" + original
+    pack, _ = research._validated_pack(json.dumps(data), profile, [source], research._window(WINDOW))
+    assert pack["sections"][0]["body"] == original
+    assert pack["sections"][0]["source_ids"] == [source["id"]]
+    assert len(pack["sections"]) == len(profile["sections"])
+
+
+@pytest.mark.parametrize("body", ["## Historical context and debate\n\nKeep this discussion.",
+    "## Historical context?\n\nThis is a specific question.",
+    "Historical context is necessary to interpret the evidence.\n\nKeep this paragraph."])
+def test_section_preserves_nonmatching_headings_and_normal_prose(body):
+    profile = get_profile("historical-reading-companion")
+    source, _ = verify(page_record(title="Synthetic archive of translation manuscripts", published=None), profile["id"])
+    data = structured_pack(profile, [source], items=False)
+    data["sections"][0]["body"] = body
+    pack, _ = research._validated_pack(json.dumps(data), profile, [source], research._window(WINDOW))
+    assert pack["sections"][0]["body"] == body
+
+
 def test_twenty_limit_applies_only_after_model_item_validation_and_dedup():
     profile = get_profile("iran-news")
     source, _ = verify(page_record())
@@ -416,16 +521,23 @@ def test_twenty_limit_applies_only_after_model_item_validation_and_dedup():
     assert pack["items"][-1]["url"].endswith("unique-19")
 
 
-def test_no_evidence_is_deterministic_and_does_not_make_a_synthesis_request(monkeypatch):
+@pytest.mark.parametrize("language,title", [("en", "No verified developments in the last 12 hours"),
+                                           ("ar", "لا توجد مستجدات موثقة خلال آخر 12 ساعة")])
+def test_no_evidence_is_concise_dated_and_does_not_make_a_synthesis_request(monkeypatch, language, title):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-real-key")
     requests, stages = [], []
     def handler(request):
         requests.append(json.loads(request.content))
         return httpx.Response(200, json=provider_response("No inspectable source was returned.", native=[native_call(sources=[])]))
     install_transport(monkeypatch, handler)
-    result = research.generate_report("iran-news", language="en", research_window=WINDOW, progress=stages.append)
+    result = research.generate_report("iran-news", language=language, research_window=WINDOW, progress=stages.append)
     assert len(requests) == 1 and result["items"] == []
-    assert result["title"] == "No verified developments in the last 12 hours"
+    assert result["title"] == title
+    assert [section["id"] for section in result["sections"]] == ["executive_summary"]
+    body = result["sections"][0]["body"]
+    assert len(body) < 220 and body.count(WINDOW["start"]) == body.count(WINDOW["end"]) == 1
+    assert body not in result["limitations"]
+    assert result["sections"][0]["source_ids"] == []
     assert result["status"] == "no_evidence"
     assert result["cost_tracking_complete"] is True
     assert result["usage"]["web_search_calls"] == 1
@@ -452,6 +564,7 @@ def test_full_pipeline_uses_native_evidence_publisher_timestamp_and_one_synthesi
     assert "filters" not in requests[0]["tools"][0]
     assert requests[1]["tools"] == [] and requests[1]["text"]["format"]["strict"] is True
     assert result["schema_version"] == 2 and result["item_count"] == 1
+    assert len(result["sections"]) == len(profile["sections"])
     assert result["items"][0]["url"] == URL and result["items"][0]["published_at"] == "2026-10-20T10:00:00+00:00"
     assert result["items"][0]["event_date"] is None
     assert result["sources"][0]["publication_verification"]["method"] == "publisher_jsonld_datePublished"
@@ -566,6 +679,86 @@ def test_moodboard_requires_concrete_hex_palette_and_reference_citations():
         research._validated_pack(json.dumps(raw), profile, [source], research._window(WINDOW))
 
 
+@pytest.mark.parametrize("language,label", [("en", "Original creative interpretation"), ("ar", "تصور إبداعي أصلي")])
+def test_referenced_moodboard_keeps_original_scenes_separate_from_cited_inspiration(language, label):
+    profile = get_profile("story-moodboard")
+    source, _ = verify(page_record(title="Synthetic archive of coastal drawings", published=None), profile["id"])
+    raw = structured_pack(profile, [source], items=False)
+    raw["sections"][0].update(attribution="original_creative", source_ids=[],
+                              body="An imagined archivist follows fictional memories carried by an invented tide.")
+    result, _ = research._validated_pack(json.dumps(raw), profile, [source], research._window(WINDOW), language=language)
+    original, reference = result["sections"][:2]
+    assert original["attribution"] == "original_creative" and original["source_ids"] == []
+    assert original["body"].startswith("**" + label + "**\n\n")
+    assert reference["attribution"] == "reference_based" and reference["source_ids"] == [source["id"]]
+    assert len(result["sections"]) == len(profile["sections"])
+
+
+@pytest.mark.parametrize("attribution,has_citation,reason", [
+    ("reference_based", False, "uncited_section"),
+    ("original_creative", True, "creative_section_with_citations"),
+])
+def test_moodboard_classification_never_substitutes_for_reference_attribution(attribution, has_citation, reason, caplog):
+    profile = get_profile("story-moodboard")
+    source, _ = verify(page_record(title="Synthetic archive of coastal drawings", published=None), profile["id"])
+    raw = structured_pack(profile, [source], items=False)
+    raw["sections"][0].update(attribution=attribution, source_ids=[source["id"]] if has_citation else [])
+    with pytest.raises(HTTPException) as error:
+        research._validated_pack(json.dumps(raw), profile, [source], research._window(WINDOW))
+    assert error.value.detail["code"] == "invalid_research_report"
+    assert caplog.messages[-1] == "research_report_rejected agent_id=story-moodboard reason=" + reason
+
+
+@pytest.mark.parametrize("agent", ["iran-news", "historical-reading-companion"])
+def test_noncreative_factual_sections_still_require_their_own_source_ids(agent):
+    profile = get_profile(agent)
+    source, _ = verify(page_record(), agent)
+    raw = structured_pack(profile, [source])
+    raw["sections"][0]["source_ids"] = []
+    with pytest.raises(HTTPException) as error:
+        research._validated_pack(json.dumps(raw), profile, [source], research._window(WINDOW))
+    assert error.value.detail["code"] == "invalid_research_report"
+
+
+def test_source_free_schema_forces_empty_reference_arrays_and_exposes_validator_bounds():
+    profile = get_profile("story-moodboard")
+    payload, _ = research._synthesis_payload("gpt-6.1-sol", profile, "An imagined archive", "en",
+                                           research._window(WINDOW), [], None)
+    schema = payload["text"]["format"]["schema"]["properties"]
+    assert schema["items"]["maxItems"] == 0
+    sections = schema["sections"]["items"]["properties"]
+    assert sections["source_ids"]["maxItems"] == 0
+    assert sections["attribution"]["enum"] == ["original_creative"]
+    visuals = schema["visuals"]["properties"]
+    assert visuals["reference_source_ids"]["maxItems"] == 0
+    assert "no_verified_source" not in json.dumps(payload)
+    assert (visuals["palette"]["minItems"], visuals["palette"]["maxItems"]) == (3, 6)
+    assert visuals["palette"]["items"]["properties"]["hex"]["pattern"] == "^#[0-9a-fA-F]{6}$"
+    limit = visuals["direction"]["maxLength"]
+    assert limit == 1800
+    raw = structured_pack(profile, [], items=False)
+    raw["visuals"]["direction"] = "A" * limit
+    result, _ = research._validated_pack(json.dumps(raw), profile, [], research._window(WINDOW))
+    assert len(result["visuals"]["direction"]) == limit
+    raw["visuals"]["direction"] += "B"
+    with pytest.raises(HTTPException):
+        research._validated_pack(json.dumps(raw), profile, [], research._window(WINDOW))
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_report_rejection_logs_only_whitelisted_reason_and_agent(malformed, caplog):
+    profile = get_profile("story-moodboard")
+    raw = structured_pack(profile, [], items=False)
+    private = "https://private.example/DO_NOT_LOG_PRIVATE_SOURCE_OR_OUTPUT"
+    raw["sections"][0]["body"] = private
+    content = "{\"" + private if malformed else json.dumps(raw)
+    with pytest.raises(HTTPException) as error:
+        research._validated_pack(content, profile, [], research._window(WINDOW))
+    reason = "invalid_report_schema" if malformed else "untrusted_link_or_html"
+    assert caplog.messages[-1] == "research_report_rejected agent_id=story-moodboard reason=" + reason
+    assert private not in caplog.text and "DO_NOT_LOG" not in json.dumps(error.value.detail)
+
+
 def test_reference_empty_moodboard_still_produces_explicit_original_creative_pack(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-real-key")
     requests = []
@@ -583,5 +776,6 @@ def test_reference_empty_moodboard_still_produces_explicit_original_creative_pac
     assert len(requests) == 2 and result["status"] == "complete"
     assert result["sources"] == result["items"] == []
     assert result["factual_basis"] == "creative_original"
+    assert all(section["attribution"] == "original_creative" for section in result["sections"])
     assert len(result["visuals"]["palette"]) == 3
     assert any("no factual inspiration references" in item.lower() for item in result["limitations"])

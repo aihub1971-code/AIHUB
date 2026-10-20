@@ -71,9 +71,9 @@ def complete_job(state, job_id, *, label="saved", pdf_failed=False):
     return saved
 
 
-def save_report(state, agent_id=IRAN, *, label="saved", moment=None, owner_id=None):
+def save_report(state, agent_id=IRAN, *, label="saved", moment=None, owner_id=None, language="en"):
     submitted = state["reports"].submit(owner_id or state["owner"], agent_id, "Synthetic scope " + label,
-                                         "en", idempotency_key="seed-" + label, now=moment or NOW)
+                                         language, idempotency_key="seed-" + label, now=moment or NOW)
     return complete_job(state, submitted["job"]["job_id"], label=label)
 
 
@@ -100,6 +100,47 @@ def evidence(payload):
         if "<UNTRUSTED_REPORT_JSON>" in content:
             return json.loads(content.split("<UNTRUSTED_REPORT_JSON>", 1)[1].split("</UNTRUSTED_REPORT_JSON>", 1)[0])
     raise AssertionError("The selected report evidence did not reach the answer request.")
+
+
+def response_language_setting(payload):
+    system = payload["input"][0]
+    assert system["role"] == "system"
+    return json.loads(system["content"].split("TRUSTED_RESPONSE_LANGUAGE_JSON:\n", 1)[1]
+                      .split("\nCONTEXT_WINDOW_JSON:", 1)[0])
+
+
+@pytest.mark.parametrize("selected_language,report_language,question,answer", [
+    ("ar", "en", "Summarize this Iran report and explain its UAE implications using its saved evidence.",
+     "هذه إجابة عربية اختبارية عن الأدلة المحفوظة."),
+    ("en", "ar", "اشرح تقدير التقرير المحفوظ وآثاره على الإمارات.",
+     "This is a synthetic English explanation of the saved evidence."),
+    ("ar", "ar", "Explain this saved report. Please answer in English.",
+     "This is a synthetic explicitly requested English explanation."),
+    ("en", "en", "Explain this saved report. أجب باللغة العربية.",
+     "هذه إجابة اختبارية بالعربية التي طلبها المستخدم صراحة."),
+])
+def test_request_language_reaches_trusted_model_context_independently_of_question_and_report(
+        discussion, provider, selected_language, report_language, question, answer):
+    """Exercise the actual route and saved key; offline mocks do not prove model language compliance."""
+    selected = save_report(discussion, label="language-contract", language=report_language)
+    provider["answer"] = answer
+    client, cid = discussion["client"], conversation(discussion["client"])
+    body = {"language": selected_language, "agent_id": IRAN, "report_id": selected["report_id"]}
+    response = send(client, cid, question, **body)
+    assert response.status_code == 200, response.text
+    payload = provider["calls"][0]
+    setting = response_language_setting(payload)
+    assert setting == {"selected_language": selected_language,
+                       "selected_language_name": "Modern Standard Arabic" if selected_language == "ar" else "English",
+                       "override_policy": "explicit_current_user_request_only", "quoted_originals_allowed": True}
+    assert payload["input"][-1] == {"role": "user", "content": question}
+    assert evidence(payload)["reports"][0]["language"] == report_language
+    assert payload["tools"] == [] and response.json()["context"]["fresh_research"] is False
+    assert response.json()["message"]["content"] == answer
+    replay = send(client, cid, question, **body)
+    assert replay.status_code == 200 and replay.json()["idempotency_replayed"] is True
+    assert len(provider["calls"]) == 1
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
 
 
 def test_selected_agent_automatically_uses_its_latest_report_and_returns_dated_context(discussion, provider):
@@ -186,29 +227,31 @@ def test_preflight_retry_keeps_pinned_snapshot_when_a_newer_report_appears(discu
 
 
 @pytest.mark.parametrize("pdf_failed", [False, True])
-def test_fresh_question_waits_then_answers_from_new_cutoff_and_saved_old_snapshot(discussion, provider, pdf_failed):
+@pytest.mark.parametrize("language", ["en", "ar"])
+def test_fresh_question_waits_then_answers_from_new_cutoff_and_saved_old_snapshot(discussion, provider, pdf_failed, language):
     previous = save_report(discussion, label="older", moment=NOW - timedelta(hours=1))
     client, cid = discussion["client"], conversation(discussion["client"])
     question = "What has changed in Iran since this report?"
-    first = send(client, cid, question, agent_id=IRAN, report_id=previous["report_id"])
+    first = send(client, cid, question, agent_id=IRAN, report_id=previous["report_id"], language=language)
     assert first.status_code == 202, first.text
     job = first.json()["job"]
     assert first.json()["status"] == "researching" and not provider["calls"]
     assert discussion["database"].usage_summary()["daily"]["chat_turns"] == 0
     assert_workspace_public(first.json())
-    duplicate = send(client, cid, question, agent_id=IRAN, report_id=previous["report_id"], fresh_job_id=job["job_id"])
+    duplicate = send(client, cid, question, agent_id=IRAN, report_id=previous["report_id"], fresh_job_id=job["job_id"], language=language)
     assert duplicate.status_code == 202 and duplicate.json()["job"]["job_id"] == job["job_id"]
     assert len(discussion["reports"].list_jobs(discussion["owner"], active_only=True)) == 1
     fresh = complete_job(discussion, job["job_id"], label="fresh", pdf_failed=pdf_failed)
-    answer = send(client, cid, question, agent_id=IRAN, report_id=previous["report_id"], fresh_job_id=job["job_id"])
+    answer = send(client, cid, question, agent_id=IRAN, report_id=previous["report_id"], fresh_job_id=job["job_id"], language=language)
     assert answer.status_code == 200, answer.text
     attached = evidence(provider["calls"][0])
     assert attached["report_ids"] == [fresh["report_id"], previous["report_id"]]
     assert attached["fresh_research"] is True
     assert attached["research_cutoffs"][0]["cutoff"] > attached["research_cutoffs"][1]["cutoff"]
     assert answer.json()["context"]["report_id"] == fresh["report_id"]
+    assert response_language_setting(provider["calls"][0])["selected_language"] == language
     before = discussion["database"].usage_summary()
-    replay = send(client, cid, question, agent_id=IRAN, report_id=previous["report_id"], fresh_job_id=job["job_id"])
+    replay = send(client, cid, question, agent_id=IRAN, report_id=previous["report_id"], fresh_job_id=job["job_id"], language=language)
     assert replay.status_code == 200 and replay.json()["idempotency_replayed"] is True
     assert len(provider["calls"]) == 1 and discussion["database"].usage_summary() == before
     assert discussion["reports"].get_report(discussion["owner"], previous["report_id"])["research_window"] == previous["research_window"]

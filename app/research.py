@@ -19,6 +19,7 @@ from html.parser import HTMLParser
 import http.client
 import ipaddress
 import json
+import logging
 import re
 import socket
 import ssl
@@ -50,6 +51,13 @@ SYNTHESIS_OUTPUT_TOKENS = 8192
 SEARCH_CONTENT_TOKENS = 131072
 _ARTICLE_TYPES = {"Article", "NewsArticle", "Report", "ScholarlyArticle", "BlogPosting", "PressRelease", "AnalysisNewsArticle"}
 _ISO_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:[Zz]|[+-]\d{2}:?\d{2})$")
+_PACK_REJECTION_REASONS = frozenset({
+    "invalid_report_schema", "invalid_items", "missing_report_sections", "invalid_section", "invalid_source_ids",
+    "unverified_source_id", "invalid_field", "untrusted_link_or_html", "empty_field", "empty_section_body",
+    "uncited_section", "invalid_section_attribution", "creative_section_with_citations", "invalid_limitations",
+    "invalid_visuals", "invalid_palette", "missing_moodboard_visuals", "unexpected_visuals",
+})
+_LOGGER = logging.getLogger(__name__)
 
 
 def _fail(code: str, message: str, status: int = 502) -> HTTPException:
@@ -146,6 +154,17 @@ def _research_payload(model: str, profile: dict[str, Any], topic: str, language:
         "Do not claim unobserved page content. Write complete concise notes within the output budget.\n"
         + "DOMAIN: " + profile["scope"] + "\nSTRATEGY: " + profile["research_strategy"]
     )
+    if profile["kind"] == "briefing":
+        prompt += (
+            "\nCURRENT-NEWS DISCOVERY: Omit calendar date and year tokens from search queries, including month names "
+            "and localized numerals. Use concise latest/developing subject queries; the frozen UTC window is enforced "
+            "on publisher publication evidence after retrieval. Prefer direct publisher HTML news articles, dated official "
+            "release pages and specifically timestamped live entries. Treat encyclopedias, video/social pages, indexes "
+            "and archival documents as discovery leads, not final fresh-news evidence. If initial results are mainly "
+            "background, older or unclear, make a focused article follow-up search and open relevant observed direct "
+            "pages within the remaining native-action budget before concluding that coverage is insufficient. "
+            "Do not infer that no fresh news exists from one poor result set; never invent missing evidence."
+        )
     payload = {**runtime._response_controls(model, DISCOVERY_OUTPUT_TOKENS),
         "input": [{"role": "system", "content": prompt},
                   {"role": "user", "content": _json({"topic": topic, "window": window,
@@ -383,6 +402,7 @@ class _ArticleHTML(HTMLParser):
         self.scripts: list[str] = []
         self.canonical = ""
         self.h1: list[str] = []
+        self.article_h1: list[str] = []
         self.title: list[str] = []
         self.article_text: list[str] = []
         self.all_text: list[str] = []
@@ -392,6 +412,8 @@ class _ArticleHTML(HTMLParser):
         self._style = 0
         self._article = 0
         self._h1 = 0
+        self._h1_text: list[str] = []
+        self._h1_in_article = False
         self._title = 0
         self._time: dict[str, Any] | None = None
         self._chars = 0
@@ -412,6 +434,9 @@ class _ArticleHTML(HTMLParser):
         elif tag == "article":
             self._article += 1
         elif tag == "h1":
+            if not self._h1:
+                self._h1_text = []
+                self._h1_in_article = bool(self._article)
             self._h1 += 1
         elif tag == "title":
             self._title += 1
@@ -432,6 +457,12 @@ class _ArticleHTML(HTMLParser):
             self._article = max(0, self._article - 1)
         elif tag == "h1":
             self._h1 = max(0, self._h1 - 1)
+            if not self._h1 and self._h1_text:
+                heading = _text(" ".join(self._h1_text), 500)
+                self.h1.append(heading)
+                if self._h1_in_article:
+                    self.article_h1.append(heading)
+                self._h1_text = []
         elif tag == "title":
             self._title = max(0, self._title - 1)
         elif tag == "time" and self._time is not None:
@@ -447,7 +478,7 @@ class _ArticleHTML(HTMLParser):
             return
         text = _text(value, 12000)
         if self._h1:
-            self.h1.append(text)
+            self._h1_text.append(text)
         if self._title:
             self.title.append(text)
         if self._time is not None:
@@ -457,6 +488,29 @@ class _ArticleHTML(HTMLParser):
             self._chars += len(text)
             if self._article:
                 self.article_text.append(text)
+
+
+def _visible_article_title(parser: _ArticleHTML) -> str:
+    # H1 values are complete individual headings, including inline emphasis.
+    # Site navigation and later modal headings must never be appended to them.
+    metadata = parser.meta.get("og:title") or parser.meta.get("twitter:title") or parser.meta.get("citation_title") or [""]
+    return (_text(metadata[0], 500) or _text(next(iter(parser.article_h1), ""), 500)
+            or _text(" ".join(parser.title), 500) or _text(next(iter(parser.h1), ""), 500))
+
+
+def _publisher_interstitial(parser: _ArticleHTML) -> bool:
+    # Match explicit interstitial labels, not the word CAPTCHA in a real
+    # article or an embedded verification widget further down the page.
+    labels = [" ".join(parser.title), *(parser.meta.get("og:title") or [])[:1],
+              *(parser.article_h1 or parser.h1)[:1]]
+    patterns = (
+        r"checking (?:your )?browser(?:\s*(?:[-–—|:]\s*)?(?:recaptcha|cloudflare|security check))?[.!…]*",
+        r"just a moment[.!…]*",
+        r"(?:please )?(?:verify|confirm)(?: that)? you(?: are|'re) (?:a )?human[.!…]*",
+        r"attention required[! ]*(?:[-–—|:]\s*cloudflare)?[.!…]*",
+    )
+    return any(re.fullmatch(pattern, _text(label, 500).casefold())
+               for label in labels for pattern in patterns)
 
 
 def _nodes(value: Any) -> list[tuple[str, dict[str, Any]]]:
@@ -541,6 +595,8 @@ def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict
         parser.feed(page["html"])
     except (ValueError, RecursionError):
         return None, "invalid_publisher_html"
+    if _publisher_interstitial(parser):
+        return None, "publisher_interstitial"
     url = page["url"]
     nodes: list[tuple[str, dict[str, Any]]] = []
     for index, raw in enumerate(parser.scripts[:20]):
@@ -558,16 +614,14 @@ def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict
     elif len(article_nodes) > 1:
         return None, "ambiguous_article_metadata"
     elif article_nodes:
-        visible_title = _text(" ".join(parser.h1), 500) or _text((parser.meta.get("og:title") or [""])[0], 500)
+        visible_title = _visible_article_title(parser)
         structured_title = _text(article_nodes[0][1].get("headline") or article_nodes[0][1].get("name"), 500)
         visible_key, structured_key = runtime._headline_key(visible_title), runtime._headline_key(structured_title)
         if (not visible_key or not structured_key or
                 (visible_key != structured_key and SequenceMatcher(None, visible_key, structured_key).ratio() < .9)):
             return None, "unbound_article_metadata"
     main = article_nodes[0][1] if article_nodes else {}
-    title = _text(main.get("headline") or main.get("name"), 500) or _text(" ".join(parser.h1), 500)
-    title = title or _text((parser.meta.get("og:title") or parser.meta.get("twitter:title") or [""])[0], 500)
-    title = title or _text(" ".join(parser.title), 500) or discovered["title"]
+    title = _text(main.get("headline") or main.get("name"), 500) or _visible_article_title(parser) or discovered["title"]
     description = _text(main.get("description"), 2000) or _text((parser.meta.get("description") or parser.meta.get("og:description") or [""])[0], 2000)
     article_text = _text(main.get("articleBody"), 12000) or _text(" ".join(parser.article_text), 12000)
     article_text = article_text or description
@@ -703,31 +757,45 @@ def _source_quotes(source: dict[str, Any]) -> list[str]:
 
 
 def _schema(profile: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any]:
-    source_ids = [source["id"] for source in sources] or ["no_verified_source"]
+    source_ids = [source["id"] for source in sources]
     quotes = list(dict.fromkeys(quote for source in sources for quote in _source_quotes(source))) or [""]
-    source_list = {"type": "array", "items": {"type": "string", "enum": source_ids}}
+    source_value = {"type": "string", **({"enum": source_ids} if source_ids else {})}
+    source_list = {"type": "array", "items": source_value, "maxItems": MAX_PUBLISHER_PAGES if sources else 0}
+    empty_source_list = {"type": "array", "items": {"type": "string"}, "maxItems": 0}
+    moodboard = profile["kind"] == "moodboard"
     item = {"type": "object", "additionalProperties": False, "properties": {
-        "source_id": {"type": "string", "enum": source_ids},
+        "source_id": source_value,
         "supporting_source_ids": source_list,
-        "headline": {"type": "string"}, "summary": {"type": "string"},
-        "why_it_matters": {"type": "string"}, "evidence_quote": {"type": "string", "enum": quotes},
-        "event_key": {"type": "string"},
+        "headline": {"type": "string", "minLength": 1, "maxLength": 350},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "why_it_matters": {"type": "string", "minLength": 1, "maxLength": 1500},
+        "evidence_quote": {"type": "string", "enum": quotes},
+        "event_key": {"type": "string", "minLength": 1, "maxLength": 200},
         "section": {"type": "string", "enum": ["conflict_diplomacy", "major_consequences"]
                     if profile["id"] == "iran-news" else ["news"]}},
         "required": ["source_id", "supporting_source_ids", "headline", "summary", "why_it_matters",
                      "evidence_quote", "event_key", "section"]}
     section = {"type": "object", "additionalProperties": False, "properties": {
         "id": {"type": "string", "enum": [part["id"] for part in profile["sections"]]},
-        "body": {"type": "string"}, "source_ids": source_list}, "required": ["id", "body", "source_ids"]}
+        "body": {"type": "string", "minLength": 1, "maxLength": 9000}, "source_ids": source_list},
+        "required": ["id", "body", "source_ids"]}
+    if moodboard:
+        section["properties"]["attribution"] = {"type": "string", "enum":
+            ["original_creative", "reference_based"] if sources else ["original_creative"]}
+        section["required"].append("attribution")
     palette = {"type": "object", "additionalProperties": False, "properties": {
-        "name": {"type": "string"}, "hex": {"type": "string"}}, "required": ["name", "hex"]}
+        "name": {"type": "string", "minLength": 1, "maxLength": 100},
+        "hex": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"}}, "required": ["name", "hex"]}
     return {"type": "object", "additionalProperties": False, "properties": {
-        "title": {"type": "string"}, "items": {"type": "array", "items": item},
-        "sections": {"type": "array", "items": section},
-        "limitations": {"type": "array", "items": {"type": "string"}},
+        "title": {"type": "string", "minLength": 1, "maxLength": 250},
+        "items": {"type": "array", "items": item, "maxItems": 40 if any(source["role"] == "fresh" for source in sources) else 0},
+        "sections": {"type": "array", "items": section, "minItems": len(profile["sections"]), "maxItems": len(profile["sections"])},
+        "limitations": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1000}, "maxItems": 12},
         "visuals": {"type": "object", "additionalProperties": False, "properties": {
-            "palette": {"type": "array", "items": palette}, "direction": {"type": "string"},
-            "reference_source_ids": source_list}, "required": ["palette", "direction", "reference_source_ids"]}},
+            "palette": {"type": "array", "items": palette, "minItems": 3 if moodboard else 0, "maxItems": 6 if moodboard else 0},
+            "direction": {"type": "string", "minLength": 1 if moodboard else 0, "maxLength": 1800 if moodboard else 0},
+            "reference_source_ids": source_list if moodboard else empty_source_list},
+            "required": ["palette", "direction", "reference_source_ids"]}},
         "required": ["title", "items", "sections", "limitations", "visuals"]}
 
 
@@ -766,6 +834,14 @@ def _synthesis_payload(model: str, profile: dict[str, Any], topic: str, language
         "Workspace profiles use ONLY the user's pasted material, factual_basis=userprovided, with no news items or sources. "
         "Do not invent participants, decisions or message access; reply drafts remain unsent. "
         "For moodboard, provide 3 to 6 palette entries with exact #RRGGBB values and a specific visual direction. "
+        "Each moodboard section must declare attribution='original_creative' for entirely imagined story elements, "
+        "with empty source_ids and no factual claims about real people, places, culture, science or history. "
+        "Use attribution='reference_based' whenever a section includes factual inspiration or reference-derived claims, "
+        "and attach their verified source_ids; distinguish any creative interpretation within that section. "
+        "The presence of references elsewhere does not make an original premise, character or scene a sourced fact. "
+        "The server adds a visible original-creative label; do not repeat that label as a heading. "
+        "When no sources exist, all source-ID arrays and news items must be empty; never emit a placeholder source ID. "
+        "Respect all schema text/array bounds, including a maximum of 1800 characters for visuals.direction. "
         "For other kinds return an empty palette and empty visuals direction/reference_source_ids.\n"
         + "DOMAIN: " + profile["scope"] + "\nREQUIRED SECTIONS: " + _json(profile["sections"])
     )
@@ -817,8 +893,34 @@ def _ids(value: Any, sources: dict[str, dict[str, Any]]) -> list[str]:
     return list(dict.fromkeys(value))
 
 
+def _without_repeated_heading(body: str, section: dict[str, Any]) -> str:
+    """Remove only the leading Markdown heading owned by the section renderer."""
+    match = re.match(r"^#{1,6}[ \t]+([^\r\n]+)(?:\r?\n|$)", body)
+    if match is None:
+        match = re.match(r"^([^\r\n]+)\r?\n[ \t]{0,3}(?:=+|-+)[ \t]*(?:\r?\n|$)", body)
+    if match is None:
+        return body
+    heading = re.sub(r"[ \t]+#+[ \t]*$", "", match.group(1)).strip()
+
+    def label(value: str) -> str:
+        value = value.strip().rstrip(":：").strip()
+        for marker in ("**", "__"):
+            if value.startswith(marker) and value.endswith(marker) and len(value) > 4:
+                value = value[2:-2].strip().rstrip(":：").strip()
+                break
+        return re.sub(r"\s+", " ", value).casefold()
+
+    expected = {label(section["title_ar"]), label(section["title_en"])}
+    if label(heading) not in expected:
+        return body
+    remaining = body[match.end():].strip()
+    if not remaining:
+        raise ValueError("empty_section_body")
+    return remaining
+
+
 def _validated_pack(raw: str, profile: dict[str, Any], sources: list[dict[str, Any]],
-                    window: dict[str, str]) -> tuple[dict[str, Any], dict[str, int]]:
+                    window: dict[str, str], *, language: str = "en") -> tuple[dict[str, Any], dict[str, int]]:
     try:
         data = json.loads(raw)
         if not isinstance(data, dict) or set(data) != {"title", "items", "sections", "limitations", "visuals"}:
@@ -831,20 +933,36 @@ def _validated_pack(raw: str, profile: dict[str, Any], sources: list[dict[str, A
         source_map = {source["id"]: source for source in sources}
         sections, seen_sections = [], set()
         expected = {part["id"]: part for part in profile["sections"]}
+        moodboard = profile["kind"] == "moodboard"
         for section in data["sections"]:
-            if not isinstance(section, dict) or set(section) != {"id", "body", "source_ids"}:
+            fields = {"id", "body", "source_ids"} | ({"attribution"} if moodboard else set())
+            if not isinstance(section, dict) or set(section) != fields:
                 raise ValueError("invalid_section")
             identifier = section["id"]
             if not isinstance(identifier, str) or identifier not in expected or identifier in seen_sections:
                 raise ValueError("invalid_section")
             seen_sections.add(identifier)
             ids = _ids(section["source_ids"], source_map)
-            body = _plain_field(section["body"], 9000)
-            if profile["uses_retrieval"] and sources and not ids:
+            body = _without_repeated_heading(_plain_field(section["body"], 9000), expected[identifier])
+            saved_section = {"id": identifier, "body": body, "source_ids": ids}
+            if moodboard:
+                attribution = section["attribution"]
+                if attribution not in {"original_creative", "reference_based"}:
+                    raise ValueError("invalid_section_attribution")
+                if attribution == "reference_based" and not ids:
+                    raise ValueError("uncited_section")
+                if attribution == "original_creative":
+                    if ids:
+                        raise ValueError("creative_section_with_citations")
+                    label = "تصور إبداعي أصلي" if language == "ar" else "Original creative interpretation"
+                    if not re.match(r"^(?:\*\*)?" + re.escape(label) + r"(?:\*\*)?(?:[\s.:：—–]|$)", body, re.I):
+                        saved_section["body"] = "**" + label + "**\n\n" + body
+                saved_section["attribution"] = attribution
+            elif profile["uses_retrieval"] and sources and not ids:
                 # An unreferenced factual section cannot be confidently tied to
                 # the available evidence; require explicit source attribution.
                 raise ValueError("uncited_section")
-            sections.append({"id": identifier, "body": body, "source_ids": ids})
+            sections.append(saved_section)
         sections.sort(key=lambda part: list(expected).index(part["id"]))
         if not isinstance(data["limitations"], list) or len(data["limitations"]) > 12:
             raise ValueError("invalid_limitations")
@@ -866,7 +984,12 @@ def _validated_pack(raw: str, profile: dict[str, Any], sources: list[dict[str, A
             raise ValueError("missing_moodboard_visuals")
         if profile["kind"] != "moodboard" and (palette or direction or visual_ids):
             raise ValueError("unexpected_visuals")
-    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
+        reason = str(error)
+        reason = reason if reason in _PACK_REJECTION_REASONS else "invalid_report_schema"
+        agent_id = profile.get("id")
+        agent_id = agent_id if isinstance(agent_id, str) and re.fullmatch(r"[a-z0-9-]{1,60}", agent_id) else "unknown"
+        _LOGGER.warning("research_report_rejected agent_id=%s reason=%s", agent_id, reason)
         raise _fail("invalid_research_report", "The structured report did not satisfy its evidence contract.") from None
     items, seen_sources, seen_events, seen_headlines = [], set(), set(), set()
     rejected: Counter[str] = Counter()
@@ -919,6 +1042,17 @@ def _validated_pack(raw: str, profile: dict[str, Any], sources: list[dict[str, A
 
 def _empty_pack(profile: dict[str, Any], language: str, window: dict[str, str], *, starter: bool = False) -> dict[str, Any]:
     ar = language == "ar"
+    if not starter and profile["kind"] == "briefing":
+        title = "لا توجد مستجدات موثقة خلال آخر 12 ساعة" if ar else "No verified developments in the last 12 hours"
+        body = (("لم تتأهل أخبار موثقة ضمن نافذة البحث (UTC): " if ar else
+                 "No verified news qualified within the research window (UTC): ")
+                + window["start"] + " — " + window["end"] + ".")
+        limitation = ("لا تثبت هذه النتيجة عدم وقوع أحداث. لم تُستخدم أخبار قديمة أو غير مؤرخة لتعويض النقص."
+                      if ar else "This does not establish that no events occurred. Older or undated items were not used to fill the report.")
+        return {"title": title, "items": [],
+                "sections": [{"id": "executive_summary", "body": body, "source_ids": []}],
+                "limitations": [limitation],
+                "visuals": {"palette": [], "direction": "", "reference_source_ids": []}}
     if starter:
         title = ("ملف عمل جاهز لاستقبال النص" if ar else "A working pack ready for your text")
         message = ("أضف النص أو الملاحظات في حقل الموضوع، ثم شغّل المساعد. لم يُرفق محتوى بعد، ولم تُجرَ أي مكالمة خارجية."
@@ -1057,7 +1191,7 @@ def generate_report(agent_id: str, topic: str = "", language: str = "ar", *,
             else:
                 synthesized = _call_response(key, payload)
                 stages.append(("synthesis", synthesized))
-                pack, item_exclusions = _validated_pack(synthesized["content"], profile, selected, window)
+                pack, item_exclusions = _validated_pack(synthesized["content"], profile, selected, window, language=language)
                 if profile["kind"] == "briefing" and not pack["items"]:
                     pack = _empty_pack(profile, language, window)
     ar = language == "ar"
