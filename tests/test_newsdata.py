@@ -121,14 +121,70 @@ def test_next_page_uses_saved_cursor_size_and_window_without_auto_pagination(mon
     assert "opaque-next-page" not in json.dumps(result["pagination"])
 
 
-def test_page_size_is_not_a_twenty_story_total_cap(monkeypatch):
+def test_configured_page_size_above_twenty_is_clamped_before_provider_request(monkeypatch):
     configured(monkeypatch)
-    values = [article(number) for number in range(1, 26)]
-    mock_http(monkeypatch, lambda request: httpx.Response(200, json=page(values, totalResults=73)))
-    result = newsdata.run_report(newsdata_context=context(page_size=50))
-    assert result["item_count"] == 25
-    assert result["target_count"] is result["shortfall"] is result["bounded_item_limit"] is None
+    monkeypatch.setenv("NEWSDATA_PAGE_SIZE", "50")
+    calls = []
+    def handler(request):
+        calls.append(request)
+        assert request.url.params["size"] == "20"
+        return httpx.Response(200, json=page([article(number) for number in range(1, 21)],
+                                             totalResults=73, nextPage="must-not-fetch"))
+    mock_http(monkeypatch, handler)
+    result = newsdata.run_report(newsdata_context=context())
+    assert len(calls) == 1 and result["item_count"] == 20
+    assert result["target_count"] is result["shortfall"] is None
+    assert result["bounded_item_limit"] == 20
     assert result["count_mode"] == "provider_page"
+    assert result["pagination"]["results_consumed"] == 20 and result["pagination"]["limit_reached"]
+    assert not result["pagination"]["has_more"] and result["newsdata_context"]["next_cursor"] is None
+
+
+def test_final_partial_page_preserves_cursor_size_and_trims_before_validation_and_translation(monkeypatch):
+    configured(monkeypatch)
+    raw = [article(number) for number in range(16, 31)]
+    raw[0]["title"] = None
+    raw[1]["link"] = "javascript:invalid"
+    calls, parsed_sizes, translated_ids, reserved_sizes = [], [], [], []
+    original_items, original_translate, original_plan = newsdata._items, newsdata.translate_items, newsdata.translation_plan
+    def handler(request):
+        calls.append(request)
+        assert request.url.params["size"] == "15" and request.url.params["page"] == "saved-cursor"
+        return httpx.Response(200, json=page(raw, totalResults=100, nextPage="ignored-next"))
+    def parse(values, saved):
+        parsed_sizes.append(len(values))
+        return original_items(values, saved)
+    def translate(items, plan):
+        translated_ids.extend(item["article_id"] for item in items)
+        return original_translate(items, plan)
+    def plan(size):
+        reserved_sizes.append(size)
+        return original_plan(size)
+    monkeypatch.setattr(newsdata, "_items", parse)
+    monkeypatch.setattr(newsdata, "translate_items", translate)
+    monkeypatch.setattr(newsdata, "translation_plan", plan)
+    mock_http(monkeypatch, handler)
+    result = newsdata.run_report(newsdata_context=context(page_size=15, page_index=2,
+        cursor="saved-cursor", parent_report_id="rpt_parent", root_report_id="rpt_root", results_consumed=15))
+    assert len(calls) == 1 and parsed_sizes == [5] and reserved_sizes == [5]
+    assert translated_ids == ["synthetic-18", "synthetic-19", "synthetic-20"]
+    assert result["item_count"] == 3 and result["discarded_item_count"] == 2
+    assert result["newsdata"]["returned_item_count"] == 15 and result["newsdata"]["consumed_item_count"] == 5
+    assert result["pagination"]["results_before_page"] == 15
+    assert result["pagination"]["results_consumed"] == 20 and result["pagination"]["limit_reached"]
+    assert not result["pagination"]["has_more"]
+
+
+def test_runtime_rejects_exhausted_context_before_translation_plan_or_provider(monkeypatch):
+    configured(monkeypatch)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("No provider call or translation reservation is allowed after twenty results")
+    monkeypatch.setattr(newsdata, "_fetch_page", forbidden)
+    monkeypatch.setattr(newsdata, "translation_plan", forbidden)
+    with pytest.raises(HTTPException) as capped:
+        newsdata.run_report(newsdata_context=context(page_index=3, results_consumed=20,
+            cursor="saved-third", parent_report_id="rpt_parent", root_report_id="rpt_root"))
+    assert capped.value.detail["code"] == "newsdata_result_limit"
 
 
 @pytest.mark.parametrize("value", ["0", "51", "no", "1.5"])

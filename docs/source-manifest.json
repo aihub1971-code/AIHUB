@@ -16,7 +16,7 @@
       "agent_id": "iran-news",
       "skill_id": "iran-news",
       "path": "skills/iran-news/iran-news.md",
-      "sha256": "1ca429ead1e5239d0e69c5fb250282f0d313469d0bbf39055a67aae50c747dd3"
+      "sha256": "74dc5db43e6f63d79f779858fbd1184004c347d1793619c6c114cc6bb997e924"
     },
     {
       "agent_id": "uae-eu-trade-talks",

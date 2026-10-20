@@ -449,7 +449,7 @@ test("an incomplete follow-up and separate event dates are visible and localized
 
 test("scripts initialize in order without chat requests before authentication; logout clears private state", async () => {
   const sources=[...html.matchAll(/<script src="([^"]+)"/g)].map(match=>match[1]);
-  assert.deepEqual(sources,["/static/i18n.js?v=1.5.0","/static/chat.js?v=1.5.0","/static/app.js?v=1.5.0"]);
+  assert.deepEqual(sources,["/static/i18n.js?v=1.5.1","/static/chat.js?v=1.5.1","/static/app.js?v=1.5.1"]);
   const ui=harness(null,{language:"en",fetch:(url,_options,respond)=>dashboardFixture(url,respond)});
   assert.equal(ui.chatCalls.create,1);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
   assert.equal(ui.chatConfig.getCurrentReport(),null);
@@ -589,13 +589,29 @@ test("NewsData Arabic translation failures retain English and unsafe links never
   assert.equal(ui.requests.length,0);
 });
 
-test("NewsData paid pages may show more than 20 items without applying a six-story target", () => {
+test("NewsData keeps only the first 20 results even for a legacy larger provider page", () => {
   const ui=harness(null,{language:"en"}),data=newsdataReport({freshness:{plan:"paid"}});
   data.items=Array.from({length:25},(_,i)=>({...data.items[0],article_id:"fixture-"+i,headline_en:"Article "+i}));
   data.item_count=25;data.pagination.page_size=25;ui.displayResult(data);
-  assert.equal(byClass(ui.elements.get("responseBody"),"news-item").length,25);
-  assert.match(byClass(ui.elements.get("responseBody"),"news-count")[0].textContent,/25 articles/);
-  assert.doesNotMatch(ui.elements.get("responseBody").textContent,/12-hour|20 news|of 6/);
+  assert.equal(byClass(ui.elements.get("responseBody"),"news-item").length,20);
+  assert.match(byClass(ui.elements.get("responseBody"),"news-count")[0].textContent,/20 articles/);
+  assert.equal(byClass(ui.elements.get("responseBody"),"news-page-next")[0].disabled,true);
+  assert.match(ui.elements.get("responseBody").textContent,/first 20 results/);
+  assert.doesNotMatch(ui.elements.get("responseBody").textContent,/12-hour|of 6/);
+});
+
+test("the result limit blocks stale Next links and stays active after changing language", async () => {
+  const ui=harness(null,{language:"en"});ui.setAuthenticated();ui.chooseAgent("iran-news");
+  const data=newsdataReport({pagination:{has_more:true,page_index:2,page_size:10,results_before_page:10,
+    results_consumed:20,result_limit:20,limit_reached:true,parent_report_id:"rpt_parent",next_report_id:"rpt_stale_third"}});
+  ui.displayResult(data);let body=ui.elements.get("responseBody");
+  assert.equal(byClass(body,"news-page-next")[0].disabled,true);
+  await byClass(body,"news-page-next")[0].click();
+  assert.equal(ui.requests.length,0);
+  ui.I18n.setLanguage("ar");
+  assert.equal(byClass(body,"news-page-next")[0].disabled,true);
+  assert.equal(byClass(body,"news-page-previous")[0].disabled,false);
+  assert.match(body.textContent,/أول 20 نتيجة/);
 });
 
 test("Next and Previous show saved report pages and preserve the original request language", async () => {

@@ -14,6 +14,7 @@ from app import runtime as agent_runtime
 from app import newsdata
 from app.auth import require_owner
 from app.chat import router as chat_router
+from app.public import router as public_router
 from app.config import docs_enabled, get_setting
 from app.permissions import require_capability
 from app.registry import get_agent, get_agents, read_skill
@@ -23,7 +24,7 @@ from app.service import execute_report
 from app.storage import StoreError, get_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.5.1"
 
 
 def runtime_is_ready() -> bool:
@@ -57,6 +58,7 @@ app = FastAPI(
 )
 app.mount("/static", StaticFiles(directory=STATIC_ROOT), name="static")
 app.include_router(chat_router)
+app.include_router(public_router)
 
 
 @app.exception_handler(StoreError)
@@ -83,6 +85,11 @@ async def response_headers(request: Request, call_next):
 
 @app.get("/", tags=["system"], response_class=HTMLResponse)
 def root() -> HTMLResponse:
+    return HTMLResponse(STATIC_ROOT.joinpath("public.html").read_text(encoding="utf-8"))
+
+
+@app.get("/admin", tags=["system"], response_class=HTMLResponse)
+def admin() -> HTMLResponse:
     return HTMLResponse(STATIC_ROOT.joinpath("index.html").read_text(encoding="utf-8"))
 
 
@@ -177,11 +184,12 @@ def system_status(_: str = Depends(require_owner)) -> dict[str, object]:
     return {
         "app": "AI HUB", "version": APP_VERSION, "timezone": "Asia/Dubai",
         "news_items_per_report": None, "news_count_mode": "provider_page",
-        "news_item_limit": None, "allowed_source_domains": [],
+        "news_item_limit": newsdata.MAX_NEWSDATA_RESULTS, "allowed_source_domains": [],
         "iran_news": {
             "provider": "newsdata", "configured": news_ready,
             "query": newsdata.NEWSDATA_QUERY, "query_semantics": "iran AND war",
             "window_hours": 48, "source_language": "en", "page_size": page_size,
+            "result_limit": newsdata.MAX_NEWSDATA_RESULTS,
             "plan": plan, "free_plan_delay_hours": 12,
             "translation_provider": "openai", "translation_configured": openai,
             "configuration_issue": newsdata_issue or (None if news_ready else "newsdata_not_configured"),

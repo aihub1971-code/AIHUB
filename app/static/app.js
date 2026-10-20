@@ -208,6 +208,19 @@
     }catch(_){return null;}
   }
   const isNewsDataReport=data=>data?.provider==="newsdata" && data.agent_id==="iran-news";
+  const NEWSDATA_RESULT_LIMIT=20;
+  function newsDataResultsBefore(data){
+    const p=data?.pagination || {};
+    if(Number.isSafeInteger(p.results_before_page) && p.results_before_page>=0)return p.results_before_page;
+    return Math.max(0,(Number(p.page_index) || 1)-1)*(Number(p.page_size) || 10);
+  }
+  function newsDataLimitReached(data){
+    const p=data?.pagination || {};
+    if(p.limit_reached===true)return true;
+    if(Number.isSafeInteger(p.results_consumed))return p.results_consumed>=NEWSDATA_RESULT_LIMIT;
+    const count=data?.newsdata?.returned_item_count ?? data?.items?.length ?? 0;
+    return newsDataResultsBefore(data)+count>=NEWSDATA_RESULT_LIMIT;
+  }
   function newsElement(tag,className,text){
     const element=document.createElement(tag); if(className)element.className=className;
     if(text!==undefined)element.textContent=String(text);
@@ -244,7 +257,7 @@
     return article;
   }
   function renderNewsDataReport(target,data){
-    const items=data.items.filter(item=>item && typeof item==="object" && !Array.isArray(item)).slice(0,50);
+    const items=data.items.filter(item=>item && typeof item==="object" && !Array.isArray(item)).slice(0,Math.max(0,NEWSDATA_RESULT_LIMIT-newsDataResultsBefore(data)));
     const language=I18n.getLanguage(),pagination=data.pagination || {};
     target.replaceChildren();target.classList.add("news-reading");target.dir=I18n.getDirection();target.lang=language;
     const intro=newsElement("header","news-report-intro");
@@ -253,6 +266,7 @@
       newsElement("p","news-coverage",t("newsdata.window")));
     if(data.generated_at && Number.isFinite(Date.parse(data.generated_at)))intro.append(newsElement("p","news-prepared",t("news.prepared",{date:localDate(data.generated_at)})));
     intro.append(newsElement("p","news-count",t("newsdata.pageCount",{page:n(pagination.page_index || 1),count:n(items.length)})));
+    intro.append(newsElement("p","news-result-limit",t("newsdata.limitNote")));
     const total=data.newsdata?.provider_total_results ?? pagination.total_results;
     if(Number.isSafeInteger(total) && total>=0)intro.append(newsElement("p","news-provider-total",t("newsdata.total",{count:n(total)})));
     target.append(intro);
@@ -279,10 +293,10 @@
     const previous=newsElement("button","secondary news-page-button news-page-previous",t("newsdata.previous"));previous.type="button";
     previous.disabled=runInFlight || !pagination.parent_report_id;previous.addEventListener("click",()=>changeNewsPage("previous"));
     const next=newsElement("button","primary news-page-button news-page-next",t("newsdata.next"));next.type="button";
-    next.disabled=runInFlight || (!pagination.has_more && !pagination.next_report_id) || pagination.next_report_status==="failed";
+    next.disabled=runInFlight || newsDataLimitReached(data) || (!pagination.has_more && !pagination.next_report_id) || pagination.next_report_status==="failed";
     next.addEventListener("click",()=>changeNewsPage("next"));
     navigation.append(previous,newsElement("span","news-page-index",t("newsdata.page",{page:n(pagination.page_index || 1)})),next);target.append(navigation);
-    target.append(newsElement("p","news-section-note",t(pagination.next_report_status==="failed" ? "newsdata.failedPage" : "newsdata.pageNote")));
+    target.append(newsElement("p","news-section-note",t(newsDataLimitReached(data) ? "newsdata.limitReached" : pagination.next_report_status==="failed" ? "newsdata.failedPage" : "newsdata.pageNote")));
     const notes=newsElement("details","news-notes");
     notes.append(newsElement("summary","",t("news.notes")),newsElement("p","",t("newsdata.provenance")));target.append(notes);
   }
@@ -423,7 +437,7 @@
     $("saveSchedule").textContent=t(scheduleBusy ? "schedule.saving" : editingScheduleId ? "schedule.saveEdit" : "schedule.save");$("saveSchedule").disabled=scheduleBusy;
     for(const button of $("responseBody").querySelectorAll(".news-page-button")){
       const p=lastResult?.pagination || {};
-      button.disabled=runInFlight || (button.classList.contains("news-page-previous") ? !p.parent_report_id : (!p.has_more && !p.next_report_id) || p.next_report_status==="failed");
+      button.disabled=runInFlight || (button.classList.contains("news-page-previous") ? !p.parent_report_id : newsDataLimitReached(lastResult) || (!p.has_more && !p.next_report_id) || p.next_report_status==="failed");
     }
   }
   function refreshLanguage(){
@@ -517,6 +531,7 @@
   async function changeNewsPage(direction){
     if(runInFlight || !authHeader || !isNewsDataReport(lastResult) || !latestReportId)return;
     const previous=lastResult,parentId=latestReportId,pagination=previous.pagination || {},version=sessionVersion;
+    if(direction!=="previous" && newsDataLimitReached(previous))return;
     const savedId=direction==="previous" ? pagination.parent_report_id : pagination.next_report_id;
     if(!savedId && (direction==="previous" || !pagination.has_more))return;
     runInFlight=true;refreshButtons();setNotice("runNotice","newsdata.loading");
