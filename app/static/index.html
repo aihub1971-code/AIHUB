@@ -1,128 +1,115 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">
 <title>AI HUB | منصة المساعدين الذكيين</title>
-<link rel="stylesheet" href="/static/style.css?v=1.3.0">
+<link rel="stylesheet" href="/static/style.css?v=1.4.0">
+<link rel="stylesheet" href="/static/chat.css?v=1.4.0">
 </head>
-<body>
-<div class="shell">
-  <header class="topbar">
-    <div class="brand">
-      <div class="logo">AI</div>
-      <div><div class="eyebrow">AI HUB • INTELLIGENCE WORKSPACE</div><h1>AI HUB</h1><p>منصة الأخبار والمساعدين الذكيين</p></div>
+<body><div class="shell">
+<header class="topbar">
+  <div class="brand"><div class="logo" aria-hidden="true">AI</div><div><div class="eyebrow" data-i18n="brand.eyebrow">AI HUB</div><h1>AI HUB</h1><p data-i18n="brand.subtitle"></p></div></div>
+  <div class="topbar-controls">
+    <div class="language-switch" role="group" data-i18n-aria-label="language.label" aria-label="لغة الواجهة">
+      <button id="languageAR" type="button" lang="ar" dir="rtl" aria-pressed="true" class="active">العربية</button>
+      <button id="languageEN" type="button" lang="en" dir="ltr" aria-pressed="false">English</button>
     </div>
-    <div class="status"><span id="healthDot" class="dot"></span><span id="healthText">جارٍ فحص الخدمة...</span><span aria-hidden="true">·</span><span>بيئة تشغيل خاصة</span></div>
-  </header>
-
-  <section class="hero">
-    <div class="hero-main">
-      <div class="eyebrow">EXECUTIVE WORKSPACE</div>
-      <h2>أخبار مرتّبة. تقارير محفوظة. رؤية أوضح.</h2>
-      <p>اختر من 13 مساعدًا متخصصًا. ابحث عبر OpenAI في المصادر التي اخترتها، واحصل على الأخبار المتاحة مع روابطها وتواريخها، ثم احفظ النتائج وجدولها بتوقيت دبي.</p>
+    <div class="status"><span id="healthDot" class="dot" aria-hidden="true"></span><span id="healthText" role="status" data-i18n="health.checking"></span></div>
+    <button id="headerLogoutBtn" class="secondary hidden" type="button" data-i18n="logout"></button>
+  </div>
+</header>
+<section class="hero">
+  <div class="hero-main"><div class="eyebrow" data-i18n="hero.eyebrow"></div><h2 data-i18n="hero.title"></h2><p data-i18n="hero.description"></p></div>
+  <div class="hero-metric"><div class="metric-number" id="agentCount">13</div><div class="metric-label" data-i18n="hero.metric"></div><div class="metric-foot" id="runtimeLabel" data-i18n="health.modelChecking"></div></div>
+</section>
+<section class="capability-strip" data-i18n-aria-label="capabilities.label">
+  <article class="capability-card"><span class="capability-icon" aria-hidden="true">01</span><div><strong data-i18n="capabilities.assistants"></strong><p data-i18n="capabilities.assistantsNote"></p></div></article>
+  <article class="capability-card"><span class="capability-icon" aria-hidden="true">02</span><div><strong data-i18n="capabilities.news"></strong><p data-i18n="capabilities.newsNote"></p></div></article>
+  <article class="capability-card"><span class="capability-icon" aria-hidden="true">03</span><div><strong data-i18n="capabilities.reports"></strong><p data-i18n="capabilities.reportsNote"></p></div></article>
+  <article class="capability-card"><span class="capability-icon" aria-hidden="true">04</span><div><strong data-i18n="capabilities.archive"></strong><p data-i18n="capabilities.archiveNote"></p></div></article>
+</section>
+<p class="notice source-policy" data-i18n="sourcePolicy"></p>
+<section id="accountOverview" class="account-overview hidden" data-i18n-aria-label="overview.label">
+  <article><span data-i18n="overview.attempts"></span><strong id="dailyCount">—</strong><small id="dailyRemaining">—</small></article>
+  <article><span data-i18n="overview.dailyCost"></span><strong id="dailyCost">—</strong><small id="dailyBudget">—</small></article>
+  <article><span data-i18n="overview.monthlyCost"></span><strong id="monthlyCost">—</strong><small id="monthlyBudget">—</small></article>
+  <article><span data-i18n="overview.configuration"></span><strong id="providerStatus">—</strong><small id="scheduleStatus">—</small></article>
+</section>
+<nav id="workspaceTabs" class="workspace-tabs hidden" role="tablist" data-i18n-aria-label="tabs.label">
+  <button id="reportsTab" type="button" role="tab" aria-controls="reportsView" aria-selected="true" data-i18n="tabs.reports"></button>
+  <button id="chatTab" type="button" role="tab" aria-controls="chatView" aria-selected="false" tabindex="-1" data-i18n="tabs.chat"></button>
+</nav>
+<div id="reportsView" role="tabpanel" aria-labelledby="reportsTab">
+<main class="layout">
+<aside class="panel">
+  <div class="section-head"><h3 data-i18n="access.title"></h3><span class="hint" data-i18n="access.eyebrow"></span></div>
+  <div id="loginBox" class="login-box">
+    <h4 data-i18n="login.title"></h4>
+    <div class="field"><label for="username" data-i18n="login.username"></label><input id="username" dir="auto" autocomplete="username" data-i18n-placeholder="login.usernamePlaceholder"></div>
+    <div class="field"><label for="password" data-i18n="login.password"></label><input id="password" type="password" dir="auto" autocomplete="current-password" data-i18n-placeholder="login.passwordPlaceholder"></div>
+    <button id="loginBtn" class="primary full" type="button" data-i18n="login.button"></button>
+    <div class="small-note" data-i18n="login.privacy"></div>
+  </div>
+  <div id="sessionBox" class="hidden"><div class="notice good" data-i18n="login.verified"></div><button id="logoutBtn" class="secondary full session-logout" type="button" data-i18n="logout"></button></div>
+  <div id="loginNotice" class="notice" role="status" data-i18n="login.prompt"></div>
+  <div id="agentSection" class="hidden">
+    <div class="section-head"><h3 data-i18n="agents.title"></h3><span class="hint" id="listCount">0 / 13</span></div>
+    <input id="search" class="search" type="search" data-i18n-placeholder="agents.search" data-i18n-aria-label="agents.searchLabel">
+    <div id="agentList" class="agent-list"></div>
+  </div>
+</aside>
+<section class="panel">
+  <div id="welcome" class="empty"><div><div class="empty-icon" aria-hidden="true">✳</div><strong data-i18n="welcome.title"></strong><p data-i18n="welcome.description"></p></div></div>
+  <div id="workArea" class="hidden">
+    <div class="workspace-top"><div class="agent-title"><div id="selectedNum" class="agent-num">01</div><div><h2 id="selectedName"></h2><p id="selectedId" dir="ltr"></p></div></div><span id="selectedStatus" class="pill warn" data-i18n="agents.waiting"></span></div>
+    <p id="selectedDescription" class="agent-description"></p><div class="meta" id="skillTags"></div>
+    <div class="runner">
+      <div class="runner-head"><h3 data-i18n="task.title"></h3><span data-i18n="task.eyebrow"></span></div>
+      <div class="field"><label for="task" data-i18n="task.label"></label><textarea id="task" dir="auto" maxlength="8000" aria-describedby="newsCoverageHint reportLanguageHint" data-i18n-placeholder="task.placeholder"></textarea><small id="newsCoverageHint" class="hint" data-i18n="task.coverage"></small><small id="reportLanguageHint" class="hint" data-i18n="task.languageNote"></small></div>
+      <div class="examples"><button type="button" id="worldNewsPreset" class="textbutton" data-i18n="task.worldPreset"></button><button type="button" id="iranNewsPreset" class="textbutton" data-i18n="task.iranPreset"></button></div>
+      <div class="actions"><button id="runBtn" class="primary" type="button" data-i18n="task.run"></button><button id="clearBtn" class="secondary" type="button" data-i18n="task.clear"></button><span class="hint" id="runHint" data-i18n="task.runHint"></span></div>
     </div>
-    <div class="hero-metric">
-      <div class="metric-number" id="agentCount">13</div>
-      <div class="metric-label">مساعدًا متخصصًا ضمن المنصة</div>
-      <div class="metric-foot" id="runtimeLabel">حالة الخدمة: جارٍ التحقق</div>
+    <div id="responsePanel" class="response hidden">
+      <div class="response-head"><strong id="responseHeading" data-i18n="response.title"></strong><div class="actions"><button id="downloadBtn" class="textbutton hidden" type="button" data-i18n="response.download"></button><button id="copyBtn" class="textbutton" type="button" data-i18n="response.copy"></button></div></div>
+      <div id="responseBody" class="response-body" dir="auto" role="region" aria-labelledby="responseHeading"></div>
+      <details class="usage-details"><summary data-i18n="usage.title"></summary><div id="usage" class="usage"></div></details>
     </div>
-  </section>
-
-  <section class="capability-strip" aria-label="ملخص المنصة">
-    <article class="capability-card"><span class="capability-icon">01</span><div><strong>مساعدون متخصصون</strong><p>مهارات محددة لكل مجال</p></div></article>
-    <article class="capability-card"><span class="capability-icon">02</span><div><strong>أخبار دون عدد ثابت</strong><p>النتائج المتاحة من مصادر محددة</p></div></article>
-    <article class="capability-card"><span class="capability-icon">03</span><div><strong>حتى 50 تقريرًا يوميًا</strong><p>تشغيل يدوي وجدولة بتوقيت دبي</p></div></article>
-    <article class="capability-card"><span class="capability-icon">04</span><div><strong>أرشيف وسجل استهلاك</strong><p>متابعة التقارير والميزانية</p></div></article>
-  </section>
-
-  <p class="notice" style="margin:0 0 18px">البحث وإعداد النتائج عبر OpenAI فقط. المصادر المعتمدة: <bdi>Financial Times</bdi>، <bdi>The Atlantic</bdi>، <bdi>Politico</bdi>، <bdi>The Wall Street Journal</bdi>، <bdi>The Daily Telegraph</bdi>، والجزيرة.</p>
-
-  <section id="accountOverview" class="account-overview hidden" aria-label="الاستهلاك والإعدادات">
-    <article><span>محاولات اليوم</span><strong id="dailyCount">—</strong><small id="dailyRemaining">—</small></article>
-    <article><span>تكلفة اليوم التقديرية</span><strong id="dailyCost">—</strong><small id="dailyBudget">—</small></article>
-    <article><span>تكلفة الشهر التقديرية</span><strong id="monthlyCost">—</strong><small id="monthlyBudget">—</small></article>
-    <article><span>حالة الإعداد</span><strong id="providerStatus">—</strong><small id="scheduleStatus">—</small></article>
-  </section>
-  <main class="layout">
-    <aside class="panel">
-      <div class="section-head"><h3>الوصول الآمن</h3><span class="hint">OWNER ACCESS</span></div>
-      <div id="loginBox" class="login-box">
-        <h4>تسجيل الدخول</h4>
-        <div class="field"><label for="username">اسم المستخدم</label><input id="username" autocomplete="username" placeholder="اسم مستخدم المنصة"></div>
-        <div class="field"><label for="password">كلمة المرور</label><input id="password" type="password" autocomplete="current-password" placeholder="كلمة مرور المنصة"></div>
-        <button id="loginBtn" class="primary full">دخول وعرض المساعدين</button>
-        <div class="small-note">يتم التحقق من بيانات الدخول على الخادم. لا تحفظ الصفحة كلمة المرور في التخزين المحلي للمتصفح.</div>
-      </div>
-      <div id="sessionBox" class="hidden">
-        <div class="notice good">تم التحقق من بيانات الدخول.</div>
-        <button id="logoutBtn" class="secondary full" style="margin-top:10px">إنهاء الجلسة</button>
-      </div>
-      <div id="loginNotice" class="notice">سجّل الدخول لعرض المساعدين وتشغيل المهام.</div>
-      <div id="agentSection" class="hidden" style="margin-top:22px">
-        <div class="section-head"><h3>قائمة المساعدين</h3><span class="hint" id="listCount">0 / 13</span></div>
-        <input id="search" class="search" type="search" placeholder="ابحث عن مساعد..." aria-label="بحث عن مساعد">
-        <div id="agentList" class="agent-list"></div>
-      </div>
-    </aside>
-
-    <section class="panel">
-      <div id="welcome" class="empty">
-        <div><div class="empty-icon">✳</div><strong style="color:#1b304a">مساحة عمل المساعد</strong><p>سجّل الدخول أولًا، ثم اختر مساعدًا لبدء العمل.</p></div>
-      </div>
-      <div id="workArea" class="hidden">
-        <div class="workspace-top">
-          <div class="agent-title"><div id="selectedNum" class="agent-num">01</div><div><h2 id="selectedName">اسم المساعد</h2><p id="selectedId"></p></div></div>
-          <span id="selectedStatus" class="pill warn">بانتظار اختيار المساعد</span>
-        </div>
-        <p id="selectedDescription" class="agent-description"></p>
-        <div class="meta" id="skillTags"></div>
-
-        <div class="runner">
-          <div class="runner-head"><h3>مساحة تنفيذ المهمة</h3><span>AI TASK WORKSPACE</span></div>
-          <div class="field"><label for="task">المهمة أو السؤال</label><textarea id="task" maxlength="8000" aria-describedby="newsCoverageHint" placeholder="مثال: أبرز الأخبار الدولية المنشورة اليوم من المصادر المعتمدة، مع الروابط والتواريخ وسبب أهمية كل خبر."></textarea><small id="newsCoverageHint" class="hint">يعرض التقرير الأخبار المتاحة دون عدد ثابت، حتى 20 خبرًا في المحاولة بحسب المصادر وحدود الاستخدام.</small></div>
-          <div class="examples"><button type="button" id="worldNewsPreset" class="textbutton">أخبار دولية اليوم</button><button type="button" id="iranNewsPreset" class="textbutton">أخبار إيران اليوم</button></div>
-          <div class="actions"><button id="runBtn" class="primary">تشغيل المساعد <span aria-hidden="true">←</span></button><button id="clearBtn" class="secondary">مسح المخرجات</button><span class="hint" id="runHint">لن تُرسل المهمة إلا بعد الضغط على زر التشغيل.</span></div>
-        </div>
-
-        <div id="responsePanel" class="response hidden">
-          <div class="response-head"><strong id="responseHeading">نتيجة المساعد</strong><div class="actions"><button id="downloadBtn" class="textbutton hidden">تنزيل التقرير</button><button id="copyBtn" class="textbutton">نسخ الإجابة</button></div></div>
-          <div id="responseBody" class="response-body" dir="auto" role="region" aria-labelledby="responseHeading"></div>
-          <details class="usage-details"><summary>الاستخدام والتكلفة التقديرية</summary><div id="usage" class="usage"></div></details>
-        </div>
-        <div id="runNotice" class="notice hidden"></div>
-      </div>
+    <div id="runNotice" class="notice hidden" role="status"></div>
+  </div>
+</section>
+</main>
+<section id="management" class="management hidden" data-i18n-aria-label="management.label">
+  <div class="management-head"><div><h2 data-i18n="management.title"></h2><p data-i18n="management.description"></p></div><button id="refreshDashboard" class="secondary" type="button" data-i18n="management.refresh"></button></div>
+  <div id="dashboardNotice" class="notice hidden" role="status"></div>
+  <div class="ops-layout">
+    <section class="panel archive-panel">
+      <div class="section-head"><h3 data-i18n="archive.title"></h3><span id="archivePageLabel" class="hint"></span></div>
+      <div id="archiveList" class="archive-list"><p class="hint" data-i18n="archive.initial"></p></div>
+      <div class="archive-pagination"><button id="archivePrev" class="secondary" type="button" disabled data-i18n="archive.newer"></button><button id="archiveNext" class="secondary" type="button" disabled data-i18n="archive.older"></button></div>
+      <p class="small-note" data-i18n="archive.costNote"></p>
     </section>
-  </main>
-  <section id="management" class="management hidden" aria-label="التقارير والجدولة">
-    <div class="management-head"><div><h2>مركز التقارير</h2><p>أرشيف النتائج ومواعيد التشغيل اليومية بتوقيت دبي.</p></div><button id="refreshDashboard" class="secondary">تحديث البيانات</button></div>
-    <div id="dashboardNotice" class="notice hidden" role="status"></div>
-    <div class="ops-layout">
-      <section class="panel archive-panel">
-        <div class="section-head"><h3>التقارير المحفوظة</h3><span id="archivePageLabel" class="hint"></span></div>
-        <div id="archiveList" class="archive-list"><p class="hint">لم تُنشأ تقارير بعد.</p></div>
-        <div class="archive-pagination"><button id="archivePrev" class="secondary" disabled>الأحدث</button><button id="archiveNext" class="secondary" disabled>الأقدم</button></div>
-        <p class="small-note">التكلفة تقديرية وتشمل الحجز المحافظ للطلبات التي لم يتأكد استهلاكها. المرجع المالي النهائي هو فاتورة مزوّد الخدمة.</p>
-      </section>
-      <section class="panel schedule-panel">
-        <div class="section-head"><h3>الجدولة اليومية</h3><span class="pill">توقيت دبي</span></div>
-        <div id="schedulerNotice" class="notice"></div>
-        <form id="scheduleForm">
-          <div class="field"><label for="scheduleName">اسم الجدول</label><input id="scheduleName" maxlength="120" placeholder="مثال: الموجز الصباحي"></div>
-          <div class="field"><label for="scheduleAgent">المساعد</label><select id="scheduleAgent" required></select></div>
-          <div class="field"><label for="scheduleTask">مهمة التقرير</label><textarea id="scheduleTask" maxlength="8000" required placeholder="أبرز الأخبار المنشورة اليوم من المصادر المعتمدة، مع الروابط والتواريخ."></textarea></div>
-          <div class="field"><label for="scheduleTimes">مواعيد يومية، مفصولة بفواصل</label><input id="scheduleTimes" dir="ltr" required placeholder="08:00, 13:00, 18:00" aria-describedby="timesHint"><small id="timesHint" class="hint">نظام 24 ساعة. إجمالي المواعيد النشطة حتى 50 يوميًا، وتشترك مع التشغيل اليدوي في الحد اليومي.</small></div>
-          <label class="checkbox-row"><input id="scheduleEnabled" type="checkbox"> تفعيل هذا الجدول</label>
-          <div class="actions"><button id="saveSchedule" class="primary" type="submit">حفظ الجدول</button><button id="cancelScheduleEdit" class="secondary hidden" type="button">إلغاء التعديل</button></div>
-        </form>
-        <div id="scheduleNotice" class="notice hidden" role="status"></div>
-        <div id="scheduleList" class="schedule-list"></div>
-      </section>
-    </div>
-  </section>
-  <footer class="footer"><span>AI HUB · بيئة تشغيل خاصة</span><span>تشغيل يدوي أو وفق الجداول التي تفعّلها.</span></footer>
+    <section class="panel schedule-panel">
+      <div class="section-head"><h3 data-i18n="schedule.title"></h3><span class="pill" data-i18n="schedule.dubai"></span></div>
+      <div id="schedulerNotice" class="notice"></div>
+      <form id="scheduleForm">
+        <div class="field"><label for="scheduleName" data-i18n="schedule.name"></label><input id="scheduleName" dir="auto" maxlength="120" data-i18n-placeholder="schedule.namePlaceholder"></div>
+        <div class="field"><label for="scheduleAgent" data-i18n="schedule.agent"></label><select id="scheduleAgent" required></select></div>
+        <div class="field"><label for="scheduleTask" data-i18n="schedule.task"></label><textarea id="scheduleTask" dir="auto" maxlength="8000" required data-i18n-placeholder="schedule.taskPlaceholder"></textarea></div>
+        <div class="field"><label for="scheduleLanguage" data-i18n="schedule.language"></label><select id="scheduleLanguage" required><option value="ar" data-i18n="language.arabic"></option><option value="en" data-i18n="language.english"></option></select></div>
+        <div class="field"><label for="scheduleTimes" data-i18n="schedule.times"></label><input id="scheduleTimes" dir="ltr" required placeholder="08:00, 13:00, 18:00" aria-describedby="timesHint"><small id="timesHint" class="hint" data-i18n="schedule.timesHint"></small></div>
+        <label class="checkbox-row"><input id="scheduleEnabled" type="checkbox"><span data-i18n="schedule.enableLabel"></span></label>
+        <div class="actions"><button id="saveSchedule" class="primary" type="submit" data-i18n="schedule.save"></button><button id="cancelScheduleEdit" class="secondary hidden" type="button" data-i18n="schedule.cancel"></button></div>
+      </form>
+      <div id="scheduleNotice" class="notice hidden" role="status"></div><div id="scheduleList" class="schedule-list"></div>
+    </section>
+  </div>
+</section>
 </div>
-<script src="/static/app.js?v=1.3.0" defer></script>
+<section id="chatView" class="hidden" role="tabpanel" aria-labelledby="chatTab"><div id="chatRoot"></div></section>
+<footer class="footer"><span data-i18n="footer.brand"></span><span data-i18n="footer.note"></span></footer>
+</div>
+<script src="/static/i18n.js?v=1.4.0" defer></script>
+<script src="/static/chat.js?v=1.4.0" defer></script>
+<script src="/static/app.js?v=1.4.0" defer></script>
 </body>
 </html>

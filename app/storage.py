@@ -106,6 +106,12 @@ class Reservation:
     report: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ChatReservation:
+    created: bool
+    turn: dict[str, Any]
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     report_id TEXT PRIMARY KEY,
@@ -140,6 +146,7 @@ CREATE TABLE IF NOT EXISTS schedules (
     task TEXT NOT NULL,
     times_json TEXT NOT NULL,
     enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+    language TEXT NOT NULL DEFAULT 'ar' CHECK(language IN ('ar','en')),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -155,6 +162,56 @@ CREATE TABLE IF NOT EXISTS schedule_occurrences (
     error_code TEXT
 );
 CREATE INDEX IF NOT EXISTS occurrences_schedule_idx ON schedule_occurrences(schedule_id, due_at DESC);
+CREATE TABLE IF NOT EXISTS chat_conversations (
+    conversation_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    language TEXT NOT NULL CHECK(language IN ('ar','en')),
+    report_id TEXT REFERENCES runs(report_id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_conversations_owner_idx ON chat_conversations(owner_id,updated_at DESC);
+CREATE TABLE IF NOT EXISTS chat_turns (
+    turn_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES chat_conversations(conversation_id),
+    idempotency_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending','succeeded','failed','interrupted')),
+    error_code TEXT,
+    language TEXT NOT NULL CHECK(language IN ('ar','en')),
+    report_id TEXT REFERENCES runs(report_id),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    finished_at TEXT,
+    local_date TEXT NOT NULL,
+    local_month TEXT NOT NULL,
+    reserved_microusd INTEGER NOT NULL CHECK(reserved_microusd >= 0),
+    accounted_microusd INTEGER NOT NULL CHECK(accounted_microusd >= 0),
+    cost_basis TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    pricing_snapshot_json TEXT NOT NULL,
+    usage_json TEXT,
+    context_json TEXT,
+    UNIQUE(conversation_id,idempotency_key)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS chat_one_pending_conversation_idx
+    ON chat_turns(conversation_id) WHERE status='pending';
+CREATE INDEX IF NOT EXISTS chat_turns_local_date_idx ON chat_turns(local_date);
+CREATE INDEX IF NOT EXISTS chat_turns_local_month_idx ON chat_turns(local_month);
+CREATE TABLE IF NOT EXISTS chat_messages (
+    message_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES chat_conversations(conversation_id),
+    turn_id TEXT NOT NULL REFERENCES chat_turns(turn_id),
+    sequence INTEGER NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(conversation_id,sequence),
+    UNIQUE(turn_id,role)
+);
+CREATE INDEX IF NOT EXISTS chat_messages_conversation_idx ON chat_messages(conversation_id,sequence DESC);
 """
 
 
@@ -201,13 +258,43 @@ class Store:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.executescript(_SCHEMA)
+            # Additive migration: existing Arabic schedules retain their original behavior.
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                columns = {row["name"] for row in connection.execute("PRAGMA table_info(schedules)")}
+                if "language" not in columns:
+                    connection.execute("ALTER TABLE schedules ADD COLUMN language TEXT NOT NULL DEFAULT 'ar'")
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
 
     def _now(self, now: datetime | None = None) -> datetime:
         return _aware(now if now is not None else self.clock())
 
     @staticmethod
-    def _fingerprint(agent_id: str, task: str) -> str:
-        return hashlib.sha256(_json([agent_id, task]).encode("utf-8")).hexdigest()
+    def _fingerprint(agent_id: str, task: str, language: str = "ar") -> str:
+        Store._validate_language(language)
+        values = [agent_id, task] if language == "ar" else [agent_id, task, language]
+        return hashlib.sha256(_json(values).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _validate_language(language: str) -> None:
+        if not isinstance(language, str) or language not in {"ar", "en"}:
+            raise StoreError("invalid_language", "Language must be ar or en.", 422)
+
+    @staticmethod
+    def _budget_costs(connection: sqlite3.Connection, local_date: str, local_month: str) -> tuple[int, int]:
+        """Both ledgers share the caller's SQLite write transaction and budget."""
+        row = connection.execute(
+            """SELECT
+            (SELECT COALESCE(SUM(accounted_microusd),0) FROM runs WHERE local_date=?) +
+            (SELECT COALESCE(SUM(accounted_microusd),0) FROM chat_turns WHERE local_date=?) AS daily,
+            (SELECT COALESCE(SUM(accounted_microusd),0) FROM runs WHERE local_month=?) +
+            (SELECT COALESCE(SUM(accounted_microusd),0) FROM chat_turns WHERE local_month=?) AS monthly""",
+            (local_date, local_date, local_month, local_month),
+        ).fetchone()
+        return row["daily"], row["monthly"]
 
     @staticmethod
     def _validate_key(key: str | None) -> None:
@@ -232,7 +319,7 @@ class Store:
         item.pop("idempotency_key", None)
         return item
 
-    def lookup_idempotency(self, key: str | None, agent_id: str, task: str) -> dict[str, Any] | None:
+    def lookup_idempotency(self, key: str | None, agent_id: str, task: str, language: str = "ar") -> dict[str, Any] | None:
         self._validate_key(key)
         if key is None:
             return None
@@ -240,7 +327,7 @@ class Store:
             row = connection.execute("SELECT * FROM runs WHERE idempotency_key=?", (key,)).fetchone()
         if row is None:
             return None
-        if row["request_hash"] != self._fingerprint(agent_id, task):
+        if row["request_hash"] != self._fingerprint(agent_id, task, language):
             raise StoreError("idempotency_conflict", "This Idempotency-Key belongs to a different task.", 409)
         return self._report(row)
 
@@ -256,6 +343,7 @@ class Store:
         model: str = "",
         pricing_snapshot: dict[str, Any] | None = None,
         allow_zero_cost: bool = False,
+        language: str = "ar",
         now: datetime | None = None,
     ) -> Reservation:
         self._validate_key(idempotency_key)
@@ -271,7 +359,7 @@ class Store:
         timestamp = _stamp(moment)
         local_date = moment.astimezone(DUBAI).date().isoformat()
         local_month = local_date[:7]
-        request_hash = self._fingerprint(agent_id, task)
+        request_hash = self._fingerprint(agent_id, task, language)
         with self._transaction() as connection:
             if idempotency_key is not None:
                 row = connection.execute("SELECT * FROM runs WHERE idempotency_key=?", (idempotency_key,)).fetchone()
@@ -283,12 +371,10 @@ class Store:
                 "SELECT COUNT(*) AS attempts, COALESCE(SUM(accounted_microusd),0) AS cost FROM runs WHERE local_date=?",
                 (local_date,),
             ).fetchone()
-            month_cost = connection.execute(
-                "SELECT COALESCE(SUM(accounted_microusd),0) FROM runs WHERE local_month=?", (local_month,),
-            ).fetchone()[0]
+            day_cost, month_cost = self._budget_costs(connection, local_date, local_month)
             if day["attempts"] >= limits.max_reports_per_day:
                 raise StoreError("daily_report_limit", "The daily report attempt limit has been reached (Asia/Dubai).", 429)
-            if day["cost"] + reservation > daily_budget:
+            if day_cost + reservation > daily_budget:
                 raise StoreError("daily_budget_limit", "The daily estimated USD budget cannot cover this reservation.", 429)
             if month_cost + reservation > monthly_budget:
                 raise StoreError("monthly_budget_limit", "The monthly estimated USD budget cannot cover this reservation.", 429)
@@ -360,6 +446,11 @@ class Store:
                 """UPDATE schedule_occurrences SET status='interrupted',error_code='execution_interrupted',
                 finished_at=? WHERE status='claimed' AND claimed_at<?""", (timestamp, cutoff),
             )
+            connection.execute(
+                """UPDATE chat_turns SET status='interrupted',error_code='execution_interrupted',
+                finished_at=?,updated_at=?,cost_basis='reservation_retained'
+                WHERE status='pending' AND created_at<?""", (timestamp, timestamp, cutoff),
+            )
             return cursor.rowcount
 
     def get_report(self, report_id: str) -> dict[str, Any] | None:
@@ -399,23 +490,267 @@ class Store:
             monthly = connection.execute(
                 "SELECT COUNT(*) AS attempts,COALESCE(SUM(accounted_microusd),0) AS cost FROM runs WHERE local_month=?", (month,),
             ).fetchone()
+            chat_daily = connection.execute(
+                """SELECT COUNT(*) AS attempts,COALESCE(SUM(accounted_microusd),0) AS cost,
+                COALESCE(SUM(status='succeeded'),0) AS succeeded,
+                COALESCE(SUM(status IN ('failed','interrupted')),0) AS failed,
+                COALESCE(SUM(status='pending'),0) AS pending FROM chat_turns WHERE local_date=?""", (date,),
+            ).fetchone()
+            chat_monthly = connection.execute(
+                "SELECT COUNT(*) AS attempts,COALESCE(SUM(accounted_microusd),0) AS cost FROM chat_turns WHERE local_month=?",
+                (month,),
+            ).fetchone()
         daily_budget, monthly_budget = _micros(limits.daily_budget_usd), _micros(limits.monthly_budget_usd)
+        daily_cost = daily["cost"] + chat_daily["cost"]
+        monthly_cost = monthly["cost"] + chat_monthly["cost"]
         return {
             "timezone": "Asia/Dubai", "date": date, "month": month,
             "daily": {
                 "attempts": daily["attempts"], "limit": limits.max_reports_per_day,
                 "remaining": max(0, limits.max_reports_per_day - daily["attempts"]),
                 "succeeded": daily["succeeded"], "failed": daily["failed"], "pending": daily["pending"],
-                "estimated_cost_usd": _usd(daily["cost"]), "budget_usd": _usd(daily_budget),
-                "remaining_budget_usd": _usd(max(0, daily_budget - daily["cost"])),
+                "estimated_cost_usd": _usd(daily_cost), "budget_usd": _usd(daily_budget),
+                "remaining_budget_usd": _usd(max(0, daily_budget - daily_cost)),
+                "report_estimated_cost_usd": _usd(daily["cost"]),
+                "chat_estimated_cost_usd": _usd(chat_daily["cost"]),
+                "chat_turns": chat_daily["attempts"], "chat_succeeded": chat_daily["succeeded"],
+                "chat_failed": chat_daily["failed"], "chat_pending": chat_daily["pending"],
             },
             "monthly": {
-                "attempts": monthly["attempts"], "estimated_cost_usd": _usd(monthly["cost"]),
+                "attempts": monthly["attempts"], "estimated_cost_usd": _usd(monthly_cost),
                 "budget_usd": _usd(monthly_budget),
-                "remaining_budget_usd": _usd(max(0, monthly_budget - monthly["cost"])),
+                "remaining_budget_usd": _usd(max(0, monthly_budget - monthly_cost)),
+                "report_estimated_cost_usd": _usd(monthly["cost"]),
+                "chat_estimated_cost_usd": _usd(chat_monthly["cost"]),
+                "chat_turns": chat_monthly["attempts"],
             },
-            "cost_note": "Estimated USD exposure, not a provider invoice. Pending and ambiguous failures retain their full reservation.",
+            "cost_note": "Combined report and chat estimated USD exposure, not a provider invoice. Pending and ambiguous failures retain their full reservation. Report attempt limits exclude chat turns.",
         }
+
+    @staticmethod
+    def _chat_conversation_query() -> str:
+        return """SELECT c.*,
+            (SELECT COUNT(*) FROM chat_messages m WHERE m.conversation_id=c.conversation_id) AS message_count,
+            (SELECT COALESCE(MAX(sequence),0) FROM chat_messages m WHERE m.conversation_id=c.conversation_id) AS last_sequence,
+            (SELECT turn_id FROM chat_turns t WHERE t.conversation_id=c.conversation_id AND t.status='pending') AS pending_turn_id
+            FROM chat_conversations c"""
+
+    @classmethod
+    def _chat_conversation_row(cls, connection: sqlite3.Connection, conversation_id: str, owner_id: str) -> sqlite3.Row:
+        row = connection.execute(cls._chat_conversation_query() + " WHERE c.conversation_id=? AND c.owner_id=?",
+                                 (conversation_id, owner_id)).fetchone()
+        if row is None:
+            raise StoreError("chat_conversation_not_found", "Conversation not found.", 404)
+        return row
+
+    @staticmethod
+    def _chat_conversation(row: sqlite3.Row) -> dict[str, Any]:
+        return {key: row[key] for key in ("conversation_id", "title", "language", "report_id", "created_at",
+                                          "updated_at", "message_count", "pending_turn_id")}
+
+    @staticmethod
+    def _chat_message_query() -> str:
+        return """SELECT m.*,t.status,t.error_code,t.report_id FROM chat_messages m
+                  JOIN chat_turns t ON t.turn_id=m.turn_id"""
+
+    @staticmethod
+    def _chat_message(row: sqlite3.Row) -> dict[str, Any]:
+        return {"id": row["message_id"], **{key: row[key] for key in (
+            "role", "content", "created_at", "sequence", "turn_id", "status", "error_code", "report_id")}}
+
+    @classmethod
+    def _chat_turn(cls, connection: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["reserved_cost_usd"] = _usd(item.pop("reserved_microusd"))
+        item["estimated_cost_usd"] = _usd(item.pop("accounted_microusd"))
+        item["pricing_snapshot"] = json.loads(item.pop("pricing_snapshot_json"))
+        item["usage"] = json.loads(item.pop("usage_json") or "{}")
+        item["context"] = json.loads(item.pop("context_json") or "{}")
+        item.pop("request_hash", None)
+        item.pop("idempotency_key", None)
+        rows = connection.execute(cls._chat_message_query() + " WHERE m.turn_id=? ORDER BY m.sequence",
+                                  (row["turn_id"],)).fetchall()
+        item["messages"] = [cls._chat_message(message) for message in rows]
+        return item
+
+    @staticmethod
+    def _chat_fingerprint(message: str, language: str, report_id: str | None, report_selected: bool) -> str:
+        Store._validate_language(language)
+        return hashlib.sha256(_json([message, language, {
+            "selected": report_selected, "report_id": report_id if report_selected else None,
+        }]).encode("utf-8")).hexdigest()
+
+    def create_chat_conversation(self, owner_id: str, *, title: str = "", language: str = "ar") -> dict[str, Any]:
+        self._validate_language(language)
+        if not isinstance(title, str) or len(title) > 120:
+            raise StoreError("invalid_chat_title", "Conversation title must contain at most 120 characters.", 422)
+        conversation_id, timestamp = "conv_" + uuid4().hex, _stamp(self._now())
+        with self._transaction() as connection:
+            connection.execute(
+                "INSERT INTO chat_conversations (conversation_id,owner_id,title,language,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+                (conversation_id, owner_id, title.strip(), language, timestamp, timestamp),
+            )
+            return self._chat_conversation(self._chat_conversation_row(connection, conversation_id, owner_id))
+
+    def list_chat_conversations(self, owner_id: str, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        self.recover_stale_runs()
+        with self._connect() as connection:
+            rows = connection.execute(self._chat_conversation_query() +
+                                      " WHERE c.owner_id=? ORDER BY c.updated_at DESC,c.conversation_id DESC LIMIT ? OFFSET ?",
+                                      (owner_id, min(max(int(limit), 1), 100), max(int(offset), 0))).fetchall()
+            return [self._chat_conversation(row) for row in rows]
+
+    def get_chat_conversation(self, conversation_id: str, owner_id: str, *, limit: int = 100,
+                              before: int | None = None) -> dict[str, Any]:
+        self.recover_stale_runs()
+        limit = min(max(int(limit), 1), 100)
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            conversation = self._chat_conversation(self._chat_conversation_row(connection, conversation_id, owner_id))
+            query = self._chat_message_query() + " WHERE m.conversation_id=?"
+            values: list[Any] = [conversation_id]
+            if before is not None:
+                query += " AND m.sequence<?"
+                values.append(before)
+            rows = connection.execute(query + " ORDER BY m.sequence DESC LIMIT ?", (*values, limit + 1)).fetchall()
+            has_more, page = len(rows) > limit, rows[:limit]
+            conversation["messages"] = [self._chat_message(row) for row in reversed(page)]
+            conversation["pagination"] = {"has_more": has_more,
+                                            "next_before": page[-1]["sequence"] if has_more else None}
+            return conversation
+
+    def chat_snapshot(self, conversation_id: str, owner_id: str, *, history_messages: int = 40) -> dict[str, Any]:
+        self.recover_stale_runs()
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            row = self._chat_conversation_row(connection, conversation_id, owner_id)
+            rows = connection.execute(
+                self._chat_message_query() + " WHERE m.conversation_id=? AND t.status='succeeded' ORDER BY m.sequence DESC LIMIT ?",
+                (conversation_id, min(max(int(history_messages), 2), 100)),
+            ).fetchall()
+            complete = connection.execute(
+                "SELECT COUNT(*) FROM chat_messages m JOIN chat_turns t ON t.turn_id=m.turn_id WHERE m.conversation_id=? AND t.status='succeeded'",
+                (conversation_id,),
+            ).fetchone()[0]
+            return {"conversation": self._chat_conversation(row), "history_version": row["last_sequence"],
+                    "completed_message_count": complete,
+                    "history": [self._chat_message(message) for message in reversed(rows)]}
+
+    def lookup_chat_idempotency(self, conversation_id: str, owner_id: str, key: str,
+                                message: str, language: str, report_id: str | None,
+                                report_selected: bool) -> dict[str, Any] | None:
+        self._validate_key(key)
+        if key is None:
+            raise StoreError("invalid_idempotency_key", "Idempotency-Key is required for chat messages.", 422)
+        fingerprint = self._chat_fingerprint(message, language, report_id, report_selected)
+        with self._connect() as connection:
+            self._chat_conversation_row(connection, conversation_id, owner_id)
+            row = connection.execute("SELECT * FROM chat_turns WHERE conversation_id=? AND idempotency_key=?",
+                                     (conversation_id, key)).fetchone()
+            if row is None:
+                return None
+            if row["request_hash"] != fingerprint:
+                raise StoreError("idempotency_conflict", "This Idempotency-Key belongs to a different chat message.", 409)
+            return self._chat_turn(connection, row)
+
+    def reserve_chat_turn(self, conversation_id: str, owner_id: str, message: str, language: str,
+                          reservation_usd: Any, *, idempotency_key: str, expected_sequence: int,
+                          report_id: str | None = None, report_selected: bool = False,
+                          provider: str = "", model: str = "", pricing_snapshot: dict[str, Any] | None = None,
+                          context: dict[str, Any] | None = None) -> ChatReservation:
+        self._validate_key(idempotency_key)
+        if idempotency_key is None:
+            raise StoreError("invalid_idempotency_key", "Idempotency-Key is required for chat messages.", 422)
+        if not isinstance(message, str) or not message.strip() or len(message) > 8000:
+            raise StoreError("invalid_chat_message", "Message must contain 1 to 8000 characters.", 422)
+        fingerprint = self._chat_fingerprint(message, language, report_id, report_selected)
+        reservation = _micros(reservation_usd)
+        if reservation <= 0:
+            raise StoreError("invalid_cost_configuration", "A positive upfront cost reservation is required.", 503)
+        limits, moment = self.limits, self._now()
+        timestamp, local_date = _stamp(moment), moment.astimezone(DUBAI).date().isoformat()
+        local_month = local_date[:7]
+        with self._transaction() as connection:
+            conversation = self._chat_conversation_row(connection, conversation_id, owner_id)
+            previous = connection.execute("SELECT * FROM chat_turns WHERE conversation_id=? AND idempotency_key=?",
+                                          (conversation_id, idempotency_key)).fetchone()
+            if previous is not None:
+                if previous["request_hash"] != fingerprint:
+                    raise StoreError("idempotency_conflict", "This Idempotency-Key belongs to a different chat message.", 409)
+                return ChatReservation(False, self._chat_turn(connection, previous))
+            if conversation["pending_turn_id"] is not None:
+                raise StoreError("conversation_busy", "Another message in this conversation is still being processed.", 409)
+            if conversation["last_sequence"] != expected_sequence:
+                raise StoreError("chat_history_changed", "Conversation history changed. Refresh before sending this message.", 409)
+            daily_cost, monthly_cost = self._budget_costs(connection, local_date, local_month)
+            if daily_cost + reservation > _micros(limits.daily_budget_usd):
+                raise StoreError("daily_budget_limit", "The daily estimated USD budget cannot cover this reservation.", 429)
+            if monthly_cost + reservation > _micros(limits.monthly_budget_usd):
+                raise StoreError("monthly_budget_limit", "The monthly estimated USD budget cannot cover this reservation.", 429)
+            effective_report = report_id if report_selected else conversation["report_id"]
+            turn_id = "cht_" + uuid4().hex
+            connection.execute(
+                """INSERT INTO chat_turns (turn_id,conversation_id,idempotency_key,request_hash,status,language,report_id,
+                created_at,updated_at,local_date,local_month,reserved_microusd,accounted_microusd,cost_basis,
+                provider,model,pricing_snapshot_json,context_json)
+                VALUES (?,?,?,?,'pending',?,?,?,?,?,?,?,?,'reservation',?,?,?,?)""",
+                (turn_id, conversation_id, idempotency_key, fingerprint, language, effective_report, timestamp,
+                 timestamp, local_date, local_month, reservation, reservation, provider, model,
+                 _json(pricing_snapshot or {}), _json(context or {})),
+            )
+            connection.execute(
+                "INSERT INTO chat_messages (message_id,conversation_id,turn_id,sequence,role,content,created_at) VALUES (?,?,?,?,'user',?,?)",
+                ("msg_" + uuid4().hex, conversation_id, turn_id, expected_sequence + 1, message, timestamp),
+            )
+            title = conversation["title"] or re.sub(r"\s+", " ", message).strip()[:80]
+            connection.execute("UPDATE chat_conversations SET title=?,language=?,report_id=?,updated_at=? WHERE conversation_id=?",
+                               (title, language, effective_report, timestamp, conversation_id))
+            row = connection.execute("SELECT * FROM chat_turns WHERE turn_id=?", (turn_id,)).fetchone()
+            return ChatReservation(True, self._chat_turn(connection, row))
+
+    def finish_chat_turn(self, turn_id: str, content: str, *, estimated_cost_usd: Any | None = None,
+                         cost_tracking_complete: bool = False, usage: dict[str, Any] | None = None) -> dict[str, Any]:
+        if not isinstance(content, str) or not content.strip() or len(content) > 80000:
+            raise StoreError("invalid_chat_response", "The chat response could not be saved.", 502)
+        actual = _micros(estimated_cost_usd) if cost_tracking_complete and estimated_cost_usd is not None else None
+        timestamp = _stamp(self._now())
+        with self._transaction() as connection:
+            row = connection.execute("SELECT * FROM chat_turns WHERE turn_id=?", (turn_id,)).fetchone()
+            if row is None:
+                raise StoreError("chat_turn_not_found", "Chat turn not found.", 404)
+            if row["status"] == "succeeded":
+                return self._chat_turn(connection, row)
+            if row["status"] != "pending":
+                raise StoreError("chat_already_attempted", "This chat turn ended before its reply could be saved.", 409)
+            sequence = connection.execute("SELECT COALESCE(MAX(sequence),0)+1 FROM chat_messages WHERE conversation_id=?",
+                                          (row["conversation_id"],)).fetchone()[0]
+            connection.execute(
+                "INSERT INTO chat_messages (message_id,conversation_id,turn_id,sequence,role,content,created_at) VALUES (?,?,?,?,'assistant',?,?)",
+                ("msg_" + uuid4().hex, row["conversation_id"], turn_id, sequence, content, timestamp),
+            )
+            cost = actual if actual is not None else row["reserved_microusd"]
+            basis = "usage_estimate" if actual is not None else "reservation_retained"
+            if actual is not None and actual > row["reserved_microusd"]:
+                basis = "usage_estimate_exceeds_reservation"
+            connection.execute(
+                """UPDATE chat_turns SET status='succeeded',error_code=NULL,finished_at=?,updated_at=?,
+                accounted_microusd=?,cost_basis=?,usage_json=? WHERE turn_id=?""",
+                (timestamp, timestamp, cost, basis, _json(usage or {}), turn_id),
+            )
+            connection.execute("UPDATE chat_conversations SET updated_at=? WHERE conversation_id=?",
+                               (timestamp, row["conversation_id"]))
+            row = connection.execute("SELECT * FROM chat_turns WHERE turn_id=?", (turn_id,)).fetchone()
+            return self._chat_turn(connection, row)
+
+    def fail_chat_turn(self, turn_id: str, error_code: str = "execution_failed") -> None:
+        code = error_code if _ERROR.fullmatch(error_code or "") else "execution_failed"
+        timestamp = _stamp(self._now())
+        with self._transaction() as connection:
+            connection.execute(
+                """UPDATE chat_turns SET status='failed',error_code=?,finished_at=?,updated_at=?,
+                cost_basis='reservation_retained' WHERE turn_id=? AND status='pending'""",
+                (code, timestamp, timestamp, turn_id),
+            )
 
     @staticmethod
     def _schedule(row: sqlite3.Row) -> dict[str, Any]:
@@ -426,10 +761,11 @@ class Store:
         return item
 
     @staticmethod
-    def _validate_schedule(agent_id: str, task: str, times: list[str], enabled: bool, name: str) -> list[str]:
+    def _validate_schedule(agent_id: str, task: str, times: list[str], enabled: bool, name: str, language: str = "ar") -> list[str]:
         from app.registry import get_agent
         from app.permissions import is_allowed
 
+        Store._validate_language(language)
         agent = get_agent(agent_id)
         if agent is None:
             raise StoreError("unknown_agent", "Unknown agent.", 404)
@@ -458,14 +794,14 @@ class Store:
         if slots + len(times) > MAX_DAILY_REPORTS:
             raise StoreError("schedule_slot_limit", "Enabled schedules may contain at most 50 daily occurrences in total.", 409)
 
-    def create_schedule(self, agent_id: str, task: str, times: list[str], *, enabled: bool = False, name: str = "", now: datetime | None = None) -> dict[str, Any]:
-        times = self._validate_schedule(agent_id, task, times, enabled, name)
+    def create_schedule(self, agent_id: str, task: str, times: list[str], *, enabled: bool = False, name: str = "", language: str = "ar", now: datetime | None = None) -> dict[str, Any]:
+        times = self._validate_schedule(agent_id, task, times, enabled, name, language)
         schedule_id, timestamp = "sch_" + uuid4().hex, _stamp(self._now(now))
         with self._transaction() as connection:
             self._check_slots(connection, times, enabled)
             connection.execute(
-                "INSERT INTO schedules (schedule_id,name,agent_id,task,times_json,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-                (schedule_id, name, agent_id, task, _json(times), int(enabled), timestamp, timestamp),
+                "INSERT INTO schedules (schedule_id,name,agent_id,task,times_json,enabled,language,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (schedule_id, name, agent_id, task, _json(times), int(enabled), language, timestamp, timestamp),
             )
             row = connection.execute("SELECT * FROM schedules WHERE schedule_id=?", (schedule_id,)).fetchone()
         return self._schedule(row)
@@ -480,19 +816,19 @@ class Store:
             rows = connection.execute("SELECT * FROM schedules ORDER BY created_at,schedule_id").fetchall()
         return [self._schedule(row) for row in rows]
 
-    def update_schedule(self, schedule_id: str, *, agent_id: str | None = None, task: str | None = None, times: list[str] | None = None, enabled: bool | None = None, name: str | None = None, now: datetime | None = None) -> dict[str, Any]:
+    def update_schedule(self, schedule_id: str, *, agent_id: str | None = None, task: str | None = None, times: list[str] | None = None, enabled: bool | None = None, name: str | None = None, language: str | None = None, now: datetime | None = None) -> dict[str, Any]:
         with self._transaction() as connection:
             row = connection.execute("SELECT * FROM schedules WHERE schedule_id=?", (schedule_id,)).fetchone()
             if row is None:
                 raise StoreError("schedule_not_found", "Schedule not found.", 404)
             current = self._schedule(row)
-            values = {"agent_id": agent_id, "task": task, "times": times, "enabled": enabled, "name": name}
+            values = {"agent_id": agent_id, "task": task, "times": times, "enabled": enabled, "name": name, "language": language}
             current.update({key: value for key, value in values.items() if value is not None})
-            updated_times = self._validate_schedule(current["agent_id"], current["task"], current["times"], current["enabled"], current["name"])
+            updated_times = self._validate_schedule(current["agent_id"], current["task"], current["times"], current["enabled"], current["name"], current["language"])
             self._check_slots(connection, updated_times, current["enabled"], exclude=schedule_id)
             connection.execute(
-                "UPDATE schedules SET name=?,agent_id=?,task=?,times_json=?,enabled=?,updated_at=? WHERE schedule_id=?",
-                (current["name"], current["agent_id"], current["task"], _json(updated_times), int(current["enabled"]), _stamp(self._now(now)), schedule_id),
+                "UPDATE schedules SET name=?,agent_id=?,task=?,times_json=?,enabled=?,language=?,updated_at=? WHERE schedule_id=?",
+                (current["name"], current["agent_id"], current["task"], _json(updated_times), int(current["enabled"]), current["language"], _stamp(self._now(now)), schedule_id),
             )
             row = connection.execute("SELECT * FROM schedules WHERE schedule_id=?", (schedule_id,)).fetchone()
         return self._schedule(row)
@@ -539,7 +875,7 @@ class Store:
                      timestamp if missed else None, "missed_grace_window" if missed else None),
                 )
                 if cursor.rowcount and not missed:
-                    claimed.append({"occurrence_key": key, "due_at": _stamp(due), "schedule_id": schedule["schedule_id"], "agent_id": schedule["agent_id"], "task": schedule["task"], "local_time": local_time})
+                    claimed.append({"occurrence_key": key, "due_at": _stamp(due), "schedule_id": schedule["schedule_id"], "agent_id": schedule["agent_id"], "task": schedule["task"], "language": schedule["language"], "local_time": local_time})
         return claimed
 
     def finish_occurrence(self, occurrence_key: str, *, status: str, report_id: str | None = None, error_code: str | None = None, now: datetime | None = None) -> None:

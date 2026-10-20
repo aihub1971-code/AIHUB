@@ -93,6 +93,7 @@ def main() -> int:
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--live", action="store_true", help="Request one potentially billable report.")
     parser.add_argument("--agent", default="iran-news")
+    parser.add_argument("--language", choices=("ar", "en"), default="ar")
     parser.add_argument("--request-id", help="Reuse this same ID only when repeating the same live task.")
     parser.add_argument("--task", default="أعد تقريرًا عربيًا بالمستجدات الموثقة في آخر 24 ساعة من المصادر المعتمدة، بعدد الأخبار الذي تدعمه الأدلة المتاحة.")
     args = parser.parse_args()
@@ -107,8 +108,8 @@ def main() -> int:
     if not username or not password:
         parser.error("Set APP_USERNAME and APP_PASSWORD in your private environment or .env.")
     try:
-        # A live run can include two sequential 90-second OpenAI reads and connections.
-        with httpx.Client(base_url=base, timeout=360 if args.live else 180, follow_redirects=False) as client:
+        # One unified news search, then one report response if sources are usable.
+        with httpx.Client(base_url=base, timeout=240 if args.live else 180, follow_redirects=False) as client:
             response = client.get("/health")
             response.raise_for_status()
             print("Health check: passed.")
@@ -127,7 +128,7 @@ def main() -> int:
                     f"/v1/agents/{args.agent}/run",
                     auth=(username, password),
                     headers={"Idempotency-Key": request_id},
-                    json={"task": args.task},
+                    json={"task": args.task, "language": args.language},
                 )
                 response.raise_for_status()
                 result = response.json()

@@ -1,10 +1,12 @@
 """Validated owner-facing API input for AI HUB."""
 from __future__ import annotations
+from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 class TaskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     task: str = Field(min_length=1, max_length=8000)
+    language: Literal["ar", "en"] = "ar"
 
 class ScheduleCreate(TaskRequest):
     agent_id: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")
@@ -29,6 +31,7 @@ class ScheduleUpdate(BaseModel):
     task: str | None = Field(default=None, min_length=1, max_length=8000)
     times: list[str] | None = Field(default=None, min_length=1, max_length=50)
     enabled: bool | None = None
+    language: Literal["ar", "en"] | None = None
 
     @field_validator("times")
     @classmethod
