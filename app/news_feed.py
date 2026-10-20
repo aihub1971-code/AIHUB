@@ -245,7 +245,7 @@ def _global_relevant(title: str, description: str) -> bool:
     # Roles, institutions and actions keep the scope independent of country lists.
     lead, subject = title + " " + description[:900], title + " " + description[:250]
     security = ["airstrike", "air strike", "drone strike", "drone attack", "missile attack", "military action",
-        "military operation", "military offensive", "military exercise", "military satellite", "naval blockade",
+        "military operation", "military operations", "military offensive", "military exercise", "military satellite", "naval blockade",
         "armed conflict", "civil war", "peacekeeper", "ceasefire", "peace talks", "nuclear talks", "nuclear arsenal",
         "nuclear weapon", "border conflict", "crossborder attack", "cross border attack", "war crime", "disarmament",
         "غارة جوية", "غارات", "ضربة جوية", "ضربات جوية", "هجوم صاروخي", "هجمات صاروخية", "عمليات عسكرية",
@@ -296,6 +296,16 @@ def _global_relevant(title: str, description: str) -> bool:
     def diplomatic(text: str) -> bool:
         # Security Council must not match the Arabic "board of trustees".
         return _contains(text, diplomacy) or bool(re.search(r"مجلس\s+(?:الأمن|الامن)\b", runtime._headline_key(text)))
+    rhetorical_war = _contains(title, ["go to war with", "goes to war with", "going to war with", "went to war with",
+        "go to war against", "goes to war against", "going to war against", "war of words", "wage war on", "wages war on",
+        "حرب كلامية", "حرب تصريحات", "حرب قضائية", "معركة قضائية", "يدخل في حرب مع", "تدخل في حرب مع"])
+    # A legal dispute about a military base is not warfare. Explicit rhetoric
+    # needs concrete security, diplomacy or strategic economic context.
+    if rhetorical_war and not (_contains(lead, security + ["declaration of war", "invasion", "bombardment",
+            "إعلان الحرب", "اعلان الحرب", "غزو"])
+            or (diplomatic(lead) and _contains(lead, action))
+            or (_contains(title, economics) and _contains(lead, economic_policy))):
+        return False
     non_national_role = _contains(subject, ["company president", "club president", "university president",
         "president of the university", "رئيس الشركة", "رئيس النادي", "رئيس الجامعة"])
     institutional_change = (not non_national_role and _contains(lead, national) and _contains(lead, change)
@@ -338,12 +348,16 @@ def _relevant(agent_id: str, title: str, description: str) -> bool:
     if agent_id == "geopolitical-morning":
         return _global_relevant(title, description)
     if agent_id == "iran-news":
+        # Iran must be the story's focus, not a closing market aside appended to
+        # an unrelated war report. Consequences use the same opening context.
+        opening = description[:400]
+        lead = title + " " + opening
         iran = _contains(lead, profile["terms"])
         conflict = _contains(lead, _IRAN_CONFLICT)
         # US politics alone and unrelated Iranian sport/entertainment do not
         # qualify. Consequences require an explicit Iranian-conflict connection.
         return iran and conflict and (_contains(title, profile["terms"] + _IRAN_CONFLICT)
-            or (_contains(title, _IRAN_CONSEQUENCES) and _contains(description, profile["terms"])))
+            or (_contains(title, _IRAN_CONSEQUENCES) and _contains(opening, profile["terms"])))
     if agent_id == "uae-eu-trade-talks":
         return (_contains(lead, profile["terms"])
             and _contains(lead, ["european union", "european commission", "eu", "european", "الاتحاد الأوروبي", "الاتحاد الاوروبي", "أوروب", "اوروب"])
@@ -746,8 +760,9 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
     start, end = newsdata._moment(display_window["start"]), newsdata._moment(display_window["end"])
     eligible = [item for item in snapshot.get("items", []) if start <= newsdata._moment(item["published_at"]) <= end]
     window_excluded = len(snapshot.get("items", [])) - len(eligible)
-    relevant = [item for item in eligible if agent_id != "geopolitical-morning" or _global_relevant(
-        item.get("original_headline") or item["headline"], item.get("original_summary") or item.get("summary", ""))]
+    relevant = [item for item in eligible if agent_id not in {"geopolitical-morning", "iran-news"} or _relevant(
+        agent_id, item.get("original_headline") or item["headline"],
+        item.get("original_summary") or item.get("summary", ""))]
     relevance_excluded = len(eligible) - len(relevant)
     excluded = dict(snapshot.get("excluded", {}))
     if relevance_excluded:
