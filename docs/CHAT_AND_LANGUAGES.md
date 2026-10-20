@@ -1,56 +1,58 @@
-# AI HUB 1.5.1 — المحادثة واللغتان / Chat and languages
+# AI HUB 2.0 — المحادثة واللغتان / Chat and languages
 
-تصف الوثيقة المصدر 1.5.1؛ حالة النشر والاختبار الفعلي في [سجل التحقق](VALIDATION_AR.md).
+تصف الوثيقة مصدر 2.0 قبل إثبات نشره. حالة الاختبار والنشر الفعلي في [سجل التحقق](VALIDATION_AR.md).
 
 ## العربية
 
-الواجهة العامة عند `/` متاحة دون تسجيل دخول، وتضم 13 مساعدًا والمحادثة بالعربية والإنجليزية؛ يرسل Enter البحث. لا تعرض التكاليف أو السجلات الإدارية. تبقى لوحة المالك عند `/admin`، وتبقى مسارات `/v1/*` الإدارية خلف مصادقة المالك، باستثناء المسارات العامة المستقلة تحت `/v1/public/*`. لا يتطلب هذا الفصل مفاتيح أو إعدادات خدمة جديدة.
+الواجهة العامة عند `/` لا تتطلب اسم مستخدم أو كلمة مرور، وتعرض المساعدين الـ13 ومساحة تقارير ومحادثة بالعربية والإنجليزية. تبقى إدارة المالك عند `/admin` محمية، ولا تعرض الجلسة العامة التكاليف أو سجلات الإدارة.
 
-اختر **العربية** أو **English** أعلى الصفحة لتغيير لغة الواجهة واتجاهها. في أخبار حرب إيران يعرض التبديل النص العربي أو الإنجليزي المحفوظ، دون طلب جديد. تُجهز ترجمة العناوين والأوصاف مسبقًا عند جلب كل صفحة، على دفعات حتى خمسة مقالات، حتى لو بدأت باللغة الإنجليزية. عند تعذر ترجمة مادة، تظهر الإنجليزية الأصلية مع توضيح ذلك. لا يُخترع وصف مفقود.
+اختر **العربية** أو **English** لتغيير واجهة الاستخدام واتجاهها. يُنشأ التقرير باللغة المختارة عند طلبه، وتحفظ كل نسخة لغتها ووقت بحثها. تبديل لغة الواجهة لا يعيد البحث ولا يترجم تقريرًا محفوظًا تلقائيًا. يمكن مناقشة النسخة أو طلب شرحها باللغة الأخرى دون تعديل أصلها المحفوظ.
 
-افتح **التقارير والمساعدون** واختر **أخبار حرب إيران**. يجلب هذا المساعد مقالات إنجليزية من NewsData.io بالبحث الثابت `iran war` ونافذة آخر48ساعة. لا تعود قائمة الناشرين الستة القديمة قيدًا لهذا المسار. **التالي** يجلب صفحة إضافية ويحفظها، و**السابق** يفتح صفحة محفوظة. يقتصر البحث على أول 20 نتيجة مزود قبل الفحص، بصفحات افتراضية حتى 10، ثم يتوقف التالي؛ قد يقل عدد الأخبار المقبولة عن 20. صفحة جديدة تعني محاولة ورصيدًا جديدين؛ الرجوع إلى المحفوظ لا يعيد البحث.
+### مساحة المساعد
 
-الخطة المجانية تؤخر المقالات12ساعة وتسمح حتى10مقالات في الصفحة. يعرض التقرير فترة التغطية وحالة الخطة؛ كتابة يوم قديم في المهمة لا تجعل هذا المساعد بحثًا أرشيفيًا. يظهر كل خبر بعنوان ووصف متاح وناشر وتاريخ وزر يفتح رابط المقال الأصلي. [حدود NewsData](https://newsdata.io/blog/pricing-plan-in-newsdata-io/).
+اختيار مساعد يفتح موضوعه الافتراضي القابل للتعديل وآخر تقرير ناجح ومهمة التحديث. تعرض المساحة الأخبار وملف الإحاطة، أو المصادر ودليل القراءة للتاريخ، أو المراجع واللوحة الإبداعية للقصة. تُحفظ كل نسخة وPDF خاص بها؛ فتح نسخة أقدم أو تنزيلها لا يعيد الاتصال بالمزود.
 
-لبقية المساعدين، اكتب الموضوع والفترة المطلوبة في مربع المهمة. تستخدم التقارير الجديدة اللغة المختارة، ويمكن حفظ لغة مستقلة لكل جدول. التقارير القديمة غير الثنائية تبقى بلغتها الأصلية.
+الأخبار الجديدة تأتي من OpenAI web_search وفحص صفحات الناشرين، خلال نافذة **12 ساعة** مجمدة بوقت نشر كامل موثق، وبحد **20 بعد التحقق والصلة وإزالة التكرار**. لا تستخدم هذه المساحة NewsData أو قائمة ناشرين ثابتة. التاريخ والإبداع يسمحان بمراجع أقدم موسومة بوضوح؛ محاضر الاجتماعات وواتساب والترجمة تعمل من النص المقدم دون وصول إلى حسابات أو تسجيلات.
 
-افتح **المحادثة** في الواجهة العامة أو من لوحة الإدارة بعد تسجيل الدخول للمساعدة في اختيار مساعد أو صياغة مهمة أو فهم تقرير. ابدأ محادثة جديدة لموضوع مستقل، أو عُد إلى محادثة محفوظة. اضغط Enter للإرسال وShift+Enter لسطر جديد. لإرفاق تقرير، افتحه ثم اختر إرفاقه صراحة؛ يظهر اختياره ويمكن إزالته. يحصل النموذج على سياق محدود منه، لا على قاعدة البيانات كلها.
+### المحادثة المتصلة
 
-المحادثة تقدم ردود OpenAI متعددة الأدوار؛ لا تجري بحثًا حيًا ولا تغير الإعدادات أو تشغل المساعدين بنفسها. تظهر حالة انتظار حقيقية دون محاكاة بث النص. ليس هذا وعدًا بتطابق كل خصائص ChatGPT.
+المحادثة داخل مساحة المساعد تستخدم التقرير المعروض تلقائيًا، بما فيه نسخة محفوظة اخترتها؛ لا تتطلب خطوة إرفاق يدوي. المحادثة العامة تسترجع تقارير مناسبة من **جلسة المستخدم نفسها**، ولا تصل إلى أرشيف المالك أو جلسة أخرى. يتحدد السياق في الخادم، ويتضمن نص التقرير ومصادره ونافذته ضمن حدود واضحة، وليس قاعدة البيانات كلها.
 
-ترتبط تقارير الزائر ومحادثاته بجلسة متصفحه، ولا تعرض أرشيف الإدارة أو جلسة زائر آخر. تستخدم الواجهة العامة ملف جلسة HttpOnly؛ حذف ملف الجلسة أو الانتقال إلى متصفح آخر لا يمنح الوصول إلى السجل السابق. تُحفظ الرسائل على قرص SQLite الدائم. حد الرسالة8000حرف، وسياق النموذج حتى20دورًا مكتملًا ضمن100000بايت؛ قد تُستبعد رسائل قديمة من سياق النموذج مع بقائها محفوظة. يحفظ المتصفح اختيار اللغة فقط؛ تسجيل الخروج يمسح المحتوى الخاص ويمنع الردود المتأخرة من إعادته.
+يمكن للمحادثة شرح النتائج أو مقارنتها أو استخلاص آثارها أو صياغة أسئلة متابعة. عندما يتطلب السؤال معلومات أحدث، يمكن للخادم إنشاء مهمة بحث جديدة عبر بوابة الحجز والحصة نفسها. تظهر مراحل حقيقية ثم تستخدم الإجابة التقرير الناتج؛ لا تُقدَّم الذاكرة القديمة كبحث حي، ولا يُعاد كتابة التقرير السابق.
 
-تستخدم المحادثة `OPENAI_API_KEY` على الخادم. تشارك التقارير والترجمة ميزانية OpenAI اليومية والشهرية، لكنها لا تستهلك حصة50محاولة تقرير. رصيد NewsData منفصل، ويخص صفحات الأخبار الجديدة. عند غموض إرسال رسالة، يحافظ تكرار المفتاح والجسم نفسيهما على المحاولة القائمة دون إرسال مدفوع جديد؛ المعرّف الجديد طلب جديد.
+اضغط Enter للإرسال وShift+Enter لسطر جديد. الإرسال يستخدم ردًا حقيقيًا مع حالة انتظار؛ لا يوجد بث مصطنع. الرسائل والمحادثات محفوظة في SQLite. يعيد الخادم تحميل التاريخ بنفسه، وقد يختصر السياق القديم مع بقاء الرسائل محفوظة. العميل لا يزوّد رسائل نظام أو تاريخ مساعد مزورًا.
+
+### الخصوصية والتكلفة
+
+الجلسة العامة تستخدم ملف ارتباط HttpOnly مع عزل التقارير والمحادثات وPDF. حذف ملف الجلسة أو استخدام متصفح آخر لا يمنح الوصول إلى السجل القديم. مفاتيح OpenAI وبيانات الإدارة تبقى في الخادم.
+
+تشارك الرسائل ميزانية الدولار مع التقارير، لكنها لا تستهلك حصة **50 محاولة تقرير يوميًا**. أي بحث جديد تنشئه المحادثة يستهلك محاولة تقرير مستقلة. سقوف نشر 2.0 المستهدفة **900 دولار يوميًا و28000 شهريًا** هي حدود حماية محافظة، لا فواتير متوقعة؛ [التفصيل](OPERATIONS_AR.md).
+
+عند غموض إرسال رسالة، احتفظ بالمفتاح والجسم نفسيهما للتحقق من المحاولة؛ لا ينفذ الخادم إعادة مدفوعة تلقائية. ظهور فشل PDF لا يعني فشل التقرير؛ يمكن إعادة إخراجه محليًا من النسخة نفسها.
 
 ## English
 
-The public interface at `/` needs no owner login and offers all 13 assistants and chat in Arabic and English. Enter submits a search. Public pages and API responses omit accounting information. Owner administration remains at `/admin`, and all administrative `/v1/*` endpoints still require owner authentication; `/v1/public/*` is the separate anonymous-session API. No new environment settings are required.
+The public workspace at `/` offers all 13 existing assistants, saved reports, PDFs and chat without owner credentials. Administration remains protected at `/admin`. Public responses omit costs, provider keys and administrative records.
 
-Use **العربية** or **English** in the page header. Iran War News pages contain the original English text and Arabic translations prepared when each page is retrieved. Translation runs in tool-free batches of up to five articles, even when the interface is English. Switching language displays saved text without another API request. If translation is unavailable, the original English remains visible; a missing description is not replaced with invented facts.
+Choose **العربية** or **English** for the interface. A report is generated in its selected language and saved as an immutable snapshot with its research window. Changing interface language does not refetch or automatically translate an existing report. Chat can explain that saved version in another language without rewriting it.
 
-Open **Reports and assistants**, choose **Iran War News**, and retrieve a page. NewsData.io receives the fixed `iran war` query (AND semantics), original language English and the latest48-hour window. This assistant no longer uses the old six-publisher restriction. **Next** retrieves and saves another page; **Previous** reads a saved report. Each new page consumes a report attempt and one NewsData credit. Each search stops after the first 20 provider results, before validation, with a default page size of 10. Fewer valid articles may be shown; Next stops at the limit or when results end.
+Inline chat automatically uses the report displayed in the active assistant workspace, including an older version deliberately selected from history. No manual attachment step is required. Main chat can retrieve relevant saved reports belonging to the same anonymous session. Server-side context selection enforces ownership and bounds; clients cannot submit system messages or forged assistant history.
 
-Free NewsData articles are delayed12hours and pages contain at most10articles. A date typed in the task does not turn this flow into archive search. Each article shows its headline, available description, publisher, publication time and original link. Other assistants retain their task controls and OpenAI research behavior; their archived reports keep their original language.
+A question requiring newer information can start an explicit background research job through the normal quota and reservation gate. The interface shows actual progress, and the answer uses the resulting report. Existing reports remain unchanged. Normal chat answers use a real pending state rather than simulated streaming. Enter sends and Shift+Enter inserts a line break.
 
-Open **Chat** for help with platform controls, task wording or a report you explicitly attach. Conversations and completed turns are saved on the server. Public reports and conversations belong to that browser's anonymous session and do not expose the administrator's history or another visitor's session. Enter sends; Shift+Enter adds a line break. The assistant receives bounded recent history and selected report context. It has no live search or platform-operation tools and cannot change settings or run reports itself.
+New briefing news uses OpenAI live web research and publisher-page publication verification in a frozen **12-hour** window, with at most **20 items after validation and deduplication**. Historical and creative references are labelled background/reference material. The current workspace does not use NewsData or the old fixed publisher list.
 
-Chat waits for a real OpenAI response; it does not simulate streaming. Owner login state remains in memory, and logout clears private administration content. The browser never receives either provider key. New chat messages use OpenAI USD accounting, separately from NewsData credits, and do not consume the report-attempt quota.
+Chat messages share USD budgets but do not consume the 50-report-attempt quota; new research initiated from chat does. Matching idempotency keys and request bodies identify the same operation without an automatic paid retry. Deleting the anonymous session cookie does not create a recoverable cross-device account.
 
-## Authenticated API
+## API الحالية والتوافق
 
-All endpoints in the table below require the existing owner authentication. Public UI calls use the separate `/v1/public/*` prefix, scoped to an anonymous browser session and without accounting fields. JSON schemas reject unknown fields. The server loads conversation history itself; clients cannot submit forged system or assistant history.
-
-| Endpoint | Purpose |
+| المسار | الغرض |
 |---|---|
-| `GET /v1/chat/conversations` | List the owner's conversations, with pagination |
-| `POST /v1/chat/conversations` | Create a conversation using optional `title` and `language` |
-| `GET /v1/chat/conversations/{id}` | Read saved messages and turn status |
-| `POST /v1/chat/conversations/{id}/messages` | Send `{message, language, report_id}`; `Idempotency-Key` is required |
-| `POST /v1/agents/{id}/run` | Create a report using `{task, language}`; Iran continuation may add a saved `continue_from_report_id` |
-| `POST /v1/schedules` | Create a schedule including optional `language`, default `ar` |
-| `PATCH /v1/schedules/{id}` | Change the saved schedule language or other schedule fields |
-| `GET /v1/usage` | Shared OpenAI USD, separate report/chat totals and NewsData credit accounting |
+| `GET /v1/public/bootstrap` | إنشاء جلسة المتصفح العامة |
+| `GET/POST /v1/public/chat/conversations` | قائمة المحادثات أو إنشاء محادثة مملوكة للجلسة |
+| `GET /v1/public/chat/conversations/{id}` | التاريخ المحفوظ وحالات الأدوار |
+| `POST /v1/public/workspace/chat/conversations/{id}/messages` | السؤال ولغته والمساعد/التقرير المحددان، مع `Idempotency-Key` |
+| `GET /v1/public/workspace/jobs/{id}` | متابعة بحث بدأ من مساحة المساعد أو المحادثة |
+| `GET /v1/public/workspace/reports/{id}` | التقرير المحفوظ الذي تستند إليه المناقشة |
 
-The message response includes the saved assistant message, conversation and turn IDs, accounting and context diagnostics. One pending turn per conversation is permitted. A duplicate key/body replays the saved response or identifies its existing pending/failed turn. A changed message, language or selected report with the same key is rejected. A failed or interrupted paid attempt is retained with its conservative reservation; there is no automatic provider retry.
-
-The migration creates chat tables and adds `schedules.language` with default `ar` for existing schedules. It preserves existing reports, daily quotas, report idempotency hashes for Arabic, and the disabled-by-default scheduler. Back up the SQLite database using the existing backup script before operational changes.
+تبقى `/v1/chat/*` المحمية ومسارات 1.x القديمة للتوافق. توجيهات الإرفاق اليدوي وNewsData ونافذة 48 ساعة تخص تلك التجربة السابقة فقط، وليست طريقة عمل مساحة 2.0. راجع [README](../README.md) و[نموذج الأمان](security-model.md).

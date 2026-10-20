@@ -27,7 +27,7 @@
       "number": "02",
       "id": "iran-news",
       "name": "Iran War News",
-      "description": "Retrieve the first 20 English Iran-war provider results from NewsData.io per search, with saved Arabic translations, original publisher links and bounded pagination.",
+      "description": "Iran–US conflict and diplomacy, verified fresh reporting and consequences for Iran, the United States and the UAE. The research workspace uses OpenAI live web search.",
       "skills": [
         {
           "id": "iran-news",
@@ -38,6 +38,7 @@
       ],
       "enabled": true,
       "tools": [
+        "web_search",
         "newsdata"
       ],
       "external_actions": [],
@@ -66,8 +67,8 @@
     {
       "number": "04",
       "id": "geopolitical-morning",
-      "name": "Geopolitical Morning Briefing",
-      "description": "Prepare an on-demand global geopolitical morning brief with dated developments, multiple perspectives and conditional implications.",
+      "name": "Global Geopolitical Briefing",
+      "description": "Consequential developments across world regions, with sourced analysis and substantive UAE implications.",
       "skills": [
         {
           "id": "geopolitical-morning",
@@ -107,7 +108,7 @@
       "number": "06",
       "id": "historical-reading-companion",
       "name": "Historical Reading Companion",
-      "description": "",
+      "description": "A sourced historical reading guide with context, chronology, competing interpretations and reading questions.",
       "skills": [
         {
           "id": "historical-reading-companion",
@@ -127,7 +128,7 @@
       "number": "07",
       "id": "story-moodboard",
       "name": "Story Moodboard",
-      "description": "",
+      "description": "A sourced creative pack with premise, story beats, visual direction, original palette compositions and attributed references.",
       "skills": [
         {
           "id": "story-moodboard",
@@ -137,14 +138,16 @@
         }
       ],
       "enabled": true,
-      "tools": [],
+      "tools": [
+        "web_search"
+      ],
       "external_actions": [],
       "display_name_ar": "لوحة أفكار القصص"
     },
     {
       "number": "08",
       "id": "economic-cultural-briefing",
-      "name": "Economic & Cultural Briefing",
+      "name": "Economic and Cultural Briefing",
       "description": "On-demand executive briefings connecting economic developments with evidenced cultural context and qualified UAE and Abu Dhabi implications.",
       "skills": [
         {

@@ -2,3 +2,6 @@
 pytest==8.4.2
 PyYAML==6.0.3
 jsonschema==4.26.0
+
+# Inspect generated PDF text, fonts and link annotations in offline tests.
+pypdf==6.21.1

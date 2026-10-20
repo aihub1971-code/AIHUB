@@ -17,6 +17,10 @@ SUFFIXES = {
     ".py", ".json", ".md", ".yaml", ".yml", ".toml", ".txt", ".ps1", ".sh",
     ".html", ".css", ".js", ".svg", ".png", ".webp", ".ico",
 }
+FONT_FILES = {
+    "app/assets/fonts/NotoSans-Regular.ttf", "app/assets/fonts/NotoSans-Bold.ttf",
+    "app/assets/fonts/NotoSansArabic-Regular.ttf", "app/assets/fonts/NotoSansArabic-Bold.ttf",
+}
 EXCLUDED_DIRS = {
     ".git", ".venv", "venv", "env", "__pycache__", ".pytest_cache", ".mypy_cache",
     ".ruff_cache", "node_modules", "data", "backups", "logs", "dist", "upload",
@@ -36,7 +40,7 @@ def source_files() -> list[Path]:
                 continue
             if any(part.startswith(".") and part != ".github" for part in relative.parts):
                 continue
-            if path.is_file() and path.suffix.lower() in SUFFIXES:
+            if path.is_file() and (path.suffix.lower() in SUFFIXES or relative.as_posix() in FONT_FILES):
                 result.append(path)
     return sorted(set(result), key=lambda p: p.relative_to(PROJECT_ROOT).as_posix())
 

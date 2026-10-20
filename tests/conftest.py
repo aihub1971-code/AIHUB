@@ -19,6 +19,7 @@ def isolated_environment(monkeypatch, tmp_path):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("AI_HUB_DATABASE_PATH", str(tmp_path / "ai_hub_test.sqlite3"))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    monkeypatch.setenv("REPORT_WORKER_ENABLED", "false")
     def no_external_requests(*args, **kwargs):
         raise AssertionError("External HTTP is disabled in tests; use a synthetic fixture.")
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", no_external_requests)

@@ -3,8 +3,8 @@ from fastapi import HTTPException
 from app.permissions import is_allowed, require_capability
 
 SEARCH_AGENTS = {
-    "ubi-research", "uae-eu-trade-talks", "geopolitical-morning",
-    "education-observatory", "historical-reading-companion",
+    "ubi-research", "iran-news", "uae-eu-trade-talks", "geopolitical-morning",
+    "education-observatory", "historical-reading-companion", "story-moodboard",
     "economic-cultural-briefing", "decision-briefing", "pre-meeting-briefing",
 }
 

@@ -43,9 +43,12 @@ jobs:
           node --check app/static/chat.js
           node --check app/static/i18n.js
           node --check app/static/public.js
+          node --check app/static/workspace.js
+          node --check app/static/workspace-markdown.js
           node tests/test_ui_news.js
           node tests/test_ui_chat.js
           node tests/test_ui_public.js
+          node tests/test_ui_workspace.js
       - name: Validate the Render Blueprint
         run: python scripts/validate_blueprint.py
       - name: Build clean source handoff

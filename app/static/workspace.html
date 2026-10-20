@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#142e38">
+  <meta name="description" content="AI HUB — research, evidence, reports and connected discussion in Arabic and English.">
+  <title>AI HUB · Research workspace</title>
+  <link rel="icon" href="/static/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/workspace.css?v=2.0.0">
+  <script defer src="/static/workspace-markdown.js?v=2.0.0"></script>
+  <script defer src="/static/workspace.js?v=2.0.0"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content" data-text="skip">انتقل إلى المحتوى</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <button type="button" class="brand" id="brand-home" aria-label="AI HUB home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="brand-type" dir="ltr">AI HUB<span data-text="brandCaption">البحث والمعرفة والحوار</span></span>
+      </button>
+      <nav class="site-nav" aria-label="Main">
+        <button type="button" id="nav-home" class="nav-button is-current" data-text="agents">المساعدون</button>
+        <button type="button" id="nav-chat" class="nav-button" data-text="mainChat">محادثة AI HUB</button>
+      </nav>
+      <div class="language-switch" role="group" aria-label="Language / اللغة">
+        <button type="button" id="language-ar" lang="ar" aria-pressed="true">العربية</button>
+        <button type="button" id="language-en" lang="en" aria-pressed="false">English</button>
+      </div>
+    </div>
+  </header>
+  <main id="main-content">
+    <div id="global-notice" class="global-notice" role="alert" hidden></div>
+    <section id="home-view" class="home-view" aria-labelledby="home-title">
+      <div class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span><span data-text="eyebrow">مساحة للبحث والحوار</span></p>
+          <h1 id="home-title" data-text="heroTitle">افهم ما يهمّ.<br>واقترب من الأدلة.</h1>
+          <p class="hero-description" data-text="heroDescription">اختر مساعدًا متخصصًا. اقرأ تقريره ومصادره، واحصل على ملف PDF، ثم ناقش ما وجدته في مكان واحد.</p>
+          <div class="hero-facts" aria-label="Workspace capabilities">
+            <span data-text="windowFact">أخبار آخر 12 ساعة</span>
+            <span data-text="pdfFact">تقارير PDF تلقائية</span>
+            <span data-text="discussFact">محادثة متصلة بالتقرير</span>
+          </div>
+        </div>
+        <aside class="editorial-note">
+          <span class="note-index" aria-hidden="true">01 / 02 / 03</span>
+          <h2 data-text="noteTitle">اختر. اقرأ. ناقش.</h2>
+          <p data-text="noteDescription">بحث عند الطلب، ومصادر واضحة، وتقارير محفوظة بوقت إعدادها. افتح أي مساعد لبدء تقرير جديد.</p>
+          <span class="note-rule"></span>
+          <span id="agent-count" class="agent-count"></span>
+        </aside>
+      </div>
+      <div class="section-heading"><h2 data-text="specialists">اختر مجال البحث</h2><span data-text="cardsHint">اختيار المساعد يبدأ إعداد تقريره</span></div>
+      <div id="agent-grid" class="agent-grid" aria-live="polite"></div>
+      <p class="home-footnote" data-text="coverageNote">تُحدّث التقارير عند الطلب. يُعرض حتى 20 خبرًا بعد التحقق من وقت النشر وإزالة التكرار؛ وقد تقلّ النتائج بحسب الأدلة المتاحة.</p>
+    </section>
+    <section id="workspace-view" class="workspace-view" aria-labelledby="workspace-heading" hidden>
+      <div class="workspace-toolbar">
+        <button type="button" id="back-home" class="quiet-button" data-text="allAgents">جميع المساعدين</button>
+        <label for="agent-selector" class="sr-only" data-text="chooseAgent">اختر المساعد</label>
+        <select id="agent-selector" class="agent-selector"></select>
+        <details class="history-menu" id="history-menu">
+          <summary data-text="history">التقارير المحفوظة</summary>
+          <div class="history-popover"><h3 data-text="history">التقارير المحفوظة</h3><div id="report-history"></div></div>
+        </details>
+        <button type="button" id="mobile-chat-toggle" class="quiet-button mobile-chat-toggle" aria-controls="discussion-panel" aria-expanded="false" data-text="discuss">ناقش التقرير</button>
+      </div>
+      <div class="workspace-layout">
+        <div class="reading-column">
+          <header class="report-controls">
+            <p id="workspace-kicker" class="eyebrow"></p>
+            <h1 id="workspace-heading"></h1>
+            <form id="topic-form">
+              <label for="topic-input" data-text="topicLabel">تحديد الموضوع · اختياري</label>
+              <textarea id="topic-input" rows="2" maxlength="8000" dir="auto"></textarea>
+              <div class="action-row">
+                <button type="submit" id="generate-button" class="primary-button"><span aria-hidden="true">↻</span><span data-text="generate">إنشاء تقرير حديث</span></button>
+                <a id="pdf-download" class="secondary-button" hidden><span aria-hidden="true">↓</span><span data-text="downloadPdf">تنزيل PDF</span></a>
+                <button type="button" id="pdf-retry" class="secondary-button" data-text="retryPdf" hidden>إعادة تجهيز PDF</button>
+                <span class="keyboard-hint" data-text="enterHint">Enter للبدء · Shift + Enter لسطر جديد</span>
+              </div>
+            </form>
+          </header>
+          <div id="job-progress" class="job-progress" role="status" aria-live="polite" hidden></div>
+          <div id="report-notice" class="report-notice" role="alert" hidden></div>
+          <article class="report-paper" id="report-paper">
+            <div id="report-meta" class="report-meta"></div>
+            <div class="content-tabs" role="tablist" aria-label="Report views" id="content-tabs">
+              <button type="button" id="tab-evidence" role="tab" aria-selected="true" aria-controls="report-content"></button>
+              <button type="button" id="tab-pack" role="tab" aria-selected="false" aria-controls="report-content"></button>
+            </div>
+            <div id="report-content" class="report-content" role="tabpanel" tabindex="0"></div>
+          </article>
+        </div>
+        <aside id="discussion-panel" class="discussion-panel" aria-labelledby="discussion-heading"></aside>
+      </div>
+    </section>
+    <section id="main-chat-view" class="main-chat-view" aria-label="AI HUB chat" hidden>
+      <header class="main-chat-intro"><p class="eyebrow" data-text="connectedKnowledge">معرفتك، في محادثة واحدة</p><h1 data-text="mainChatTitle">ما الذي تريد فهمه؟</h1><p data-text="mainChatDescription">ناقش تقاريرك، قارن بين المساعدين، أو اسأل عن تطورات جديدة. تُسترجع التقارير المناسبة من هذه الجلسة تلقائيًا.</p></header>
+      <div id="main-discussion-panel" class="main-discussion-panel"></div>
+    </section>
+  </main>
+  <footer class="site-footer"><span dir="ltr">AI HUB</span><p data-text="footer">راجع المصادر الأصلية للمعلومات المهمة. الأخبار والتحليلات الآلية قد تكون غير مكتملة.</p><span data-text="dubaiTime">الأوقات بتوقيت دبي</span></footer>
+  <noscript><p class="global-notice">فعّل JavaScript لاستخدام مساحة AI HUB. Enable JavaScript to use this workspace.</p></noscript>
+</body>
+</html>
