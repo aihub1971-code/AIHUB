@@ -226,6 +226,106 @@ def test_global_topic_query_and_filter_are_distinct_from_iran(monkeypatch, datab
     assert result["actual_count"] == 1
 
 
+@pytest.mark.parametrize("title,description", [
+    ("Digital performers create a conflict in Hollywood", "Studios debate replacing actors in new films."),
+    ("الذكاء الاصطناعي يثير صراعا داخل هوليوود", "منتجو الأفلام يناقشون مستقبل الممثلين والإبداع الرقمي."),
+    ("State party endorses governor under zoning arrangement", "Stakeholders divide the governorship nomination before a general election."),
+    ("حزب محلي يوزع ترشيحات الانتخابات البلدية", "أعضاء المجلس البلدي يناقشون المنافسة داخل الحزب."),
+    ("President endorses candidate at county campaign rally", "The local election focuses on road repairs."),
+    ("قمة كروية وسط صراع على الصدارة", "مباراة جديدة بين الأندية في دوري أبطال أوروبا."),
+    ("War film wins an award", "Actors discuss a fictional military offensive and a president's resignation."),
+    ("City council wages war on dumping", "Municipal officials announce new rubbish collection rules."),
+    ("Restaurant wins guide recognition", "The owners fled a military conflict decades ago."),
+    ("New family SUV borrows a fighter's name", "The design recalls a military aircraft from the Second World War."),
+    ("Local polling locations announce extended opening hours", "Residents prepare to cast ballots in a national election."),
+    ("Provincial task force mediates tribal conflict", "Local officials seek a ceasefire after a village dispute."),
+    ("President insults journalists during an event", "The personality dispute dominates the event. " * 35 + "Foreign ministers negotiate a peace treaty."),
+    ("Energy prices fall with cooler weather", "Ordinary demand changes explain the movement."),
+    ("Youth conference teaches good conflict", "Young people discuss teamwork and personal disagreements."),
+    ("A royal family hopes to settle a private dispute", "Two brothers describe their personal conflict."),
+    ("Company president resigns after board dispute", "The private business chooses a replacement executive."),
+    ("War film recreates an airstrike on a church", "The fictional military operation is part of a cinema production."),
+    ("Club president resigns after a poor season", "The football club chooses a replacement."),
+    ("رئيس النادي يستقيل بعد خسارة الفريق", "يناقش مجلس الإدارة مستقبل النادي."),
+    ("رئيس الجامعة يستقيل بعد خلاف مع مجلس الأمناء", "تبحث المؤسسة عن إدارة جديدة."),
+])
+def test_global_relevance_rejects_local_and_metaphorical_keyword_matches(title, description):
+    assert not news_feed._relevant("geopolitical-morning", title, description)
+
+
+@pytest.mark.parametrize("title,description", [
+    ("UN peacekeepers face withdrawal as Sudan fighting crosses the border", "Military units warn of conflict spreading into a neighbouring country."),
+    ("Burundi seeks regional peace in the Great Lakes", "The foreign minister meets counterparts to negotiate regional cooperation."),
+    ("Pacific foreign ministers agree a security pact", "Vanuatu and Samoa discuss maritime security and bilateral cooperation."),
+    ("Multinational military exercise begins in East Asia", "Troops from several nations practise joint operations."),
+    ("Chile's president resigns after confidence crisis", "Parliament begins a constitutional transition."),
+    ("Prime minister forms government in a small island nation", "A new parliamentary coalition takes office."),
+    ("European Parliament selects new leadership for its top post", "Members confirm the parliamentary leadership result."),
+    ("Election results change control of congress", "The opposition wins a national legislative majority."),
+    ("الحكومة تفرض عقوبات على صادرات الطاقة بسبب النزاع", "تستهدف الإجراءات تمويل العمليات العسكرية."),
+    ("المعارضة تفوز بأغلبية في البرلمان", "تبدأ مفاوضات تشكيل حكومة جديدة بعد إعلان نتائج الانتخابات."),
+    ("مباحثات تبحث الترتيبات الأمنية والانسحاب العسكري", "تجتمع وفود عسكرية لمناقشة الحدود والضمانات المتبادلة."),
+    ("زيارة دولة تعزز العلاقات بين بلدين", "يلتقي رئيس الدولة وزير الخارجية لمناقشة اتفاق تعاون."),
+    ("Defence minister holds talks on ending the conflict", "Envoys seek an agreement on troop withdrawals."),
+    ("Energy deal creates a new international security divide", "The agreement affects sanctions and the course of the war."),
+    ("Army reports attacks against armed factions", "Military operations destroyed weapons and vehicles."),
+    ("Nuclear powers negotiate over their arsenals", "Foreign policy officials call for diplomacy and direct talks."),
+    ("Embassy staff withdrawn after a diplomatic dispute", "The government recalls its diplomats."),
+    ("Leaders sign peace treaty at a football stadium", "Foreign ministers conclude the agreement after years of war."),
+    ("Government imposes tariffs on strategic imports", "The export controls respond to an international security dispute."),
+    ("Congress warns of nationwide election disruptions", "Officials seek protections against foreign interference in the national vote."),
+    ("ممثل الأمم المتحدة يعلن اتفاقا لوقف إطلاق النار", "تتضمن المبادرة انسحاب القوات من منطقة النزاع."),
+    ("UN envoy announces ceasefire after talks with international actors", "Diplomats agree to monitor the peace agreement."),
+    ("Military airstrike hits university, killing dozens", "The army operation damages classrooms and nearby homes."),
+    ("President resigns after parliament withdraws confidence", "University students had protested nationwide before the vote."),
+    ("Army airstrike hits church during border conflict", "Military officials confirm the attack on the civilian building."),
+    ("President assassinated at a church during a state visit", "Parliament announces an emergency national leadership transition."),
+    ("UN envoy announces peace agreement at a church", "Foreign ministers negotiate the withdrawal of troops."),
+])
+def test_global_relevance_preserves_security_diplomacy_and_major_national_changes(title, description):
+    assert news_feed._relevant("geopolitical-morning", title, description)
+
+
+@pytest.mark.parametrize("include_relevant", [False, True], ids=["honest-empty", "retained-geopolitics"])
+def test_existing_global_cache_is_revalidated_without_resetting_snapshot_cooldown_or_credits(monkeypatch, database, include_relevant):
+    values = [article(1, title="Hollywood's digital conflict", description="Film actors debate their future."),
+        article(2, title="State party adopts zoning arrangement", description="The governorship election is approaching."),
+        article(3, title="Foreign ministers sign peace treaty", description="A diplomatic agreement ends the war.",
+            pubDate="2026-10-20 00:00:01")]
+    if include_relevant:
+        values.append(article(4, title="Army announces ceasefire", description="Military forces halt the conflict."))
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=page(values))
+    mock_http(monkeypatch, handler)
+    # Seed the exact legacy acceptance behaviour, then activate the new filter.
+    with monkeypatch.context() as legacy:
+        legacy.setattr(news_feed, "_global_relevant", lambda *_: True)
+        old = refresh(database, "geopolitical-morning")
+    store = news_feed.FeedStore(database)
+    row_before, provider_before = store.read("geopolitical-morning"), store.provider_state()
+    database.test_clock[0] += timedelta(minutes=2)
+    for language in ("en", "ar"):
+        result = news_feed.get_feed("geopolitical-morning", language, force=True, database=database)
+        assert result["actual_count"] == int(include_relevant)
+        assert result["status"] == ("cached" if include_relevant else "empty")
+        assert result["snapshot_id"] == old["snapshot_id"]
+        assert result["last_successful_refresh_at"] == old["last_successful_refresh_at"]
+        assert result["next_refresh_at"] == old["next_refresh_at"]
+        assert result["window_excluded_from_cache"] == 1
+        assert result["relevance_excluded_from_cache"] == result["excluded"]["irrelevant_cached"] == 2
+        assert result["cached_article_count"] == len(values)
+        assert all(item["article_id"] == "synthetic-4" for item in result["items"])
+    report = news_feed.get_report_feed("geopolitical-morning", language="en", database=database)
+    assert report["actual_count"] == len(report["sources"]) == int(include_relevant)
+    assert store.read("geopolitical-morning") == row_before
+    assert store.provider_state() == provider_before
+    assert len(calls) == 1
+    with database._connect() as connection:
+        assert news_feed.accounted_credits(connection, local_date="2026-10-20") == 1
+
+
 def test_repeated_cursor_stops_without_retry_and_preserves_partial_data(monkeypatch, database):
     calls = []
     def handler(request):

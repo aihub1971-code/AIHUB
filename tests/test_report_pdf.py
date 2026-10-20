@@ -3,6 +3,7 @@
 import hashlib
 import json
 import unicodedata
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -234,6 +235,42 @@ def test_iso_dates_and_timestamps_keep_complete_selectable_order_in_prose(tmp_pa
     assert report["report_id"] in text and "0/100" in text
     assert _uris(reader) == []
     assert json.dumps(report, ensure_ascii=False, sort_keys=True) == original
+
+
+@pytest.mark.parametrize("language", ["ar", "en"])
+def test_percentage_ranges_keep_source_order_in_arabic_prose_and_tables(tmp_path, language):
+    report = provider_delay_fixture(language)
+    values = ["80–100%", "60%", "1.25–2.5%", "1,000–2,500", "-5–-2.5%", "+2.5%",
+              "5%–10%", "80 - 100 %", "٨٠–١٠٠٪", "٦٠٪", "١٫٥–٢٫٥٪"]
+    lead = "نطاق القيمة " if language == "ar" else "Value range "
+    report["sections"][0]["body"] = "\n\n".join(lead + value + "." for value in values)
+    report["sections"][0]["body"] += "\n\n| Label | Value |\n|---|---|\n" + "\n".join(
+        "| Rate | " + value + " |" for value in values)
+    original = json.dumps(report, ensure_ascii=False, sort_keys=True)
+    path = tmp_path / f"numeric-ranges-{language}.pdf"
+    report_pdf.render_report_pdf(report, path)
+    # Layout extraction follows glyph positions. The default extractor applies
+    # its own RTL reversal to Arabic-Indic digits beside Arabic prose.
+    text = "".join(char for page in PdfReader(path).pages for char in page.extract_text(extraction_mode="layout")
+                   if not char.isspace() and unicodedata.category(char) != "Cf")
+    for expected, occurrences in Counter(report_pdf._text(value).replace(" ", "") for value in values).items():
+        assert text.count(expected) >= occurrences * 2, expected
+    assert "0/100" in text
+    assert json.dumps(report, ensure_ascii=False, sort_keys=True) == original
+
+
+def test_numeric_isolation_preserves_dates_counts_urls_and_existing_isolates():
+    date = "2026-10-20T07:11:00.000000+00:00"
+    url = "https://publisher.example/2026-10-20/80-100?rate=60%25"
+    protected = "\u2066" + "80-100%" + "\u2069"
+    text = f"نطاق {protected}، وقت {date}، عدد 46 / 100، رابط {url} ورمز #E8E5DA."
+    rendered = report_pdf._plain_markdown(text, rtl=True)
+    assert url in rendered and "46 / 100" in rendered
+    assert "\u2066" + date + "\u2069" in rendered
+    assert "\u2066#E8E5DA\u2069" in rendered
+    assert rendered.count(protected) == 1
+    assert rendered.count("\u2066") == rendered.count("\u2069") == 3
+    assert report_pdf._plain_markdown(rendered, rtl=True) == rendered
 
 
 def test_no_evidence_stays_concise_and_does_not_invent_sources(tmp_path):
