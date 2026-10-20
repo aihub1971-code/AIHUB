@@ -240,9 +240,103 @@ _IRAN_CONSEQUENCES = ["oil", "crude", "brent", "fuel", "energy", "shipping", "fr
     "airline", "tanker", "trade", "نفط", "خام", "برنت", "وقود", "طاقة", "ملاح", "شحن", "طيران", "تجار"]
 
 
+def _global_relevant(title: str, description: str) -> bool:
+    # Classify the reported event, not an incidental keyword in a long story.
+    # Roles, institutions and actions keep the scope independent of country lists.
+    lead, subject = title + " " + description[:900], title + " " + description[:250]
+    security = ["airstrike", "air strike", "drone strike", "drone attack", "missile attack", "military action",
+        "military operation", "military offensive", "military exercise", "military satellite", "naval blockade",
+        "armed conflict", "civil war", "peacekeeper", "ceasefire", "peace talks", "nuclear talks", "nuclear arsenal",
+        "nuclear weapon", "border conflict", "crossborder attack", "cross border attack", "war crime", "disarmament",
+        "غارة جوية", "غارات", "ضربة جوية", "ضربات جوية", "هجوم صاروخي", "هجمات صاروخية", "عمليات عسكرية",
+        "عملية عسكرية", "عمل عسكري", "مناورات عسكرية", "حرب أهلية", "حرب اهلية", "نزاع مسلح", "حفظ السلام",
+        "وقف إطلاق النار", "وقف اطلاق النار", "مفاوضات السلام", "مفاوضات نووية", "سلاح نووي", "نزع سلاح", "جرائم حرب",
+        "security arrangements", "military talks", "الترتيبات الأمنية", "ترتيبات أمنية", "المباحثات العسكرية"]
+    diplomacy = ["diplomac", "diplomatic", "foreign minister", "foreign affairs", "external affairs", "foreign policy",
+        "envoy", "ambassador", "embassy", "treaty", "security council", "united nations", "nato", "state visit",
+        "defense secretary", "defense minister", "defence minister", "وزير الدفاع",
+        "bilateral", "multilateral", "international relations", "دبلوماس", "وزير الخارجية", "وزراء الخارجية",
+        "وزارة الخارجية", "السياسة الخارجية", "سفير", "سفارة", "سفارات", "مبعوث", "معاهدة",
+        "الأمم المتحدة", "الامم المتحدة", "زيارة دولة", "متعدد الأطراف", "العلاقات الدولية"]
+    action = ["talks", "negotiat", "meet", "agreement", "sign", "withdraw", "expel", "recall", "broker", "summit",
+        "cooperation", "security", "peace", "relations", "dispute", "visit", "مفاوض", "مباحث", "لقاء", "يلتقي", "التقى",
+        "اتفاق", "توقيع", "انسحاب", "سحب", "طرد", "استدعاء", "تعاون", "سلام", "أمن", "أمني", "علاقات", "زيارة"]
+    conflict = ["war", "conflict", "hostilities", "fighting", "invasion", "sanction", "blockade", "attack", "حرب", "نزاع",
+        "عدوان", "قتال", "قصف", "ضربات", "هجمات", "عقوبات", "حصار", "اشتباك", "معارك"]
+    actors = ["army", "military", "troops", "armed forces", "navy", "rebels", "militia", "government", "president",
+        "prime minister", "defence minister", "defense secretary", "international", "crossborder", "cross border",
+        "جيش", "الجيش", "قوات", "عسكري", "حكومة", "الرئيس", "رئيس", "مسلح", "ميليش", "مليش", "دولي", "حشد"]
+    economics = ["trade", "tariff", "energy", "oil", "gas", "diesel", "shipping", "supply chain", "تجار", "رسوم جمركية",
+        "تعرف", "طاقة", "نفط", "غاز", "شحن", "إمدادات", "امدادات"]
+    economic_policy = ["sanction", "tariff", "embargo", "blockade", "export control", "trade agreement", "trade deal",
+        "trade war", "energy deal", "security", "عقوبات", "رسوم جمركية", "حظر", "حصار", "اتفاق تجاري", "اتفاقية تجارية",
+        "حرب تجارية", "اتفاق طاقة", "أمن", "أمني"]
+    national = ["president", "prime minister", "head of state", "parliament", "congress", "national assembly",
+        "national election", "federal government", "house majority", "presidential", "monarch", "الرئيس", "رئيس",
+        "رئاسة", "برلمان", "الكونغرس", "الكونجرس", "الجمعية الوطنية", "انتخابات رئاسية", "الملك"]
+    change = ["resign", "oust", "overthrow", "coup", "no confidence", "noconfidence", "dissolv", "government collapse",
+        "government formation", "forms government", "form a government", "sworn in", "election result", "election results",
+        "wins", "won", "majority", "control of congress", "control of parliament", "top post",
+        "constitutional crisis", "election interference", "election disruption", "election disruptions", "abdica", "assassinat",
+        "اغتيال", "اغتيل", "استقال", "يستقيل", "إقالة",
+        "إطاحة", "انقلاب", "سحب الثقة", "حل البرلمان", "تشكيل حكومة", "تشكيل الحكومة", "سقوط الحكومة", "فوز",
+        "يفوز", "فاز", "أغلبية", "اغلبية", "نتائج الانتخابات", "تنصيب", "انتقال السلطة", "أزمة دستورية", "تدخل انتخابي"]
+    local = ["municipal", "city council", "county", "governorship", "gubernatorial", "state assembly", "local election",
+        "zoning arrangement", "party primary", "primary race", "polling location", "polling place", "early voting",
+        "grassroots", "campaign vehicle", "party stalwart", "senate candidate", "candidate debate", "campaign rally",
+        "tribal conflict", "provincial task force", "road ambush",
+        "robbery", "انتخابات بلدية", "انتخابات محلية", "مجلس بلدي", "دائرة انتخابية", "توزيع الترشيحات", "نزاع قبلي"]
+    unrelated = ["hollywood", "film", "movie", "cinema", "celebrity", "football", "soccer", "cricket",
+        "basketball", "karate", "championship", "tournament", "restaurant", "restaurateur", "suv", "church", "centennial",
+        "youth conference", "editorial cartoon", "company president", "university president", "president of the university",
+        "club president", "هوليوود", "فيلم", "أفلام", "افلام", "سينما", "رئيس الجامعة", "رئيس الشركة", "رئيس النادي",
+        "مسلسل", "مشاهير", "كرة القدم", "دوري أبطال", "قمة كروية", "مباراة", "الأندية", "الاندية", "تشكيل مشترك"]
+    fiction = ["film", "movie", "cinema", "novel", "fiction", "video game", "documentary", "فيلم", "أفلام", "افلام",
+        "سينما", "مسلسل", "رواية", "لعبة"]
+    def diplomatic(text: str) -> bool:
+        # Security Council must not match the Arabic "board of trustees".
+        return _contains(text, diplomacy) or bool(re.search(r"مجلس\s+(?:الأمن|الامن)\b", runtime._headline_key(text)))
+    non_national_role = _contains(subject, ["company president", "club president", "university president",
+        "president of the university", "رئيس الشركة", "رئيس النادي", "رئيس الجامعة"])
+    institutional_change = (not non_national_role and _contains(lead, national) and _contains(lead, change)
+        and _contains(title, national + change + ["election", "midterm", "house races", "government", "انتخاب", "حكومة"]))
+    headline_security = _contains(title, security)
+    headline_diplomacy = diplomatic(title) and _contains(lead, action)
+    # A treaty signed at a stadium is diplomacy; a war film or football "summit"
+    # is not. Local campaign logistics do not become national news by naming a president.
+    treaty_event = _contains(title, ["treaty", "security pact", "defence pact", "defense pact", "معاهدة", "اتفاق دفاعي"])
+    # Venues and victims do not turn a real state/security event into entertainment.
+    assassination = (not non_national_role and _contains(title, ["assassinat", "اغتيال", "اغتيل"])
+        and _contains(lead, national))
+    literal_event = (headline_security or headline_diplomacy or assassination) and not _contains(subject, fiction)
+    if _contains(subject, unrelated) and not (literal_event or (treaty_event and _contains(lead, action))):
+        return False
+    if _contains(subject, local) and not (headline_security or headline_diplomacy):
+        return False
+    if institutional_change:
+        return True
+    if headline_security or headline_diplomacy:
+        return True
+    headline_focus = _contains(title, conflict + diplomacy + economics + ["security", "peace", "stability", "agreement",
+        "deal", "relations", "negotiat", "talks", "أمن", "أمني", "سلام", "استقرار", "اتفاق", "علاقات", "تعاون", "زيارة", "ترتيبات", "مفاوض", "مباحث"])
+    if headline_focus:
+        if _contains(lead, conflict) and _contains(lead, actors):
+            return True
+        if diplomatic(lead) and _contains(lead, action):
+            return True
+        if _contains(title, economics) and _contains(lead, economic_policy) and _contains(lead, actors + conflict + ["imports", "exports", "واردات", "صادرات"]):
+            return True
+    # Broad headlines can still describe an explicit ministerial/state visit in
+    # their lead. Do not use unrelated background later in the provider summary.
+    return (_contains(lead, ["foreign minister", "foreign affairs", "external affairs", "state visit",
+        "وزير الخارجية", "وزراء الخارجية", "زيارة دولة"]) and _contains(lead, action))
+
+
 def _relevant(agent_id: str, title: str, description: str) -> bool:
     profile = get_profile(agent_id)
     lead = title + " " + description
+    if agent_id == "geopolitical-morning":
+        return _global_relevant(title, description)
     if agent_id == "iran-news":
         iran = _contains(lead, profile["terms"])
         conflict = _contains(lead, _IRAN_CONFLICT)
@@ -651,7 +745,14 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
     display_window = _window(requested_window, now)
     start, end = newsdata._moment(display_window["start"]), newsdata._moment(display_window["end"])
     eligible = [item for item in snapshot.get("items", []) if start <= newsdata._moment(item["published_at"]) <= end]
-    items = _display_items(store, agent_id, eligible, language)
+    window_excluded = len(snapshot.get("items", [])) - len(eligible)
+    relevant = [item for item in eligible if agent_id != "geopolitical-morning" or _global_relevant(
+        item.get("original_headline") or item["headline"], item.get("original_summary") or item.get("summary", ""))]
+    relevance_excluded = len(eligible) - len(relevant)
+    excluded = dict(snapshot.get("excluded", {}))
+    if relevance_excluded:
+        excluded["irrelevant_cached"] = relevance_excluded
+    items = _display_items(store, agent_id, relevant, language)
     status = ("loading" if active or (not snapshot and provider_busy) else "provider_error" if error else
               "empty" if snapshot and not items else "fresh" if snapshot and age < 2 else "cached" if snapshot else "empty")
     next_at = row.get("next_refresh_at")
@@ -677,9 +778,10 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
         "checked_at": row.get("checked_at"), "next_refresh_at": next_at, "snapshot_id": snapshot.get("snapshot_id"),
         "research_window": snapshot.get("research_window"), "display_window": display_window,
         "cache_age_seconds": math.floor(age) if age is not None else None,
-        "cached_article_count": len(snapshot.get("items", [])), "window_excluded_from_cache": len(snapshot.get("items", [])) - len(items),
+        "cached_article_count": len(snapshot.get("items", [])), "window_excluded_from_cache": window_excluded,
+        "relevance_excluded_from_cache": relevance_excluded,
         "cached": bool(snapshot), "stale": stale, "partial": bool(snapshot.get("partial")), "error": error,
-        "refresh_started": started, "pagination": snapshot.get("pagination", {}), "excluded": snapshot.get("excluded", {}),
+        "refresh_started": started, "pagination": snapshot.get("pagination", {}), "excluded": excluded,
         "provider_plan": plan, "limitation_codes": limitations, "requested_language": language,
         "observed_latest_provider_publication_at": snapshot.get("observed_latest_provider_publication_at"),
         "observed_earliest_provider_publication_at": snapshot.get("observed_earliest_provider_publication_at"),

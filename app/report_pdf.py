@@ -98,17 +98,29 @@ def _plain_markdown(value: Any, *, rtl: bool = False) -> str:
     text = re.sub(r"!?\[([^\]]+)\]\([^\n)]*\)", r"\1", text)
     text = re.sub(r"(?:\*\*|__|`)", "", text)
     if rtl:
-        # A leading hash is neutral in bidi text, so letter-leading colour codes
-        # otherwise render as E8E5DA#. Isolate each complete token without
-        # changing the saved text, Arabic shaping, or clickable link targets.
-        text = re.sub(r"(?<![\w\u2066])#[0-9a-fA-F]{6}(?!\w)",
-                      lambda match: "\u2066" + match[0] + "\u2069", text)
-        # Keep ISO dates and timestamps as complete LTR tokens inside Arabic
-        # prose; neutral hyphens otherwise move date components around the time.
-        text = re.sub(r"(?<![\w\u2066])[0-9]{4}-[0-9]{2}-[0-9]{2}"
-                      r"(?:[Tt][0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?"
-                      r"(?:[Zz]|[+-][0-9]{2}:[0-9]{2})?)?(?![\w:])",
-                      lambda match: "\u2066" + match[0] + "\u2069", text)
+        # Treat complete numeric expressions as LTR units. Otherwise bidi can
+        # reverse the endpoints of 80-100% or move a percentage/sign away from
+        # its number. Protect existing isolates and URLs before matching tokens
+        # so the presentation never nests controls or changes link identities.
+        number = r"[+\-\u2212]?\d+(?:[.,\u066b\u066c]\d+)*"
+        percent = r"[ \t]*[%\u066a]"
+        numeric = (rf"(?<![\w./:+\-\u2212])(?:{number}(?:{percent})?[ \t]*-[ \t]*{number}(?:{percent})?"
+                   rf"|{number}{percent})(?![\w/%\u066a:+\-\u2212]|[.,\u066b\u066c]\d)")
+        token = (r"(?P<protected>[\u2066-\u2068][^\u2069]*\u2069|https?://[^\s<>]+)"
+                 r"|(?<![\w\u2066])#[0-9a-fA-F]{6}(?!\w)"
+                 r"|(?<![\w\u2066])[0-9]{4}-[0-9]{2}-[0-9]{2}"
+                 r"(?:[Tt][0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?"
+                 r"(?:[Zz]|[+-][0-9]{2}:[0-9]{2})?)?(?![\w:])|" + numeric)
+        def isolate(match: re.Match[str]) -> str:
+            value = match[0]
+            if match.group("protected") is not None:
+                return value
+            if any(unicodedata.bidirectional(char) == "AN" for char in value):
+                # Arabic-Indic numbers resolve adjacent punctuation as RTL
+                # even inside an LTR isolate; LRM separates the numeric runs.
+                value = re.sub(number, lambda part: "\u200e" + part[0] + "\u200e", value)
+            return "\u2066" + value + "\u2069"
+        text = re.sub(token, isolate, text)
     return text
 
 
