@@ -226,7 +226,9 @@
     clearNewsTimers();if(!feedsReady||document.hidden)return;
     const id=view==="home"?homeNewsId:view==="workspace"&&current()?.tab==="evidence"?selectedId:null;
     if(!newsEnabled(id))return;const n=newsState(id);
-    if(!n.data&&!n.loading&&!n.error)loadNews(id);else scheduleNews(n);
+    const next=Date.parse(n.data?.next_refresh_at||""),due=Number.isFinite(next)&&next<=Date.now();
+    const canCheck=!n.loading&&!n.pollPaused&&n.data?.status!=="loading"&&n.error?.retryable!==false&&n.data?.error?.retryable!==false&&n.retryAt<=Date.now();
+    if((!n.data&&!n.loading&&!n.error)||(due&&canCheck))loadNews(id);else scheduleNews(n);
   }
   function renderVisibleNews(id){
     if(view==="home"&&homeNewsId===id)renderHomeNews();
