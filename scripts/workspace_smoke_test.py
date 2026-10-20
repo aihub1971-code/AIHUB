@@ -207,7 +207,7 @@ class Validator:
                 cookies.set_cookie(copy.copy(cookie))
         return httpx.Client(base_url=self.args.base_url, headers={"Origin": self.args.base_url},
             cookies=cookies, timeout=httpx.Timeout(30, connect=15),
-            follow_redirects=False, trust_env=False, transport=self.transport)
+            follow_redirects=False, trust_env=True, transport=self.transport)
 
     def save_state(self) -> None:
         write_private(self.state_path, encoded(self.state))

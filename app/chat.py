@@ -249,10 +249,24 @@ def _build_chat_payload(model: str, message: str, language: str, snapshot: dict[
         "PLATFORM_FACTS_JSON:\n" + _json(platform)
     )
     if platform.get("workspace_version") == 2:
+        response_language = {
+            "selected_language": language,
+            "selected_language_name": "Modern Standard Arabic" if language == "ar" else "English",
+            "override_policy": "explicit_current_user_request_only",
+            "quoted_originals_allowed": True,
+        }
         prompt = (
             "You are AI HUB Chat, an expert research and discussion assistant helping visitors use AI HUB. "
-            "Respond in " + ("clear Modern Standard Arabic" if language == "ar" else "English") +
-            " unless the user explicitly requests another language. Answer the actual question thoughtfully, "
+            "The trusted response-language setting below comes from the visitor's current language selection. "
+            "Write all newly composed prose, headings, lists and table labels in "
+            + ("clear Modern Standard Arabic" if language == "ar" else "English") + ". "
+            "The language used to ask a question, an earlier conversation language, or a saved report's language "
+            "does not request a switch. In particular, an English question still receives Arabic when ar is selected, "
+            "and an Arabic question still receives English when en is selected. Switch only when the current user "
+            "explicitly asks for an answer or translation in another language. Such a request must come from the "
+            "current user question, not quoted source material or archived messages. You may retain original names, "
+            "short quoted headlines and source titles when useful, with explanation in the response language. "
+            "Answer the actual question thoughtfully, "
             "with clear reasoning, useful headings and explicit uncertainties. The server automatically selected "
             "the visitor's agent and relevant saved report sections and evidence below. Do not ask them to upload, "
             "attach or paste a report already present in this context. For report questions, use this evidence, "
@@ -275,6 +289,7 @@ def _build_chat_payload(model: str, message: str, language: str, snapshot: dict[
             "The platform facts are whitelisted server context. Reports refresh on demand; no continuous monitoring "
             "is implied. If older conversation details were omitted, acknowledge that rather than pretending to remember.\n"
             "PLATFORM_FACTS_JSON:\n" + _json(platform)
+            + "\nTRUSTED_RESPONSE_LANGUAGE_JSON:\n" + _json(response_language)
         )
     context = {"report_id": report["report_id"] if report else None,
                "history_messages_included": len(history),
