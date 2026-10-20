@@ -9,13 +9,15 @@
     windowFact:["أخبار آخر 12 ساعة","12-hour news window"],pdfFact:["تقارير PDF تلقائية","Automatic report PDFs"],discussFact:["محادثة متصلة بالتقرير","Connected discussion"],
     noteTitle:["اختر. اقرأ. ناقش.","Choose. Read. Discuss."],noteDescription:["بحث عند الطلب، ومصادر واضحة، وتقارير محفوظة بوقت إعدادها. افتح أي مساعد لبدء تقرير جديد.","Research on demand. Clear sources. Reports saved as dated snapshots. Open any assistant to begin a new report."],
     count:["{n} مساعدًا متخصصًا","{n} specialist assistants"],specialists:["اختر مجال البحث","Choose your field of inquiry"],cardsHint:["اختيار المساعد يبدأ إعداد تقريره","Selecting an assistant starts its report"],
-    coverageNote:["تُحدّث الأخبار المباشرة تلقائيًا، وتُعد التقارير عند الطلب. يُعرض حتى 100 خبر منشور خلال آخر 12 ساعة بعد التحقق وإزالة التكرار؛ وقد تقلّ النتائج بحسب المصادر المتاحة.","Live news refreshes automatically; analysis reports are generated on demand. Up to 100 articles published within the last 12 hours appear after checks and deduplication; available sources may yield fewer."],
+    coverageNote:["تُحدّث الأخبار عند طلبك، وتُعد التقارير عند الطلب. يُعرض حتى 100 خبر منشور خلال آخر 12 ساعة بعد التحقق وإزالة التكرار؛ وقد تقلّ النتائج بحسب المصادر المتاحة.","News refreshes when you request it; analysis reports are generated on demand. Up to 100 articles published within the last 12 hours appear after checks and deduplication; available sources may yield fewer."],
     liveNews:["الأخبار المباشرة","Live news"],newsTopic:["مجال الأخبار","News topic"],refreshNews:["تحديث الأخبار","Refresh news"],
-    newsFresh:["محدّثة","Fresh"],newsCached:["نسخة محفوظة","Cached"],newsLoading:["جارٍ تحديث الأخبار","Refreshing news"],newsEmpty:["لا أخبار مستوفية للشروط","No qualifying articles"],newsProviderError:["تعذر تحديث الأخبار","News refresh failed"],
-    newsLastSuccess:["آخر تحديث ناجح","Last successful refresh"],newsNeverUpdated:["لم يكتمل تحديث ناجح بعد","No successful refresh yet"],newsNextRefresh:["التحديث التلقائي التالي","Next automatic refresh"],newsAuto:["تحديث تلقائي أثناء عرض هذه الصفحة","Auto-refresh while this view is open"],
+    newsFresh:["محدّثة","Fresh"],newsCached:["نسخة محفوظة","Cached"],newsLoading:["جارٍ تحديث الأخبار","Refreshing news"],newsReading:["جارٍ تحميل الأخبار المحفوظة","Loading saved news"],newsEmpty:["لا أخبار مستوفية للشروط","No qualifying articles"],newsProviderError:["تعذر تحديث الأخبار","News refresh failed"],
+    newsLastSuccess:["آخر تحديث ناجح","Last successful refresh"],newsNeverUpdated:["لم يكتمل تحديث ناجح بعد","No successful refresh yet"],newsManual:["تحديث يدوي · اضغط تحديث الأخبار لجلب أخبار جديدة. فتح الصفحة يعرض الأخبار المحفوظة.","Manual refresh · Select Refresh news to fetch new articles. Opening this page displays saved news."],
     newsShowing:["{n} خبرًا من آخر 12 ساعة","{n} articles from the last 12 hours"],newsFetched:["{n} سجلًا جُلب من المصدر","{n} provider records fetched"],newsPublishers:["{n} جهة نشر","{n} publishers"],
     newsAll:["عرض جميع الأخبار ({n})","View all articles ({n})"],newsOriginal:["افتح المصدر الأصلي","Open original source"],newsPublished:["نُشر","Published"],
     newsLoadingNote:["يجري جلب الأخبار والتحقق من وقت نشرها. تبقى النسخة السابقة ظاهرة إن توفرت.","Fetching articles and checking publication times. The previous cache remains visible when available."],
+    newsNotLoaded:["لا أخبار محفوظة بعد","No saved news yet"],newsManualStart:["اضغط تحديث الأخبار لجلب الأخبار المنشورة خلال آخر 12 ساعة.","Select Refresh news to retrieve articles published within the last 12 hours."],
+    newsReadingNote:["يجري عرض آخر أخبار محفوظة دون طلب أخبار جديدة من المصدر.","Loading the latest saved news without requesting new articles from the provider."],
     newsEmptyNote:["اكتمل فحص المصدر، ولم توجد أخبار بوقت نشر موثق داخل آخر 12 ساعة. لم تُضف مواد أقدم لاستكمال العدد.","The source check completed without articles with a verified publication time inside the last 12 hours. Older material was not added to fill the list."],
     newsStale:["آخر تحديث محفوظ قديم. لا نعرضه كتحديث مباشر، وتُستبعد المقالات التي تجاوز نشرها 12 ساعة.","The last successful refresh is stale. It is labelled as cached, and articles older than 12 hours are excluded."],
     newsPartial:["التغطية جزئية؛ تعرض القائمة الأخبار التي أمكن جلبها والتحقق منها.","Coverage is partial; the list contains the articles that could be retrieved and checked."],
@@ -183,7 +185,7 @@
   function button(text,cls,handler){const node=el("button",cls,text);node.type="button";node.addEventListener("click",handler);return node;}
   function link(text,url,cls){const href=markdown.safeLink(url);if(!href)return el("span",cls,text);const node=el("a",cls,text);node.href=href;node.target="_blank";node.rel="noopener noreferrer";return node;}
   function newsEnabled(id){return newsAgents.includes(id);}
-  function newsState(id,language=lang){const key=id+":"+language;if(!newsStates.has(key))newsStates.set(key,{key,id,language,data:null,loading:false,pending:null,error:null,retryAt:0,retryTimer:null,pollCount:0,pollPaused:false});return newsStates.get(key);}
+  function newsState(id,language=lang){const key=id+":"+language;if(!newsStates.has(key))newsStates.set(key,{key,id,language,data:null,loading:false,manualPending:false,pending:null,error:null,retryAt:0,retryTimer:null,pollCount:0,pollPaused:false});return newsStates.get(key);}
   function newsVisible(n){return feedsReady&&n.language===lang&&!document.hidden&&((view==="home"&&homeNewsId===n.id)||(view==="workspace"&&selectedId===n.id&&current()?.tab==="evidence"));}
   function visibleNewsItems(data){
     const now=Date.now(),lower=now-12*60*60*1000,seen=new Set();
@@ -194,6 +196,7 @@
       const key="id:"+(item.article_id||item.id||item.url),url="url:"+item.url.split("#")[0];if(seen.has(key)||seen.has(url))return false;seen.add(key);seen.add(url);return true;
     }).sort((a,b)=>Date.parse(b.published_at)-Date.parse(a.published_at)).slice(0,100);
   }
+  function newsStaleAt(data){const last=Date.parse(data?.last_successful_refresh_at||"");return Number.isFinite(last)?last+(Number(data.refresh_interval_seconds)||900)*1000:NaN;}
   function newsErrorKey(error){
     const code=error?.code||"";
     if(code==="newsdata_not_configured")return "newsNotConfigured";
@@ -217,10 +220,16 @@
     if(newsTimers.has(n.key)){clearTimeout(newsTimers.get(n.key));newsTimers.delete(n.key);}
     if(!newsVisible(n)||n.loading||n.pollPaused)return;
     const data=n.data||{},refreshing=!n.error&&data.status==="loading";
-    if(!refreshing&&(n.error?.retryable===false||data.error?.retryable===false))return;
-    const next=Date.parse(data.next_refresh_at||""),retry=Number(data.retry_after_seconds||0);
-    const delay=refreshing?Math.max(1000,Math.min(10000,(retry||2)*1000)):Math.max(60000,n.retryAt-Date.now(),Number.isFinite(next)?next-Date.now():900000);
-    const timer=setTimeout(()=>{newsTimers.delete(n.key);if(newsVisible(n))loadNews(n.id,false,{poll:refreshing});},delay);newsTimers.set(n.key,timer);
+    // Poll only a refresh already in progress. Idle timers update display age locally.
+    if(!refreshing){
+      const now=Date.now(),deadlines=visibleNewsItems(data).map(item=>Date.parse(item.published_at)+12*60*60*1000+1);
+      const staleAt=newsStaleAt(data);if(staleAt>now)deadlines.push(staleAt);
+      if(!deadlines.length)return;
+      const timer=setTimeout(()=>{newsTimers.delete(n.key);if(newsVisible(n)){renderVisibleNews(n.id);scheduleNews(n);}},Math.max(1,Math.min(...deadlines)-now));
+      newsTimers.set(n.key,timer);return;
+    }
+    const retry=Number(data.retry_after_seconds||0),delay=Math.max(1000,Math.min(10000,(retry||2)*1000));
+    const timer=setTimeout(()=>{newsTimers.delete(n.key);if(newsVisible(n))loadNews(n.id,false,{poll:true});},delay);newsTimers.set(n.key,timer);
   }
   function syncNews(){
     clearNewsTimers();if(!feedsReady||document.hidden)return;
@@ -239,7 +248,7 @@
     if(n.loading)return n.pending||Promise.resolve(null);
     if(manual&&n.retryAt>Date.now())return Promise.resolve(n.data);
     if(newsTimers.has(n.key)){clearTimeout(newsTimers.get(n.key));newsTimers.delete(n.key);}
-    n.loading=true;n.error=null;n.pollPaused=false;if(!poll)n.pollCount=0;renderVisibleNews(id);
+    n.loading=true;n.manualPending=manual;n.error=null;n.pollPaused=false;if(!poll)n.pollCount=0;renderVisibleNews(id);
     const pending=(async()=>{
       try{
         const path="/v1/public/workspace/agents/"+encodeURIComponent(id)+"/news";
@@ -249,7 +258,7 @@
         if(data.status==="loading"){n.pollCount++;if(n.pollCount>=30)n.pollPaused=true;}else n.pollCount=0;
         return data;
       }catch(error){n.error=error;newsRetryAfter(n,error?.retry_after_seconds);return null;}
-      finally{n.loading=false;n.pending=null;if(n.language===lang)renderVisibleNews(id);scheduleNews(n);}
+      finally{n.loading=false;n.manualPending=false;n.pending=null;if(n.language===lang)renderVisibleNews(id);scheduleNews(n);}
     })();n.pending=pending;return pending;
   }
   function renderHomeNews(){
@@ -262,24 +271,27 @@
   function renderNewsSurface(target,id,compact=false){
     target.replaceChildren();target.dir=lang==="ar"?"rtl":"ltr";target.lang=lang;
     const n=newsState(id),data=n.data||{},items=visibleNewsItems(data),loading=n.loading||(!n.error&&(!n.data||data.status==="loading"));
-    const error=n.error||(!loading?data.error:null),status=loading?"loading":error||data.status==="provider_error"?"provider_error":data.stale&&data.status==="fresh"?"cached":data.status||"cached";
-    const keys={fresh:"newsFresh",cached:"newsCached",empty:"newsEmpty",loading:"newsLoading",provider_error:"newsProviderError"};
+    const stale=Boolean(data.stale)||newsStaleAt(data)<=Date.now();
+    const error=n.error||(!loading?data.error:null),status=loading?"loading":error||data.status==="provider_error"?"provider_error":stale&&data.status==="fresh"?"cached":data.status||"cached";
+    const fetching=n.manualPending||data.status==="loading",neverFetched=!data.last_successful_refresh_at&&!data.snapshot_id;
+    const keys={fresh:"newsFresh",cached:"newsCached",empty:neverFetched?"newsNotLoaded":"newsEmpty",loading:fetching?"newsLoading":"newsReading",provider_error:"newsProviderError"};
     const header=el("div","news-feed-toolbar"),statusNode=el("span","news-feed-status "+status,T(keys[status]));statusNode.setAttribute("role","status");
     const refresh=button(T(n.pollPaused?"checkNews":"refreshNews"),"secondary-button news-refresh",()=>loadNews(id,!n.pollPaused));refresh.disabled=n.loading||(loading&&!n.pollPaused)||n.retryAt>Date.now();
     header.append(statusNode,refresh);target.append(header);
     const meta=el("div","news-feed-meta");
     if(data.last_successful_refresh_at)meta.append(el("p","",T("newsLastSuccess")+": "+moment(data.last_successful_refresh_at)+" · UTC+04:00"));else meta.append(el("p","",T("newsNeverUpdated")));
-    const next=data.next_refresh_at;if(next&&moment(next))meta.append(el("p","",T("newsNextRefresh")+": "+moment(next)));
-    meta.append(el("p","news-auto-note",T("newsAuto")));target.append(meta);
-    if(loading)target.append(el("p","news-feed-note",T(n.pollPaused?"newsPending":"newsLoadingNote")));
+    meta.append(el("p","news-auto-note",T("newsManual")));target.append(meta);
+    if(loading)target.append(el("p","news-feed-note",T(n.pollPaused?"newsPending":fetching?"newsLoadingNote":"newsReadingNote")));
     if(error||status==="provider_error"){const alert=el("div","news-feed-error");alert.setAttribute("role","alert");alert.append(el("p","",T(newsErrorKey(error))));errorDetails(alert,{...error,retry_after_seconds:Math.max(0,(n.retryAt-Date.now())/1000)});target.append(alert);}
-    if(data.stale)target.append(el("p","news-feed-note warning",T("newsStale")));
+    if(stale)target.append(el("p","news-feed-note warning",T("newsStale")));
     if(data.partial)target.append(el("p","news-feed-note warning",T("newsPartial")));
     renderNewsDelay(target,data);
     const counts=el("div","news-feed-counts");counts.append(el("span","",T("newsShowing",{n:items.length})));
     const fetched=data.counts?.fetched??data.pagination?.raw_count;if(Number.isInteger(fetched)&&fetched>=0)counts.append(el("span","",T("newsFetched",{n:fetched})));
     if(items.length)counts.append(el("span","",T("newsPublishers",{n:new Set(items.map(item=>item.publisher).filter(Boolean)).size})));target.append(counts);
-    if(!loading&&!error&&status!=="provider_error"&&items.length===0)empty(target,"newsEmpty",data.items?.length?"newsExpiredNote":"newsEmptyNote");
+    if(!loading&&!error&&status!=="provider_error"&&items.length===0){
+      empty(target,neverFetched?"newsNotLoaded":"newsEmpty",neverFetched?"newsManualStart":data.items?.length?"newsExpiredNote":"newsEmptyNote");
+    }
     const list=el("div",compact?"live-news-list compact":"live-news-list");
     for(const item of items.slice(0,compact?6:100))renderNewsArticle(list,item);target.append(list);
     if(compact&&items.length){const all=button(T("newsAll",{n:items.length}),"quiet-button news-view-all",()=>{state(id).tab="evidence";openAgent(id,false);});target.append(all);}

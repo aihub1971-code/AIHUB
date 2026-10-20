@@ -41,6 +41,7 @@ MAX_PAGES = 20
 MAX_RAW_ITEMS = 1000
 MAX_ARTICLE_URL_CHARS = 2000
 REFRESH_INTERVAL_SECONDS = 900
+REFRESH_MODE = "manual"
 MAX_REFRESH_SECONDS = 90
 LEASE_SECONDS = MAX_REFRESH_SECONDS + 30
 QUERY_VERSION = "workspace-news-v1"
@@ -753,7 +754,7 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
             "refresh_id": row["refresh_id"], "agent_id": agent_id,
             "error_reference": error["reference"], "error_code": error["code"]}))
     stale = bool(snapshot) and (age >= REFRESH_INTERVAL_SECONDS or bool(error))
-    # Dashboard reads use a current 12-hour window even while reusing a 15-minute
+    # Dashboard reads use a current 12-hour window even while reusing an older
     # snapshot. A report explicitly supplies its frozen cutoff, so an article
     # cannot disappear merely because the worker starts a little later.
     display_window = _window(requested_window, now)
@@ -789,6 +790,7 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
         limitations.append("provider_delay")
     return {"agent_id": agent_id, "provider": "newsdata", "status": status, "items": items,
         "actual_count": len(items), "maximum_items": MAX_ITEMS, "coverage_hours": 12,
+        "refresh_mode": REFRESH_MODE,
         "refresh_interval_seconds": REFRESH_INTERVAL_SECONDS, "last_successful_refresh_at": row.get("last_successful_refresh_at"),
         "checked_at": row.get("checked_at"), "next_refresh_at": next_at, "snapshot_id": snapshot.get("snapshot_id"),
         "research_window": snapshot.get("research_window"), "display_window": display_window,
@@ -806,18 +808,21 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
         "query": QUERIES[agent_id]}
 
 
-def get_feed(agent_id: str, language: str = "ar", *, refresh: bool = True, force: bool = False,
+def get_feed(agent_id: str, language: str = "ar", *, refresh: bool = False, force: bool = False,
              database: Store | None = None) -> dict[str, Any]:
-    """Return promptly; eligible refreshes run once in a bounded shared thread.
+    """Read the saved feed without provider work unless explicitly requested.
 
-    ``force`` expresses an explicit UI refresh, but does not bypass the shared
-    interval, provider cooldown, or daily credit ledger.
+    Empty and expired snapshots stay cache-only on passive reads. ``refresh``
+    or ``force`` expresses an explicit action; an eligible refresh runs once in
+    a bounded shared thread. Neither bypasses the shared interval, provider
+    cooldown, or daily credit ledger. ``next_refresh_at`` is an eligibility
+    time, not a scheduled refresh.
     """
     _key(agent_id)
     _language(language)
     require_capability(agent_id, "tools", "newsdata")
     store = FeedStore(database)
-    claim = store.claim(agent_id) if refresh else None
+    claim = store.claim(agent_id) if refresh or force else None
     if claim:
         threading.Thread(target=_refresh, args=(store, agent_id, claim),
                          name="aihub-news-" + agent_id, daemon=True).start()

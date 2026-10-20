@@ -199,7 +199,8 @@ test("dashboard loads its live feed independently of report generation and shows
   const home = ui.elements.get("home-news-content");
   assert.equal(ui.elements.get("home-news").hidden, false);
   assert.match(home.textContent, /Fresh.*Last successful refresh/);
-  assert.match(home.textContent, /Next automatic refresh/);
+  assert.match(home.textContent, /Manual refresh.*Opening this page displays saved news/);
+  assert.doesNotMatch(home.textContent, /Next automatic refresh|Auto-refresh/);
   assert.match(home.textContent, /1 articles from the last 12 hours.*1 provider records fetched/);
   assert.equal(ui.newsRequests().length, 1); assert.equal(ui.newsRequests()[0].options.method, "GET");
   assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
@@ -237,6 +238,41 @@ test("manual refresh preserves cached articles during loading and provider failu
   assert.match(home.textContent, /news_timeout_1/); assert.equal(ui.generations().length, 0);
 });
 
+test("an empty saved cache invites an explicit refresh without claiming a source search occurred", async () => {
+  const cached = newsFeed({status: "empty", items: [], snapshot_id: null, last_successful_refresh_at: null});
+  const ui = await start({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", cached], [A + ":ar", cached]]});
+  let home = ui.elements.get("home-news-content");
+  assert.match(home.textContent, /No saved news yet.*Select Refresh news to retrieve articles/);
+  assert.doesNotMatch(home.textContent, /source check completed|Refreshing news/);
+  assert.equal(byClass(home, "news-refresh")[0].disabled, false);
+  ui.setNow(NEWS_NOW + 60 * 60000); await ui.advance(60 * 60000);
+  assert.equal(ui.newsRequests().length, 1, "An empty cache must not cause a timed request.");
+  await ui.elements.get("language-ar").click(); await ui.settle();
+  home = ui.elements.get("home-news-content");
+  assert.match(home.textContent, /لا أخبار محفوظة بعد.*اضغط تحديث الأخبار لجلب/);
+  assert.doesNotMatch(home.textContent, /اكتمل فحص المصدر/);
+  assert.equal(ui.newsRequests().every(request => request.options.method === "GET"), true);
+});
+
+test("manual refresh polls the saved result until complete and stops making idle requests", async () => {
+  const ui = await start({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", newsFeed()]],
+    fetch: (url, request, respond) => {
+      if (url.endsWith("/news/refresh")) return respond(newsFeed({status: "loading", refresh_started: true}));
+    }});
+  await byClass(ui.elements.get("home-news-content"), "news-refresh")[0].click(); await ui.settle();
+  assert.match(ui.elements.get("home-news-content").textContent, /Refreshing news/);
+  assert.equal(ui.newsRequests().length, 2);
+  assert.equal(ui.newsRequests()[1].options.method, "POST");
+  assert.deepEqual(JSON.parse(ui.newsRequests()[1].options.body), {language: "en"});
+  ui.server.feeds.set(A + ":en", newsFeed({items: [newsItem(2, {headline: "Manually refreshed article"})]}));
+  await ui.advance(2000);
+  assert.match(ui.elements.get("home-news-content").textContent, /Manually refreshed article/);
+  assert.deepEqual(ui.newsRequests().map(request => request.options.method), ["GET", "POST", "GET"]);
+  ui.setNow(NEWS_NOW + 60 * 60000); await ui.advance(60 * 60000);
+  assert.equal(ui.newsRequests().length, 3, "Completion must stop status polling and must not schedule a later fetch.");
+  assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
+});
+
 test("provider-error payload keeps the last successful refresh and stale articles expire without becoming fresh", async () => {
   const data = newsFeed({status: "provider_error", stale: true, partial: true,
     items: [newsItem(), newsItem(10, {published_at: "2026-10-19T23:00:00Z"})],
@@ -262,9 +298,11 @@ test("loading feed polls saved status and a successful empty response is labelle
   assert.equal(ui.generations().length, 0);
 });
 
-test("automatic feed refresh waits for its due time and pauses when the page is hidden or another view is open", async () => {
+test("idle news views never request automatic updates; reactivation may only read the saved cache", async () => {
   const ui = await start({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", newsFeed()]]});
   await ui.advance(10000); assert.equal(ui.newsRequests().length, 1);
+  ui.setNow(NEWS_NOW + 15 * 60000); await ui.advance(900000);
+  assert.equal(ui.newsRequests().length, 1, "Leaving the news view open past the refresh interval must not make a request.");
   await ui.visibility(true); await ui.advance(900000); assert.equal(ui.newsRequests().length, 1);
   ui.server.feeds.set(A + ":en", newsFeed({next_refresh_at: "2026-10-20T12:30:00Z"}));
   ui.setNow(NEWS_NOW + 15 * 60000); await ui.visibility(false);
@@ -272,6 +310,22 @@ test("automatic feed refresh waits for its due time and pauses when the page is 
   await ui.advance(60000); assert.equal(ui.newsRequests().length, 2);
   await ui.elements.get("nav-chat").click(); await ui.settle(); await ui.advance(900000);
   assert.equal(ui.newsRequests().length, 2); assert.equal(ui.generations().length, 0);
+  assert.equal(ui.newsRequests().every(request => request.options.method === "GET"), true);
+});
+
+test("an idle view ages its saved snapshot and removes expired articles without fetching news", async () => {
+  const item = newsItem(1, {published_at: new Date(NEWS_NOW - 12 * 60 * 60000 + 60000).toISOString()});
+  const ui = await start({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", newsFeed({items: [item]})]]});
+  assert.match(ui.elements.get("home-news-content").textContent, /Live article 1/);
+  ui.setNow(NEWS_NOW + 60001); await ui.advance(60001);
+  let home = ui.elements.get("home-news-content");
+  assert.doesNotMatch(home.textContent, /Live article 1/);
+  assert.match(home.textContent, /0 articles from the last 12 hours.*saved cache has no articles that qualify/);
+  ui.setNow(NEWS_NOW + 15 * 60000); await ui.advance(15 * 60000);
+  home = ui.elements.get("home-news-content");
+  assert.match(home.textContent, /Cached.*last successful refresh is stale/);
+  assert.equal(ui.newsRequests().length, 1, "Display ageing must not request a new feed or report.");
+  assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
 });
 
 test("Arabic and English feeds keep their own data and identify missing translation", async () => {
@@ -282,9 +336,12 @@ test("Arabic and English feeds keep their own data and identify missing translat
   const home = ui.elements.get("home-news-content");
   assert.equal(home.dir, "rtl"); assert.match(home.textContent, /خبر عربي موثّق/); assert.match(home.textContent, /آخر تحديث ناجح/);
   assert.match(home.textContent, /الترجمة إلى لغة الواجهة غير متاحة/);
+  assert.match(home.textContent, /تحديث يدوي/);
+  assert.doesNotMatch(home.textContent, /تحديث تلقائي/);
   assert.equal(ui.newsRequests().length, 2); assert.match(ui.newsRequests()[1].url, /language=ar$/);
   await ui.elements.get("language-en").click(); await ui.settle();
   assert.match(home.textContent, /Live article 1/); assert.doesNotMatch(home.textContent, /خبر عربي موثّق/);
+  assert.equal(ui.newsRequests().every(request => request.options.method === "GET"), true, "Language switches only read saved feeds.");
   assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
 });
 
@@ -399,7 +456,7 @@ test("assistant total follows configuration without hardcoded removed cards", as
 
 test("the public workspace has no credential, cost, admin, or upload controls", async () => {
   assert.doesNotMatch(html, /type="(?:password|file)"|id="(?:username|password)"|\/admin|dailyCost|monthlyCost|accountOverview|usage-details|loginBox/);
-  assert.match(html, /workspace\.js\?v=2\.0\.4\.1"/);
+  assert.match(html, /workspace\.js\?v=2\.0\.4\.2"/);
   assert.doesNotMatch(html, /src="\/static\/(?:app|public)\.js/);
   const ui = await start();
   await assert.rejects(ui.request("/v1/usage"));

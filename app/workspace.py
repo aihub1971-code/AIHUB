@@ -174,7 +174,7 @@ def configuration(session_id: str = Depends(public.require_session)) -> dict[str
     return {"agents": profiles, "agent_count": len(profiles), "languages": ["ar", "en"],
             "coverage_hours": 12, "maximum_news_items": 100, "display_timezone": "Asia/Dubai",
             "news_enabled_agents": [profile["id"] for profile in profiles if profile["news_feed_enabled"]],
-            "refresh_mode": "automatic_and_manual", "news_refresh_interval_seconds": news_feed.REFRESH_INTERVAL_SECONDS,
+            "refresh_mode": news_feed.REFRESH_MODE, "news_refresh_interval_seconds": news_feed.REFRESH_INTERVAL_SECONDS,
             "chat_available": runtime.runtime_is_ready()}
 
 
@@ -184,7 +184,9 @@ def _news(agent_id: str, language: str, session_id: str, *, force: bool = False)
         raise HTTPException(404, detail={"code": "news_feed_not_supported"})
     database = get_store()
     try:
-        return news_feed.get_feed(agent_id, language, refresh=True, force=force, database=database)
+        # GETs, including language changes and old clients' polling, only read
+        # the cache. Only the explicit POST refresh route may fetch new news.
+        return news_feed.get_feed(agent_id, language, refresh=force, force=force, database=database)
     except (StoreError, HTTPException) as error:
         raise public._safe_error(error, database, session_id) from None
 

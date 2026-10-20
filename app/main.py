@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import runtime as agent_runtime
-from app import newsdata
+from app import newsdata, news_feed
 from app.auth import require_owner
 from app.chat import router as chat_router
 from app.public import router as public_router
@@ -216,6 +216,7 @@ def system_status(_: str = Depends(require_owner)) -> dict[str, object]:
         "model": get_setting("OPENAI_MODEL_NAME", agent_runtime.DEFAULT_OPENAI_MODEL),
         "search_configured": news_ready,
         "search_provider": "newsdata" if news_ready else None,
+        "news_refresh_mode": news_feed.REFRESH_MODE,
         "pricing_configured": pricing_ready, "configuration_issue": configuration_issue,
         "scheduler_enabled": (get_setting("SCHEDULER_ENABLED", "false") or "").lower() in {"1", "true", "yes"},
         "scheduler_running": bool(scheduler and scheduler.is_running),
