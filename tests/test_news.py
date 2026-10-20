@@ -726,6 +726,60 @@ def test_plain_url_paragraph_does_not_claim_adjacent_uncited_publication():
                                            "published_date_note": "Published: 2026-10-19."}, associated) is None
 
 
+def test_wrapper_heading_keeps_linked_article_subsections_independent():
+    sources = [raw_source(content="Synthetic alpha evidence belongs only to article one."),
+               raw_source(1, published="2026-10-18",
+                          content="Synthetic beta evidence belongs only to article two.")]
+    text = "## Synthetic Iran research\n\n" + "\n\n".join(
+        f"### [{source['title']}]({source['url']})\n\n"
+        f"Published: {source['published_date']}.\n\n{source['content']}"
+        for source in sources)
+    search = extracted_formatted_sources(text, sources)
+    assert len(search["results"]) == 2
+    for index, accepted in enumerate(search["results"]):
+        source = sources[index]
+        assert accepted["url"] == source["url"]
+        assert source["content"] in accepted["content"]
+        assert sources[1 - index]["content"] not in accepted["content"]
+        assert runtime._validated_publication(
+            {"published_date": source["published_date"],
+             "published_date_note": f"Published: {source['published_date']}."}, accepted) is not None
+
+
+def test_compound_publication_date_field_stays_with_its_cited_article_heading():
+    source = raw_source()
+    note = f"- Publication date: {source['published_date']}."
+    text = f"## [{source['title']}]({source['url']})\n\n{note}\n\n{source['content']}"
+    search = extracted_formatted_sources(text, [source])
+    assert len(search["results"]) == 1
+    accepted = search["results"][0]
+    assert accepted["url"] == source["url"]
+    assert note in accepted["content"] and source["content"] in accepted["content"]
+    assert runtime._validated_publication(
+        {"published_date": source["published_date"], "published_date_note": note}, accepted
+    ) == (source["published_date"], date(2026, 10, 19))
+
+
+def test_linked_explicit_note_title_recovers_missing_native_title_for_authorized_url():
+    source = raw_source()
+    reply = research_reply([source])
+    assert "title" not in reply["output"][0]["action"]["sources"][0]
+    reply["output"][1]["content"][0] = {
+        "type": "output_text", "annotations": [],
+        "text": (f"Title: [{source['title']}]({source['url']}). "
+                 f"Published: {source['published_date']}. {source['content']}"),
+    }
+    search = runtime._native_research_sources(runtime._extract_model_response(reply, research=True), "iran-news")
+    assert len(search["results"]) == 1
+    accepted = search["results"][0]
+    assert accepted["title"] == source["title"] and accepted["url"] == source["url"]
+    assert accepted["title_basis"] == "openai_research_note"
+    assert accepted["publisher_text_verified"] is False
+    assert runtime._validated_publication(
+        {"published_date": source["published_date"],
+         "published_date_note": f"Published: {source['published_date']}."}, accepted) is not None
+
+
 def test_article_heading_stops_at_an_unrelated_peer_heading():
     source = raw_source()
     unrelated = "Published: 2026-10-20. Unrelated synthetic editorial observations."

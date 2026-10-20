@@ -1,8 +1,8 @@
-# AI HUB 1.4.1 — Chat and language guide / دليل المحادثة واللغتين
+# AI HUB 1.4.2 — Chat and language guide / دليل المحادثة واللغتين
 
-تصف هذه الوثيقة تحديث 1.4.1 المعلّق؛ لا تعني أنه نُشر بعد.
+تصف هذه الوثيقة مصدر 1.4.2. تُراجع حالة النشر والتجارب الخاصة بكل إصدار في [سجل التحقق](VALIDATION_AR.md).
 
-This guide describes the pending 1.4.1 source update; deployment has not been certified here.
+This guide describes source version 1.4.2. Check the validation record for deployment and live-test results tied to the exact commit.
 
 ## العربية
 
@@ -20,7 +20,7 @@ This guide describes the pending 1.4.1 source update; deployment has not been ce
 
 تستخدم المحادثة مفتاح `OPENAI_API_KEY` والنموذج المضبوطين أصلًا على الخادم. لا تطلب منك إدخال مفتاح آخر. تُحجز تكلفة الدور قبل إرساله وتُسجل بصورة مستقلة، لكنها تشارك التقارير ميزانية اليوم والشهر. رسائل المحادثة لا تدخل في حد 50 محاولة تقرير يوميًا. عند غموض الاتصال يمكن إعادة الطلب نفسه بمعرّفه دون دفعه مرة ثانية؛ طلب دور جديد بمعرّف جديد يظل عملية جديدة.
 
-للبحث الإخباري يبقى `iran-news` مساعدًا واحدًا: ينفذ طلب بحث موحدًا يشمل جميع النطاقات الثمانية المعتمدة، ثم يجمع الأخبار المقبولة في تقرير واحد. لا تُقسم العملية إلى أبحاث متوازية أو تقارير مستقلة لكل ناشر.
+للبحث الإخباري يبقى `iran-news` مساعدًا واحدًا يعرض تقريرًا موحدًا. يبدأ باكتشاف عبر النطاقات الثمانية معًا؛ بعد استجابة مكتملة دون مصادر مستخلصة ومع روابط أصلية مرصودة، يمكنه استكمال الأدلة بطلب مستقل واحد. الحد طلبا بحث ثم صياغة واحدة عند توفر مصادر. لا توجد مهام لكل ناشر أو إعادة تلقائية لطلب فاشل، ولا تحصل المحادثة نفسها على أدوات بحث.
 
 قد يتضمن التقرير صفحة تغطية حية مباشرة ومؤرخة من ناشر معتمد، وتظهر بوسم **تغطية حية**. تُحسب الصفحة مادة واحدة مع عنوان وملخص ورابط مباشر، وتبقى خاضعة لفحوص المصدر والتاريخ والصلة بالموضوع ومنع التكرار. تُستبعد الصفحات الرئيسية والأقسام وفهارس البث العامة. الوسم يصف نوع المصدر؛ لا يعني تحديث التقرير المحفوظ تلقائيًا أو ضمان العثور على كل الأخبار.
 
@@ -36,7 +36,7 @@ To discuss a report, open it and explicitly attach it in Chat. You can ask for a
 
 The interface waits for an actual OpenAI response. It does not simulate token streaming. The conversation history is durable, while login state remains in memory and private content is cleared on logout. OpenAI requests use `store:false`; AI HUB keeps its own database history. The server key is never placed in browser JavaScript.
 
-News research stays within one `iran-news` assistant: one unified research request covers all eight approved domains together, followed by one consolidated report when usable evidence exists. There are no publisher-specific research requests, parallel publisher searches or separate publisher reports.
+News stays within one assistant and one consolidated report. Unified discovery covers all eight approved domains together. A completed discovery response with native-observed approved URLs but no extracted sources can trigger one stateless evidence-recovery request. The maximum is two research Responses requests plus one synthesis when sources exist. There are no publisher-specific jobs or automatic retries of failed requests, and Chat itself still has no web-search tools.
 
 A report may include a direct, dated official live-coverage page labelled **Live coverage**. It counts as one item with a headline, summary and direct link, subject to the same source, date, relevance and duplicate checks. Homepages, category pages and bare live indexes remain excluded. The label identifies the source type; it does not mean the saved report refreshes automatically or that every available story was found.
 

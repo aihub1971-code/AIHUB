@@ -32,7 +32,7 @@
         {
           "id": "iran-news",
           "path": "skills/iran-news/iran-news.md",
-          "sha256": "f2929128c640b9aa611b8f32856f952abf27d00886e45cd0103ccd763a33c85a",
+          "sha256": "0a6f029ea1a5dd8f810cda39106b214ec4b3b10a08d4efc9e9d44d0a9a9f0ed6",
           "source_resource": "skill://plugins_6aca3e7b1584819193bca53a608892e2/iran-news/SKILL.md"
         }
       ],

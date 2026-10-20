@@ -1,6 +1,6 @@
-# AI HUB 1.4.1 security model
+# AI HUB 1.4.2 security model
 
-This documents the pending 1.4.1 source update; it does not certify that version as deployed.
+This documents source version 1.4.2. Deployment and live retrieval results must be verified for its exact commit; the recorded deployed baseline is 1.4.1.
 
 ## Scope and identity
 
@@ -14,16 +14,16 @@ The browser keeps authentication only in memory. Its sole application preference
 
 `config/permissions.json` defines per-agent action and tool allowlists; missing permission entries deny access. Skill text, tasks and retrieved material cannot authorize additional tools or external actions. The only research provider is OpenAI, using the same server-side `OPENAI_API_KEY` as generation and chat.
 
-The Iran news assistant produces one unified report. Each news task uses one unified research Responses request across all eight approved domains together, covering Financial Times, The Atlantic, Politico, The Wall Street Journal, The Daily Telegraph and Al Jazeera. Research is not split into publisher-specific requests or parallel publisher workers. The request permits at most one native `web_search` action. A final structured synthesis, when usable sources are available, uses `tools=[]`. The research prompt asks for one concise natural-language query using the subject and requested period; the hosted domain filter continues to restrict publishers. This prompt change does not establish improved retrieval coverage.
+The Iran news assistant produces one unified report. Each news task starts with one discovery Responses request across all eight approved publisher domains together. Only a completed discovery response that yields no extracted sources and contains native-observed approved URLs can trigger one additional stateless evidence-recovery request. There are no publisher-specific jobs or parallel publisher searches. Each research request permits at most one native web_search action, using low search context and the default return-token budget. A final structured synthesis uses tools=[] only when usable sources exist. News therefore uses at most two research Responses requests and one synthesis; other agents retain their existing bounds.
 
 | Operation | Maximum Responses requests | Native search limit |
 |---|---:|---:|
-| News report | One unified research request plus one synthesis: two | One action |
+| News report | One discovery, at most one conditional evidence recovery, and one synthesis: three | At most two actions, one per research request |
 | Other agent task requiring research | One research request plus one answer: two | One action |
 | Task without research | One answer | None |
 | Chat message | One answer with `tools=[]` and `tool_choice="none"` | None |
 
-No provider request is automatically repeated. News synthesis is skipped if the unified research yields no usable sources. A failed research request fails the run and retains the conservative cost reservation; it does not trigger another search. Each stage has its own bounded input and output allowance; aggregating accounting across stages does not create one larger model context. News research payloads are limited to 50,000 serialized bytes, and each reserved input bound stays below the 272,000-token pricing threshold. Final model payloads are limited to 200,000 bytes. Sources are deduplicated and assigned stable IDs, with at most 20 combined news and background items. No minimum count is padded with invented content.
+Failed HTTP/provider requests are never automatically retried. Evidence recovery is a separate bounded stage after a completed but unusable discovery response; it cannot repeat itself and does not run merely because final date validation leaves a small news count. No prior response state is reused. Synthesis is skipped when extraction remains empty. Any failed research stage retains the conservative reservation. Before the first paid call, news reserves discovery, the potential recovery request at its full 50,000-byte input limit, and potential synthesis. Every research request has its own input/output bounds below the 272,000-token pricing threshold; final synthesis payloads are limited to 200,000 bytes. Sources are deduplicated and assigned stable IDs, with at most 20 combined main and background items. No minimum count is filled with invented material.
 
 All native-search agents are restricted to `ft.com`, `theatlantic.com`, `politico.com`, `politico.eu`, `wsj.com`, `telegraph.co.uk`, `aljazeera.com` and `aljazeera.net`, including valid subdomains. Hosted `allowed_domains` filters and a separate server hostname-boundary check enforce the policy. Source shortages do not expand it.
 
@@ -50,6 +50,8 @@ The required private values are `APP_USERNAME`, `APP_PASSWORD` and `OPENAI_API_K
 Tasks, selected skills and research material are sent to OpenAI for report generation. Chat sends the current message, bounded completed history, selected report context and whitelisted platform facts. Requests set `store:false`, while AI HUB keeps its own history in SQLite. This flag is **not a promise of zero provider retention**: separate abuse-monitoring and feature-specific retention rules may apply. Consult [OpenAI data controls](https://developers.openai.com/api/docs/guides/your-data) and the account's applicable settings.
 
 SQLite contains sensitive tasks, reports, schedules, conversations and accounting records at `AI_HUB_DATABASE_PATH`. On Render, the database and WAL sidecars must be under `/var/data/ai-hub` on the persistent disk. The source packager excludes runtime data; it cannot detect every secret pasted into ordinary source files. Use the SQLite-native backup script, keep backups private and copy them off the service disk. Backups contain the same sensitive content as the live database.
+
+The note parser preserves independent article subsections under a wrapper heading, compound publication-date fields and explicit linked note titles for native-authorized URLs. Structured quote/date choices are drawn from the supplied evidence; server validation still checks source identity, exact note provenance, publication time and duplicates. This does not convert model notes into independently verified publisher text.
 
 ## Usage controls and billing
 
