@@ -216,6 +216,23 @@ def test_iran_relevance_requires_direct_conflict_connection(title, description, 
     assert news_feed._relevant("iran-news", title, description) is expected
 
 
+@pytest.mark.parametrize("title,description,expected", [
+    ("President urges Ukraine to settle the war", "The president discusses concessions in the Ukraine war. " * 9
+        + "A closing market note says WTI slipped on hopes of an Iran deal.", False),
+    ("الرئيس يدعو إلى إنهاء الحرب في أوكرانيا", "تتناول التصريحات المفاوضات بشأن الحرب في أوكرانيا. " * 10
+        + "وفي ختام التقرير تراجعت أسعار النفط وسط آمال باتفاق مع إيران.", False),
+    ("Oil markets close lower after Ukraine war comments", "Trading followed the president's Ukraine comments. " * 10
+        + "A final aside mentions talks with Iran.", False),
+    ("President calls for a deal to end the war", "Iranian officials meet envoys to negotiate an end to the conflict.", True),
+    ("Tanker insurance costs rise", "Shipping disruption from the Iran conflict raises freight and insurance costs.", True),
+    ("Crude prices fall after nuclear talks resume", "Iran and foreign envoys discuss sanctions relief and shipping security.", True),
+    ("ارتفاع تكاليف الشحن وناقلات النفط", "تسببت الهجمات المرتبطة بالصراع مع إيران في تعطيل الملاحة عبر هرمز.", True),
+    ("Iran warns of new military action", "The government discusses its response to attacks.", True),
+])
+def test_iran_relevance_requires_focus_before_market_asides(title, description, expected):
+    assert news_feed._relevant("iran-news", title, description) is expected
+
+
 def test_global_topic_query_and_filter_are_distinct_from_iran(monkeypatch, database):
     def handler(request):
         assert request.url.params["q"] == news_feed.QUERIES["geopolitical-morning"]
@@ -251,6 +268,28 @@ def test_global_topic_query_and_filter_are_distinct_from_iran(monkeypatch, datab
 ])
 def test_global_relevance_rejects_local_and_metaphorical_keyword_matches(title, description):
     assert not news_feed._relevant("geopolitical-morning", title, description)
+
+
+@pytest.mark.parametrize("title,description,expected", [
+    ("Political activist goes to war with the justice department over legal payouts",
+        "A law firm represents residents exposed to contaminated water at a military base.", False),
+    ("President goes to war with a broadcaster over legal fees",
+        "The government contests a private contract concerning a military base museum.", False),
+    ("Governor wages war on critics of a legal settlement",
+        "The government faces a dispute over water contamination at a military base.", False),
+    ("ناشط يدخل في حرب كلامية مع وزارة العدل بشأن شركة محاماة",
+        "تتعلق الدعوى القانونية بتلوث المياه داخل قاعدة عسكرية.", False),
+    ("Government goes to war with neighbouring state after formal declaration",
+        "The army launches military operations across the border.", True),
+    ("Government declares war after crossborder invasion",
+        "Parliament approves the declaration as troops fight along the border.", True),
+    ("Foreign ministers in a war of words over the border crisis",
+        "Envoys resume talks on a ceasefire and troop withdrawals.", True),
+    ("الحكومة تدخل في حرب مع دولة مجاورة",
+        "القوات تبدأ عمليات عسكرية بعد إعلان الحرب وعبور الحدود.", True),
+])
+def test_global_rhetorical_war_needs_concrete_security_or_diplomacy(title, description, expected):
+    assert news_feed._relevant("geopolitical-morning", title, description) is expected
 
 
 @pytest.mark.parametrize("title,description", [
@@ -320,6 +359,49 @@ def test_existing_global_cache_is_revalidated_without_resetting_snapshot_cooldow
     report = news_feed.get_report_feed("geopolitical-morning", language="en", database=database)
     assert report["actual_count"] == len(report["sources"]) == int(include_relevant)
     assert store.read("geopolitical-morning") == row_before
+    assert store.provider_state() == provider_before
+    assert len(calls) == 1
+    with database._connect() as connection:
+        assert news_feed.accounted_credits(connection, local_date="2026-10-20") == 1
+
+
+@pytest.mark.parametrize("agent", ["iran-news", "geopolitical-morning"])
+@pytest.mark.parametrize("include_relevant", [False, True], ids=["honest-empty", "retained-relevant"])
+def test_cached_incidental_and_rhetorical_war_is_revalidated_from_original_text(
+        monkeypatch, database, agent, include_relevant):
+    if agent == "iran-news":
+        rejected = article(1, title="President asks Ukraine to settle the war",
+            description="The president discusses the Ukraine conflict and concessions. " * 9
+                + "A final WTI price note mentions hopes of an Iran deal.")
+        accepted = article(2, title="Iran nuclear talks resume", description="Envoys negotiate sanctions relief.")
+    else:
+        rejected = article(1, title="Activist goes to war with justice department over legal fees",
+            description="A firm represents residents affected by contaminated water at a military base.")
+        accepted = article(2, title="Army announces ceasefire", description="Military forces halt the conflict.")
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=page([rejected, accepted] if include_relevant else [rejected]))
+    mock_http(monkeypatch, handler)
+    with monkeypatch.context() as legacy:
+        legacy.setattr(news_feed, "_relevant", lambda *_: True)
+        old = refresh(database, agent)
+    store = news_feed.FeedStore(database)
+    row_before, provider_before = store.read(agent), store.provider_state()
+    database.test_clock[0] += timedelta(minutes=2)
+    for language in ("en", "ar"):
+        result = news_feed.get_feed(agent, language, force=True, database=database)
+        assert result["actual_count"] == int(include_relevant)
+        assert result["status"] == ("cached" if include_relevant else "empty")
+        assert result["snapshot_id"] == old["snapshot_id"]
+        assert result["last_successful_refresh_at"] == old["last_successful_refresh_at"]
+        assert result["next_refresh_at"] == old["next_refresh_at"]
+        assert result["window_excluded_from_cache"] == 0
+        assert result["relevance_excluded_from_cache"] == result["excluded"]["irrelevant_cached"] == 1
+        assert all(item["article_id"] == "synthetic-2" for item in result["items"])
+    report = news_feed.get_report_feed(agent, language="ar", database=database)
+    assert report["actual_count"] == len(report["sources"]) == int(include_relevant)
+    assert store.read(agent) == row_before
     assert store.provider_state() == provider_before
     assert len(calls) == 1
     with database._connect() as connection:
