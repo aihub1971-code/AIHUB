@@ -323,17 +323,20 @@ def _build_pdf(report: dict[str, Any]) -> tuple[bytes, int]:
             title = _plain_markdown(title)
             if not title:
                 return
-            self.ensure(23)
-            self.ln(2.5 if level == 1 else 1)
+            display_title = f"{number:02d}  {title}" if number is not None else title
+            size = 14 if level == 1 else 11.5
+            before = 2.5 if level == 1 else 1
+            # Keep the measured heading and the following paragraph's first two
+            # lines together, including the rule and existing vertical gaps.
+            self.ensure(before + 3 + self.text_height(display_title, size=size, bold=True) + 2.5 + 2 * self.leading)
+            self.ln(before)
             self.start_section(title, level=0 if level == 1 else 1, strict=False)
             self.set_draw_color(*ACCENT)
             self.set_line_width(0.75 if level == 1 else 0.35)
             x = 190 if ar else 20
             self.line(x, self.get_y(), x - 12 if ar else x + 12, self.get_y())
             self.ln(3)
-            if number is not None:
-                title = f"{number:02d}  {title}"
-            self.paragraph(title, size=14 if level == 1 else 11.5, bold=True, gap=2.5)
+            self.paragraph(display_title, size=size, bold=True, gap=2.5)
 
         def references(self, ids: Any) -> None:
             if not isinstance(ids, list):

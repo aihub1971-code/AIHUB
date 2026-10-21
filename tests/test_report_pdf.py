@@ -157,6 +157,42 @@ def test_real_pdf_embeds_fonts_preserves_report_and_clickable_sources(tmp_path, 
 
 
 @pytest.mark.parametrize("language", ["ar", "en"])
+def test_heading_near_page_boundary_stays_with_its_opening_paragraph(tmp_path, monkeypatch, language):
+    from fpdf import FPDF
+
+    report = report_fixture(language)
+    heading = "عنوان قرب نهاية الصفحة HEADING_SENTINEL" if language == "ar" else "Heading near the page boundary HEADING_SENTINEL"
+    body = ("هذه فقرة اصطناعية للتحقق من بقاء العنوان مع بداية النص في الصفحة نفسها. " * 4
+            if language == "ar" else "This synthetic paragraph checks that its heading stays with the beginning of the text on the same page. " * 4)
+    report.update(items=[], sources=[], citation_mappings={}, limitations=[], sections=[{
+        "id": "boundary", "title": heading, "body": "BODY_START " + body + " BODY_END", "source_ids": [],
+    }])
+    original_line = FPDF.line
+    positioned = False
+
+    def near_page_end(pdf, x1, y1, x2, y2):
+        nonlocal positioned
+        original_line(pdf, x1, y1, x2, y2)
+        if not positioned and x1 == 20 and x2 == 190 and y1 == y2 and 50 < y1 < 240:
+            # Put the first section 24.5mm above the page boundary after the
+            # cover divider's existing 4mm gap. Its title alone fits there.
+            pdf.set_y(pdf.page_break_trigger - 24.5 - 4)
+            positioned = True
+
+    monkeypatch.setattr(FPDF, "line", near_page_end)
+    target = tmp_path / f"heading-boundary-{language}.pdf"
+    report_pdf.render_report_pdf(report, target)
+    reader = PdfReader(target)
+    pages = [page.extract_text() for page in reader.pages]
+    assert positioned
+    assert sum("HEADING_SENTINEL" in page for page in pages) == 1
+    heading_page = next(index for index, page in enumerate(pages) if "HEADING_SENTINEL" in page)
+    assert heading_page > 0
+    assert "BODY_START" in pages[heading_page] and "BODY_END" in pages[heading_page]
+    assert reader.outline[0].title == report_pdf._plain_markdown(heading)
+
+
+@pytest.mark.parametrize("language", ["ar", "en"])
 def test_long_table_rows_and_source_urls_are_not_lost(tmp_path, language):
     report = report_fixture(language, long=True)
     target = tmp_path / f"long-{language}.pdf"
