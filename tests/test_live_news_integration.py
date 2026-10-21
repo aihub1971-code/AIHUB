@@ -9,6 +9,7 @@ from app import news_feed, newsdata, workspace as api
 from app.registry import RETIRED_AGENT_IDS
 from app.report_jobs import ReportWorker
 from app.storage import QuotaLimits, StoreError
+from tests.test_manual_refresh import inline_feed_threads
 from tests.test_news_feed import article, mock_http, page, refresh
 from tests.test_report_store import AGENT, NOW, OWNER, fake_pdf, synthetic_result
 from tests.test_workspace import PREFIX, complete, submit, workspace
@@ -24,30 +25,43 @@ def test_workspace_exposes_all_seven_topic_feeds_and_the_fifty_item_limit(worksp
     assert all(p["news_feed_enabled"] == (p["id"] in news_feed.QUERIES) for p in config["agents"])
 
 
-def test_manual_and_dashboard_news_share_provider_cache_without_starting_reports(workspace, monkeypatch):
+def test_explicit_refresh_replaces_shared_cache_while_passive_reads_never_start_reports(
+        workspace, monkeypatch, inline_feed_threads):
     import httpx
     base = workspace["store"].base_store
     monkeypatch.setenv("NEWSDATA_API_KEY", "synthetic-key-not-real")
     calls = []
+    articles = [article(index, title=title, source_name=f"Synthetic Publisher {index}")
+        for index, title in enumerate([
+            "Iran and the United States begin nuclear negotiations",
+            "Tehran announces maritime security measures in Hormuz",
+            "Iranian minister discusses sanctions relief with European envoys",
+        ], 1)]
     def handler(request):
         calls.append(request)
-        return httpx.Response(200, json=page([article()]))
+        return httpx.Response(200, json=page(articles))
     mock_http(monkeypatch, handler)
     seeded = refresh(base)
-    assert seeded["actual_count"] == 1
+    assert seeded["actual_count"] == 3
     client = workspace["client"]
     path = PREFIX + "/agents/iran-news/news"
     first = client.get(path, params={"language": "en"})
+    assert first.json()["snapshot_id"] == seeded["snapshot_id"] and len(calls) == 1
     second = client.post(path + "/refresh", json={"language": "ar"})
     assert first.status_code == second.status_code == 200
-    assert first.json()["snapshot_id"] == second.json()["snapshot_id"]
-    assert first.json()["actual_count"] == second.json()["actual_count"] == 1
+    assert second.json()["refresh_accepted"] and second.json()["refresh_started"]
+    assert first.json()["snapshot_id"] != second.json()["snapshot_id"]
+    assert first.json()["actual_count"] == second.json()["actual_count"] == 3
     assert first.json()["items"][0]["published_at"].endswith("+00:00")
     assert second.json()["items"][0]["translation_status"] == "original_only"
-    assert len(calls) == 1
+    assert len(calls) == 2 and len(inline_feed_threads) == 1
+    for language in ("ar", "en"):
+        cached = client.get(path, params={"language": language}).json()
+        assert cached["snapshot_id"] == second.json()["snapshot_id"]
+    assert len(calls) == 2
     assert workspace["store"].list_jobs(api.owner("not-used")) == []
     assert base.usage_summary()["daily"]["attempts"] == 0
-    assert base.usage_summary()["provider_credits"]["newsdata"]["daily_accounted"] == 1
+    assert base.usage_summary()["provider_credits"]["newsdata"]["daily_accounted"] == 2
 
 
 @pytest.mark.parametrize("agent", sorted(RETIRED_AGENT_IDS))

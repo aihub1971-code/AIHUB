@@ -664,7 +664,9 @@ def test_report_waits_for_dashboard_refresh_of_expired_snapshot(monkeypatch, dat
     old = refresh(database)
     database.test_clock[0] += timedelta(seconds=901)
     store = news_feed.FeedStore(database)
-    dashboard_claim = store.claim("iran-news")
+    dashboard_window = news_feed._window(None, database.test_clock[0])
+    dashboard_request, _, _ = store.request("iran-news", dashboard_window, background=True)
+    dashboard_claim = store.claim_request(dashboard_request["request_id"])
     assert dashboard_claim is not None
     loading = news_feed.get_feed("iran-news", "en", refresh=False, database=database)
     assert loading["status"] == "loading" and loading["stale"]
@@ -678,6 +680,8 @@ def test_report_waits_for_dashboard_refresh_of_expired_snapshot(monkeypatch, dat
     result = news_feed.get_report_feed("iran-news", language="en", database=database)
     assert len(waits) == 1 and len(calls) == 2
     assert result["snapshot_id"] == dashboard_claim[0] != old["snapshot_id"]
+    assert result["research_window"] == dashboard_window
+    assert result["freshness"]["checked_after_request"] is True
     assert result["last_successful_refresh_at"] == news_feed._stamp(database.test_clock[0])
     assert result["actual_count"] == len(new_items)
     assert result["status"] != "loading" and not result["stale"]
