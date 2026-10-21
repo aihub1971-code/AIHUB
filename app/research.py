@@ -905,7 +905,8 @@ def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict
     if len(article_text) < 30:
         return None, "insufficient_publisher_text"
     relevance_description = description
-    if profile["id"] == "uae-eu-trade-talks" and (urlsplit(url).hostname or "").endswith("europa.eu"):
+    source_host = (urlsplit(url).hostname or "").lower()
+    if profile["id"] == "uae-eu-trade-talks" and (source_host == "europa.eu" or source_host.endswith(".europa.eu")):
         relevance_description += " European Union official document"
     if not _relevant(profile, title, relevance_description, article_text, topic):
         return None, "irrelevant"
