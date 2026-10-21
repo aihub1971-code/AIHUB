@@ -124,6 +124,7 @@ def test_dated_background_survives_complete_native_pipeline(monkeypatch, languag
     assert report["sources"][0]["publication_verification"]["precision"] == "day"
     assert report["source_coverage"]["background_source_count"] == 1
     assert report["source_coverage"]["fresh_source_count"] == 0
+    assert "Synthetic fixtures are used for this test." in report["limitations"]
     assert len(requests) == 3  # Initial discovery, planned focused discovery, synthesis.
     assert "UTC+04" in report["response"]
 
@@ -209,3 +210,127 @@ def test_rejected_fresh_items_are_not_relabelled_background(monkeypatch):
     report = research._generate_native_report("education-observatory", language="en", research_window=WINDOW)
     assert report["status"] == "no_evidence" and report["items"] == []
     assert "Unvalidated fresh claim" not in report["response"]
+
+
+def mixed_education_report(monkeypatch, language, *, item_state="rejected", section_evidence="background"):
+    """Real discovery/validation/synthesis flow with synthetic publisher and API transport."""
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-test-key")
+    profile = get_profile("education-observatory")
+    background_url = "https://education-research.example/teacher-evaluation-2025"
+    background_title = "Teacher development evaluation: learning outcomes measured in 2025"
+    background_page = page_record(url=background_url, title=background_title, published="2025-03-10",
+        article_type="Report", body="The 2025 teacher development evaluation compared learning outcomes and teacher workload. "
+            "Its dated findings do not establish a new policy announcement or universal effects in other school systems.")
+    monkeypatch.setattr(research, "_download_page", lambda *args: background_page)
+    seed = dict(snapshot(1)["sources"][0], title="New education technology programme announced",
+        url="https://news-fixture.example/fresh-education-programme",
+        excerpt="An education ministry announced a school technology programme. Learning gains were not evaluated.",
+        description="An education ministry announced a school technology programme. Learning gains were not evaluated.")
+    requests, supplied_packs = [], []
+    def handler(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if payload["tools"]:
+            return httpx.Response(200, json=provider_response("Dated education evaluation.",
+                native=[native_call(url=background_url)], annotations=[{"type": "url_citation", "url": background_url,
+                    "title": background_title, "start_index": 0, "end_index": 9}]))
+        supplied = json.loads(payload["input"][1]["content"])["sources"]
+        fresh = next(source for source in supplied if source["role"] == "fresh")
+        background = next(source for source in supplied if source["role"] == "background")
+        pack = structured_pack(profile, [fresh], items=item_state != "omitted")
+        pack["title"] = "تحسن جديد في نتائج المدارس أُعلن اليوم" if language == "ar" else "New school gains announced today"
+        pack["limitations"] = ["ادعاء حديث غير معتمد داخل حدود التغطية" if language == "ar"
+                               else "Unaccepted fresh claim repeated in model limitations"]
+        if item_state == "rejected":
+            pack["items"][0]["evidence_quote"] = "Invented quotation absent from the supplied education evidence."
+        for section in pack["sections"]:
+            section["source_ids"] = [background["id"]]
+            section["body"] = ("بحث منشور في 10 مارس 2025 يقارن نتائج التعلم وعبء عمل المعلمين. تتطلب الاستفادة منه في الإمارات "
+                "مقارنة ظروف التطبيق وتصميم التقييم؛ ولا تثبت هذه الخلفية وقوع تطور جديد."
+                if language == "ar" else "Research published on 10 March 2025 compares learning outcomes and teacher workload. "
+                    "UAE adaptation requires comparing implementation conditions and evaluation design; this background does not establish a new development.")
+        unsafe = "ادعاء حديث غير معتمد عن مكاسب المدارس" if language == "ar" else "Unaccepted fresh claim about school gains"
+        if section_evidence == "mixed":
+            pack["sections"][0].update(source_ids=[fresh["id"]], body=unsafe)
+            pack["sections"][1].update(source_ids=[background["id"], fresh["id"]], body=unsafe)
+        elif section_evidence == "fresh":
+            for section in pack["sections"]:
+                section.update(source_ids=[fresh["id"]], body=unsafe)
+        supplied_packs.append((supplied, deepcopy(pack)))
+        return httpx.Response(200, json=provider_response(json.dumps(pack, ensure_ascii=False)))
+    install_transport(monkeypatch, handler)
+    report = research._generate_native_report("education-observatory", language=language,
+        research_window=WINDOW, seed_sources=[seed])
+    return report, profile, seed, requests, supplied_packs[0]
+
+
+@pytest.mark.parametrize("language", ["en", "ar"])
+def test_rejected_fresh_candidate_preserves_independently_cited_background_analysis(monkeypatch, language):
+    report, profile, seed, requests, (supplied, original) = mixed_education_report(monkeypatch, language)
+    background = next(source for source in supplied if source["role"] == "background")
+    assert report["status"] == "background_only" and report["items"] == []
+    assert report["verification_diagnostics"]["excluded_items"] == {"unsupported_evidence_quote": 1}
+    assert report["verification_diagnostics"]["withheld_sections"] == []
+    assert [section["id"] for section in report["sections"]] == [section["id"] for section in profile["sections"]]
+    assert all(section["source_ids"] == [background["id"]] and "2025" in section["body"] for section in report["sections"])
+    assert report["title"] == ("خلفية وتحليل: " + profile["name_ar"] if language == "ar" else "Background and analysis: " + profile["name"])
+    assert original["title"] not in report["response"]
+    assert original["limitations"][0] not in report["response"]
+    assert [source["id"] for source in report["sources"]] == [background["id"]]
+    assert set(report["citation_mappings"]) == {background["id"]}
+    assert seed["role"] == "fresh" and seed["id"] not in report["citation_mappings"]
+    assert seed["url"] not in report["response"]
+    assert report["source_coverage"]["fresh_source_count"] == 0
+    assert report["source_coverage"]["background_source_count"] == report["source_coverage"]["verified_source_count"] == 1
+    assert report["factual_basis"] == "publisher_page"
+    assert report["cost_tracking_complete"] is True
+    assert len(requests) == 3 and sum(not request["tools"] for request in requests) == 1
+    assert "even when unused fresh candidates appear in the source pack" in requests[-1]["input"][0]["content"]
+
+
+@pytest.mark.parametrize("language", ["en", "ar"])
+def test_unselected_fresh_candidate_withholds_only_fresh_dependent_sections(monkeypatch, language):
+    report, profile, seed, requests, (supplied, original) = mixed_education_report(monkeypatch, language,
+        item_state="omitted", section_evidence="mixed")
+    assert report["status"] == "background_only" and report["items"] == []
+    assert report["verification_diagnostics"]["excluded_items"] == {}
+    withheld = [section["id"] for section in profile["sections"][:2]]
+    assert report["verification_diagnostics"]["withheld_sections"] == withheld
+    assert [section["id"] for section in report["sections"]] == [section["id"] for section in profile["sections"][2:]]
+    assert all(section["source_ids"] and seed["id"] not in section["source_ids"] for section in report["sections"])
+    assert "Unaccepted fresh claim" not in report["response"] and "ادعاء حديث غير معتمد" not in report["response"]
+    expected_prefix = "حُجبت الأقسام التالية" if language == "ar" else "The following sections could not be supported"
+    limitation = next(value for value in report["limitations"] if value.startswith(expected_prefix))
+    assert all(section["title_ar" if language == "ar" else "title_en"] in limitation for section in profile["sections"][:2])
+    assert report["title"] == ("خلفية وتحليل: " + profile["name_ar"] if language == "ar" else "Background and analysis: " + profile["name"])
+    assert original["title"] not in report["response"] and seed["url"] not in report["response"]
+    assert original["limitations"][0] not in report["response"]
+    assert all(source["role"] == "background" for source in report["sources"])
+    assert set(report["citation_mappings"]) == {source["id"] for source in report["sources"]}
+    assert len(requests) == 3 and sum(not request["tools"] for request in requests) == 1
+
+
+def test_unused_background_sources_do_not_rescue_sections_supported_only_by_rejected_fresh_material(monkeypatch):
+    report, profile, seed, requests, (supplied, original) = mixed_education_report(monkeypatch, "en", section_evidence="fresh")
+    assert any(source["role"] == "background" for source in supplied)
+    assert report["status"] == "no_evidence" and report["items"] == []
+    assert [section["id"] for section in report["sections"]] == ["executive_summary"]
+    assert report["sections"][0]["source_ids"] == []
+    assert report["verification_diagnostics"]["withheld_sections"] == [section["id"] for section in profile["sections"]]
+    assert "Unaccepted fresh claim" not in report["response"] and original["title"] not in report["response"]
+    assert len(requests) == 3
+
+
+def test_accepted_fresh_item_keeps_its_report_title_sections_and_source_classification(monkeypatch):
+    report, profile, seed, requests, (supplied, original) = mixed_education_report(monkeypatch, "en",
+        item_state="accepted", section_evidence="mixed")
+    assert report["status"] == "complete" and len(report["items"]) == 1
+    assert report["title"] == original["title"]
+    assert original["limitations"][0] in report["limitations"]
+    assert report["verification_diagnostics"]["excluded_items"] == {}
+    assert report["verification_diagnostics"]["withheld_sections"] == []
+    assert len(report["sections"]) == len(profile["sections"])
+    assert report["citation_mappings"][seed["id"]]["role"] == "fresh"
+    assert report["source_coverage"]["fresh_source_count"] == 1
+    assert report["source_coverage"]["background_source_count"] == 1
+    assert len(requests) == 3 and sum(not request["tools"] for request in requests) == 1
