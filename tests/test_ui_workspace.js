@@ -673,7 +673,8 @@ test("first-attempt failure does not claim that a previous report exists and pre
     ["openai_request_rejected", /provider rejected this request/, /لم يقبل مزود البحث هذا الطلب/],
     ["openai_quota_exceeded", /service allowance is exhausted/, /استُنفدت حصة الخدمة/],
     ["openai_rate_limited", /rate-limiting requests/, /يقيّد الطلبات/],
-    ["openai_unavailable", /temporarily unavailable/, /غير متاح مؤقتًا/]
+    ["openai_unavailable", /temporarily unavailable/, /غير متاح مؤقتًا/],
+    ["search_call_limit_exceeded", /exceeded the permitted number of search actions.*operation was stopped/, /تجاوز مزوّد البحث العدد المسموح.*أُوقفت العملية/]
   ]) {
     const ui = await start(); await ui.openAgent(A); await ui.generateReport(A); await ui.settle(); const failed = ui.current().job;
     ui.server.jobs.set(failed.job_id, {job: {...failed, status: "failed", error: {code, reference: "job_safe_1", retryable: false}}, report: null});
@@ -783,6 +784,22 @@ test("chat questions do not inherit a saved report topic or the report generator
   assert.equal(ui.generations().length, 0);
   await ui.generateReport(A); await ui.settle();
   assert.equal(JSON.parse(ui.generations()[0].options.body).topic, "Japan education policy");
+});
+
+test("chat evidence counts read naturally for one or multiple saved reports in both languages", async () => {
+  for (const count of [1, 2]) {
+    const reportIds = Array.from({length: count}, (_, index) => report(A, index + 1).report_id);
+    const ui = await start({fetch: (url, request, respond) => {
+      if (request.method === "POST" && url.endsWith("/messages/stream"))
+        return respond(answer(JSON.parse(request.body), {context: {report_ids: reportIds, agent_ids: [A]}}));
+    }});
+    await ui.openAgent(A); await ui.settle(); await typeChat(ui, "Summarize the saved reports.");
+    await ui.sendChat(ui.chatState(A)); await ui.settle();
+    assert.equal(byClass(ui.elements.get("discussion-panel"), "chat-evidence-note")[0].textContent, "Saved report snapshots used: " + count + ".");
+    await ui.elements.get("language-ar").click(); await ui.settle();
+    assert.equal(byClass(ui.elements.get("discussion-panel"), "chat-evidence-note")[0].textContent, "عدد نسخ التقارير المحفوظة المستخدمة: " + count + ".");
+    assert.equal(ui.messages().length, 1); assert.equal(ui.generations().length, 0);
+  }
 });
 
 test("fresh chat waits for the saved report then answers with the same request key", async () => {
@@ -1176,6 +1193,28 @@ test("supplemental web retrieval and article evidence levels are explicit withou
   assert.match(panel.textContent,/NewsData metadata.*Publisher page text not checked/);assert.match(panel.textContent,/Publisher page and publication time checked/);
   assert.equal(byClass(panel,"live-news-item").length,2);assert.match(panel.textContent,/50 provider records fetched/);
   assert.equal(ui.generations().length,0);assert.equal(ui.messages().length,0);
+});
+
+test("a web fallback search-action violation remains a precise failure despite provider HTTP200", async () => {
+  const reference = "news_0123456789abcdef";
+  const failed = newsFeed({status: "provider_error", items: [], last_successful_refresh_at: null,
+    error: {code: "newsdata_daily_credit_limit", scope: "application", limit_kind: "application_daily_credit"},
+    retrieval: {web_search: {attempted: true, status: "error", accepted_count: 0,
+      error: {code: "search_call_limit_exceeded", reference, retryable: true, retry_after_seconds: 900,
+        provider_status: 200, message: "PRIVATE provider diagnostic", provider_request_id: "private-provider-request"}}}});
+  const ui = await startNews({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", failed], [A + ":ar", failed]]});
+  const panel = ui.elements.get("report-content");
+  assert.match(panel.textContent, /AI HUB has reached its daily NewsData allowance/);
+  assert.match(panel.textContent, /Additional web research did not complete.*exceeded the permitted number of search actions.*operation was stopped.*search was not accepted as successful/);
+  assert.match(panel.textContent, /Error reference: news_0123456789abcdef/);
+  assert.equal(byTag(panel, "bdi").find(node => node.textContent === reference).dir, "ltr");
+  assert.doesNotMatch(panel.textContent, /response did not satisfy|Additional web research:|PRIVATE|private-provider-request|HTTP.?200/);
+  await ui.elements.get("language-ar").click(); await ui.settle();
+  assert.match(panel.textContent, /المنصة إلى حصتها اليومية.*لم يكتمل بحث الويب الإضافي.*تجاوز مزوّد البحث العدد المسموح.*أُوقفت العملية.*لم يُعتمد البحث كنتيجة ناجحة/);
+  assert.match(panel.textContent, /مرجع الخطأ: news_0123456789abcdef/);
+  assert.doesNotMatch(panel.textContent, /لم يستوفِ رد مزود البحث|بحث الويب الإضافي:|PRIVATE|private-provider-request/);
+  assert.equal(ui.newsRequests().every(request => request.options.method === "GET"), true);
+  assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
 });
 
 test("an explicitly requested news refresh can poll for400 seconds without launching another refresh", async () => {

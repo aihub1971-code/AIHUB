@@ -81,6 +81,7 @@
     providerConnection:["تعذر الاتصال بمزود البحث. يمكنك إعادة المحاولة عندما يعود الاتصال.","The research provider could not be reached. You can retry when the connection is restored."],
     providerRejected:["لم يقبل مزود البحث هذا الطلب. يلزم فحص إعداد الخدمة قبل تكرار المحاولة.","The research provider rejected this request. The service configuration needs checking before another attempt."],
     invalidReport:["لم يستوفِ رد مزود البحث متطلبات التقرير أو أدلته. لم يُعرض تقرير غير موثّق.","The research provider's response did not satisfy the report or evidence requirements. An unverified report was not displayed."],
+    searchActionLimit:["تجاوز مزوّد البحث العدد المسموح لعمليات البحث في هذا الطلب. أُوقفت العملية، ولم يُعتمد البحث كنتيجة ناجحة.","The research provider exceeded the permitted number of search actions for this request. The operation was stopped, and this search was not accepted as successful."],
     providerBusy:["مزود البحث مشغول أو يقيّد الطلبات حاليًا. انتظر قليلًا قبل إعادة المحاولة.","The research provider is busy or rate-limiting requests. Wait before retrying."],
     providerQuota:["استُنفدت حصة الخدمة لدى مزود البحث. يلزم أن يراجع المشرف إتاحة الخدمة؛ تبقى التقارير المحفوظة متاحة.","The research provider's service allowance is exhausted. The administrator needs to restore service availability; saved reports remain accessible."],
     providerUnavailable:["مزود البحث غير متاح مؤقتًا. أعد المحاولة لاحقًا؛ تبقى التقارير المحفوظة متاحة.","The research provider is temporarily unavailable. Retry later; saved reports remain accessible."],
@@ -116,7 +117,7 @@
     chatRestoreError:["تعذر تحميل المحادثة المحفوظة. حاول استعادتها مجددًا.", "The saved conversation could not be loaded. Try restoring it again."],
     memoryLimit:["راجع ملاحظة محفوظة أو أزلها قبل إضافة ملاحظة أخرى.", "Review or remove a saved note before adding another."],
     chatError:["تعذر إكمال الإجابة. الرسائل المحفوظة متاحة؛ تحقق من المحاولة قبل إعادة إرسالها.","The answer could not be completed. Saved messages remain available; check this attempt before sending it again."],
-    retryMessage:["تحقق من المحاولة","Check this attempt"],chatEvidence:["استندت الإجابة إلى {n} تقريرًا محفوظًا.","This answer used {n} saved report snapshots."],
+    retryMessage:["تحقق من المحاولة","Check this attempt"],chatEvidence:["عدد نسخ التقارير المحفوظة المستخدمة: {n}.","Saved report snapshots used: {n}."],
     freshEvidence:["بحث جديد حتى","Fresh research through"],viewUpdated:["فتح التقرير المحدّث","Open updated report"],
     agentWorkspaceNote:["محادثتك محفوظة. الأخبار والتقارير تبدأ بطلب منك.","Your conversation is saved. News and reports start when you request them."],researchTools:["الأخبار والتقارير","News & reports"],onDemand:["عند الطلب","On demand"],
     sharedMemory:["المعرفة المشتركة","Shared knowledge"],memoryIntro:["الملاحظات التي توافق عليها متاحة لجميع وكلائك في مساحة عملك. تبقى منفصلة عن الأدلة المنشورة.","Notes you approve are available to all your agents in your workspace. They remain separate from published evidence."],
@@ -171,7 +172,8 @@
     if(error?.code==="openai_unavailable")return "providerUnavailable";
     if(["openai_timeout","provider_timeout"].includes(error?.code))return "providerTimeout";
     if(["openai_connection_error","provider_connection_error"].includes(error?.code))return "providerConnection";
-    if(["invalid_research_report","invalid_news_analysis","news_analysis_input_too_large","invalid_model_response","invalid_search_response","invalid_news_response","native_search_not_used","search_call_limit_exceeded"].includes(error?.code))return "invalidReport";
+    if(error?.code==="search_call_limit_exceeded")return "searchActionLimit";
+    if(["invalid_research_report","invalid_news_analysis","news_analysis_input_too_large","invalid_model_response","invalid_search_response","invalid_news_response","native_search_not_used"].includes(error?.code))return "invalidReport";
     if(error?.code==="openai_api_error")return error?.status===429?"providerBusy":"providerRejected";
     if(["runtime_not_configured","agent_runtime_not_configured","openai_not_configured","analysis_configuration_invalid","provider_auth_failed","openai_auth_failed","openai_access_denied","openai_request_rejected"].includes(error?.code))return "providerRejected";
     if(error?.code==="chat_source_mismatch")return "sourceMismatch";

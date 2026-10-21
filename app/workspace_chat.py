@@ -37,7 +37,7 @@ _COMPARE = re.compile(r"\bcompar|\bprevious\b|\bearlier\b|\bsince\b|قارن|م�
 _FRESH = re.compile(
     r"\bnow\b|\btoday\b|\bcurrent(?:ly)?\b|\blatest\b|\bfresh\b|\brecent\b|\bupdate(?:s|d)?\b|"
     r"\bsince\b|\bnew developments\b|what(?:'s| is) (?:happening|new)|ما الجديد|"
-    r"الآن|الان|اليوم|آخر|اخر|الأحدث|الاحدث|مستجد|تحديث|منذ|حاليا|حالياً", re.I)
+    r"الآن|الان|اليوم|(?<!\w)(?:آخر|اخر)(?!\w)|الأحدث|الاحدث|مستجد|تحديث|منذ|حاليا|حالياً", re.I)
 _SINCE = re.compile(r"\bsince\b|منذ", re.I)
 _REPORT_MENTION = re.compile(r"\breports?\b|تقرير", re.I)
 _DISCUSS_REPORT = re.compile(
@@ -53,7 +53,10 @@ _PLATFORM = re.compile(
     r"how (?:do|can) I (?:generate|create) (?:a |the )?(?:fresh |new )?report|"
     r"كيف (?:أستخدم|استخدم|أحمّل|احمل|أنزل|انزل|أفتح|افتح|أختار|اختار|أغير|اغير)|"
     r"كيف (?:أولد|اولد|أنشئ|انشئ|أصدر|اصدر) (?:تقرير|التقرير)|زر التحويل|تغيير اللغة|language (?:switch|button)", re.I)
-_MEMORY_DISCUSS = re.compile(r"\bremember\b|\bmy preference|\bour conversation|\bwe discuss(?:ed)?\b|\bI (?:prefer|told|mentioned|said)\b|\b(?:another|other) agent\b|تذكر|تذكّر|أفضل أن|افضل ان|ناقشنا|محادثتنا", re.I)
+_MEMORY_DISCUSS = re.compile(r"\bremember\b|\bmy preference|\bour conversation|\bwe discuss(?:ed)?\b|\bI (?:prefer|told|mentioned|said)\b|\b(?:another|other) agent\b|تذكر|تذكّر|أفضل أن|افضل ان|ناقشنا|محادثتنا|تفضيلاتي|تفضيلي|التفضيل الذي اعتمد|(?:الوكيل|المساعد) (?:الآخر|الاخر)", re.I)
+_NO_RESEARCH = re.compile(
+    r"(?:دون|بدون)\s+(?:(?:إجراء|اجراء|عمل)\s+)?(?:(?:أي|اي)\s+)?(?:بحث|البحث)\b|"
+    r"لا\s+تبحث\b", re.I)
 _SELF_DESCRIPTION = re.compile(r"\bI (?:am|work)\b|أنا أعمل|انا اعمل|أعمل في|اعمل في", re.I)
 _QUESTION_INTENT = re.compile(r"\b(?:what|which|how|why|when|where|compare|evaluate|assess|explain)\b|[?؟]|ما هي|ما الذي|كيف|قارن|قيّم", re.I)
 _EVIDENCE_QUERY = re.compile(
@@ -171,6 +174,10 @@ def needs_fresh_research(message: str, agent_id: str | None, has_report: bool) -
     agent = get_agent(agent_id) if agent_id else None
     if (agent is None or agent.get("enabled") is not True or _PLATFORM.search(message)
             or not get_profile(agent_id)["uses_retrieval"]):
+        return False
+    # A request to use memory or saved context without searching must not be
+    # reversed merely because the refusal itself contains the word "research".
+    if _NO_RESEARCH.search(message):
         return False
     if _MEMORY_DISCUSS.search(message) and not _EXPLICIT_RESEARCH.search(message):
         return False

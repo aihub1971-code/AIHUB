@@ -268,6 +268,40 @@ def test_greeting_preference_and_memory_question_do_not_start_unrequested_resear
     assert workspace_chat.needs_fresh_research(message, "ubi-research", False) is False
 
 
+@pytest.mark.parametrize("has_report", [False, True])
+@pytest.mark.parametrize("message", [
+    "ما التفضيل الذي اعتمدته مع الوكيل الآخر بشأن أسلوب الإحاطة؟",
+    "اشرح تفضيلي المحفوظ دون إجراء بحث جديد.",
+    "ما آخر المستجدات المتاحة في ذاكرتك؟ أجب بدون بحث جديد.",
+    "لا تبحث، استخدم المعلومات التي ناقشناها.",
+])
+def test_arabic_memory_and_explicit_no_search_intents_remain_passive(message, has_report):
+    assert workspace_chat.needs_fresh_research(message, "ubi-research", has_report) is False
+
+
+@pytest.mark.parametrize("message", ["ما آخر المستجدات؟", "ابحث عن آخر المستجدات بشأن دخل أساسي مضمون."])
+def test_arabic_latest_developments_still_requests_research(message):
+    assert workspace_chat.needs_fresh_research(message, "ubi-research", False) is True
+
+
+def test_arabic_other_agent_memory_question_streams_approved_memory_without_research(discussion, streaming_provider):
+    client = discussion["client"]
+    note = "أفضل إحاطة موجزة بفقرات مترابطة مع توضيح حدود الأدلة."
+    proposed = client.post(PREFIX + "/memory", json={"kind": "preference", "content": note})
+    assert proposed.status_code == 201
+    assert client.patch(PREFIX + "/memory/" + proposed.json()["memory_id"],
+                        json={"action": "approve"}).status_code == 200
+    thread = agent_thread(client, "education-observatory", language="ar")
+    question = "ما التفضيل الذي اعتمدته مع الوكيل الآخر بشأن أسلوب الإحاطة؟ أجب دون إجراء بحث جديد."
+    response = send_stream(client, thread["conversation_id"], question, language="ar", agent_id="education-observatory")
+    assert response.status_code == 200, response.text
+    assert events(response)[-1][0] == "complete"
+    assert events(response)[-1][1]["context"]["fresh_research"] is False
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
+    assert len(streaming_provider["requests"]) == 1
+    assert note in json.dumps(streaming_provider["requests"][0], ensure_ascii=False)
+
+
 @pytest.mark.parametrize("agent_id,message", [
     ("ubi-research", "What are the employment effects and funding costs of evaluated income pilots?"),
     ("education-observatory", "Which AI interventions improve pupil outcomes and teacher development?"),

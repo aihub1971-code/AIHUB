@@ -29,7 +29,7 @@ def estimate_discovery(agent_id: str, *, research_window: dict[str, Any],
     if actions < 1:
         raise StoreError("web_search_not_enabled", "Web discovery is not enabled for this agent.", 403)
     payload = research._research_payload(estimate["model"], get_profile(agent_id),
-        estimate["topic"], language, estimate["research_window"], actions)
+        estimate["topic"], language, estimate["research_window"], actions, fresh_only=True)
     inputs, outputs = research._input_bound(payload, actions), int(payload["max_output_tokens"])
     amount = ((inputs * Decimal(estimate["research_input_usd_per_million"])
         + outputs * Decimal(estimate["research_output_usd_per_million"])) / Decimal(1000000)
@@ -54,7 +54,7 @@ def discover_sources(agent_id: str, estimate: dict[str, Any]) -> dict[str, Any]:
     if type(actions) is not int or not 1 <= actions <= MAX_DISCOVERY_ACTIONS:
         raise StoreError("retrieval_reservation_invalid", "The discovery reservation is invalid.", 500)
     payload = research._research_payload(model, profile, estimate["topic"], estimate["language"],
-        estimate["research_window"], actions)
+        estimate["research_window"], actions, fresh_only=True)
     if research._input_bound(payload, actions) > estimate["research_input_tokens_bound"]:
         raise StoreError("retrieval_reservation_invalid", "Discovery exceeds its reserved input bound.", 500)
     response = research._call_response(key, payload, actions=actions)
