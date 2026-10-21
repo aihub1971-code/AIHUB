@@ -17,12 +17,12 @@ def inline_feed_threads(monkeypatch):
     started = []
 
     class InlineThread:
-        def __init__(self, *, target, args, name, daemon):
-            self.target, self.args, self.name = target, args, name
+        def __init__(self, *, target, args, name, daemon, kwargs=None):
+            self.target, self.args, self.name, self.kwargs = target, args, name, kwargs or {}
 
         def start(self):
             started.append(self.name)
-            self.target(*self.args)
+            self.target(*self.args, **self.kwargs)
 
     # Replace this module's binding, not threading.Thread used by TestClient.
     monkeypatch.setattr(news_feed, "threading", SimpleNamespace(Thread=InlineThread))

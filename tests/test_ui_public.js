@@ -106,7 +106,7 @@ function harness(options={}){
 }
 function page(overrides={}){return{report_id:"rpt_public_page1",agent_id:"iran-news",task:"iran war",language:"ar",provider:"newsdata",response:"تقرير محفوظ",response_ar:"العنوان العربي",response_en:"English headline",
   items:[{headline_ar:"العنوان العربي",summary_ar:"ملخص عربي",headline_en:"English headline",summary_en:"English summary",translation_status:"translated",publisher:"Example Publisher",url:"https://www.reuters.com/world/example",published_date:"2026-10-20T08:00:00Z"}],
-  pagination:{page_index:1,page_size:10,has_more:true,results_before_page:0,results_consumed:10,result_limit:20,limit_reached:false},freshness:{plan:"paid"},...overrides};}
+  pagination:{page_index:1,page_size:10,has_more:true,results_before_page:0,results_consumed:10,result_limit:50,limit_reached:false},freshness:{plan:"paid"},...overrides};}
 async function key(ui,details){let prevented=false;for(const listener of ui.elements.get("publicTask").events.keydown||[])await listener({key:"Enter",shiftKey:false,isComposing:false,preventDefault(){prevented=true;},...details});return prevented;}
 
 test("the public entry has no login or cost panels and uses a separate public script",()=>{
@@ -137,11 +137,11 @@ test("language switching changes saved news and copy text without another provid
   await ui.elements.get("publicCopy").click();assert.equal(ui.copied(),"English headline");
   assert.equal(ui.requests.length,count);assert.doesNotMatch(ui.body.textContent,/\{[a-zA-Z]+\}|public\.[a-zA-Z]+/);
 });
-test("the twentieth provider result stops Next even if a stale saved child is supplied",async()=>{
-  const ui=harness();await ui.start();ui.showResult(page({pagination:{page_index:2,page_size:10,has_more:true,results_before_page:10,results_consumed:20,limit_reached:true,parent_report_id:"rpt_first",next_report_id:"rpt_third"}}));
+test("the fiftieth provider result stops Next even if a stale saved child is supplied",async()=>{
+  const ui=harness();await ui.start();ui.showResult(page({pagination:{page_index:5,page_size:10,has_more:true,results_before_page:40,results_consumed:50,limit_reached:true,parent_report_id:"rpt_first",next_report_id:"rpt_third"}}));
   const body=ui.elements.get("publicResultBody");assert.equal(byClass(body,"news-page-next")[0].disabled,true);
   const count=ui.requests.length;await byClass(body,"news-page-next")[0].click();assert.equal(ui.requests.length,count);
-  assert.equal(byClass(body,"news-page-previous")[0].disabled,false);assert.match(body.textContent,/أول 20 نتيجة/);
+  assert.equal(byClass(body,"news-page-previous")[0].disabled,false);assert.match(body.textContent,/50 نتيجة/);
 });
 test("public requests cannot target protected admin routes or forward supplied credentials",async()=>{
   const ui=harness();await ui.start();

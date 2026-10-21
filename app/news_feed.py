@@ -1,10 +1,10 @@
 """Shared, bounded NewsData feeds for the current research workspace.
 
-The old NewsData archive keeps its original pagination contract. This service
-collects up to 100 accepted articles in a frozen 12-hour window, using a shared
-SQLite cache and the existing daily credit allowance. Cache reads never run a
-model. Every attempted provider page is charged before I/O, including failures.
-Only structured provider metadata is used; this is not publisher verification.
+This service collects at most 50 raw provider articles in a frozen 12-hour
+window, using a shared SQLite cache and the existing daily credit allowance.
+Explicit refreshes may add bounded, separately reserved native web discovery.
+Cache reads never run a model. Every attempted provider page is charged before
+I/O, including failures. Metadata and publisher-verified sources stay distinct.
 """
 from __future__ import annotations
 
@@ -36,15 +36,15 @@ from app.storage import DUBAI, Store, StoreError, get_store
 
 
 UTC = timezone.utc
-MAX_ITEMS = 100
-MAX_PAGES = 20
-MAX_RAW_ITEMS = 1000
+MAX_ITEMS = 50
+MAX_PAGES = 50
+MAX_RAW_ITEMS = 50
 MAX_ARTICLE_URL_CHARS = 2000
 REFRESH_INTERVAL_SECONDS = 900
 REFRESH_MODE = "manual"
 MAX_REFRESH_SECONDS = 90
-LEASE_SECONDS = MAX_REFRESH_SECONDS + 30
-QUERY_VERSION = "workspace-news-v1"
+LEASE_SECONDS = 420
+QUERY_VERSION = "workspace-news-v2-raw50"
 # Inherit Uvicorn's configured INFO handler without enabling HTTP-client logs.
 LOGGER = logging.getLogger("uvicorn.error.aihub.news_feed")
 
@@ -55,10 +55,10 @@ QUERIES = {
     "iran-news": "Iran OR Tehran OR Hormuz OR IRGC OR إيران OR طهران OR هرمز",
     "geopolitical-morning": "war OR conflict OR diplomacy OR sanctions OR election OR حرب OR صراع OR دبلوماسية OR عقوبات",
     "ubi-research": '"basic income" OR "guaranteed income" OR "الدخل الأساسي" OR "دخل مضمون"',
-    "uae-eu-trade-talks": '(UAE OR Emirates OR الإمارات) AND (EU OR European OR أوروبا OR الأوروبي)',
+    "uae-eu-trade-talks": '(UAE OR Emirates OR "Abu Dhabi" OR أبوظبي OR الإمارات) AND (EU OR European OR Brussels OR الأوروبي)',
     "education-observatory": "education OR university OR school OR تعليم OR جامعة OR مدارس",
     "economic-cultural-briefing": "economy OR inflation OR trade OR tourism OR culture OR اقتصاد OR ثقافة OR سياحة",
-    "decision-briefing": '"artificial intelligence" OR "AI adoption" OR "الذكاء الاصطناعي"',
+    "historical-reading-companion": 'history OR archaeology OR historian OR archive OR تاريخ OR "علم الآثار" OR مؤرخ',
 }
 
 _SCHEMA = """
@@ -149,8 +149,7 @@ def _window(value: dict[str, Any] | None, now: datetime) -> dict[str, str]:
 
 
 def plan_metadata() -> dict[str, Any]:
-    configured = (get_setting("NEWSDATA_PLAN", "unknown") or "unknown").lower()
-    plan = configured if configured in {"free", "paid"} else "unknown"
+    plan = newsdata.configured_plan()
     return {"configured_plan": plan, "plan_verified": False,
             "configured_delivery_delay_hours": 12 if plan == "free" else None,
             "free_plan_delay_hours": 12, "paid_plan_realtime_supported": True,
@@ -160,15 +159,10 @@ def plan_metadata() -> dict[str, Any]:
 def _page_size() -> int:
     # Unknown plans use a universally valid size. The application does not
     # infer entitlement from a key, results count, or provider marketing copy.
-    maximum = 50 if plan_metadata()["configured_plan"] == "paid" else 10
-    raw = get_setting("NEWSDATA_PAGE_SIZE")
     try:
-        size = maximum if not raw else int(raw)
-        if not 1 <= size <= 50:
-            raise ValueError("invalid_size")
-    except (ValueError, TypeError):
+        return newsdata.page_size_setting()
+    except HTTPException:
         raise StoreError("newsdata_page_size_invalid", "Set NEWSDATA_PAGE_SIZE to an integer from 1 to 50.", 503) from None
-    return min(size, maximum)
 
 
 def accounted_credits(connection: sqlite3.Connection, *, local_date: str | None = None,
@@ -195,12 +189,26 @@ def _safe_error(error: Exception, *, retry_after: int = REFRESH_INTERVAL_SECONDS
                              "newsdata_page_size_invalid"}
     result = {"code": code, "reference": "news_" + uuid4().hex[:16], "retryable": retryable,
               "retry_after_seconds": retry_after}
+    local_limits = {"newsdata_daily_credit_limit", "daily_report_limit", "daily_budget_limit", "monthly_budget_limit"}
+    local_config = {"newsdata_not_configured", "newsdata_page_size_invalid", "runtime_not_configured"}
+    result["scope"] = "application" if code in local_limits | local_config else "provider" if code.startswith(("newsdata_", "openai_", "provider_")) else "application"
+    result["limit_kind"] = ({"newsdata_daily_credit_limit": "application_daily_credit",
+        "daily_report_limit": "application_daily_reports", "daily_budget_limit": "application_daily_budget",
+        "monthly_budget_limit": "application_monthly_budget", "newsdata_provider_credit_limit": "provider_credit",
+        "newsdata_rate_limited": "provider_rate", "openai_quota_exceeded": "provider_credit",
+        "openai_rate_limited": "provider_rate"}).get(code)
+    result["retry_after_source"] = "application"
     if isinstance(error, HTTPException) and isinstance(error.detail, dict):
         status, request_id = error.detail.get("provider_status"), error.detail.get("provider_request_id")
         if type(status) is int and 100 <= status <= 599:
             result["provider_status"] = status
         if isinstance(request_id, str) and re.fullmatch(r"[A-Za-z0-9-]{1,80}", request_id):
             result["provider_request_id"] = request_id
+        if error.detail.get("retry_after_source") == "provider":
+            result["retry_after_source"] = "provider"
+        provider_code = error.detail.get("provider_code")
+        if isinstance(provider_code, str) and re.fullmatch(r"[A-Za-z0-9_]{1,80}", provider_code):
+            result["provider_code"] = provider_code
     return result
 
 
@@ -360,11 +368,13 @@ def _relevant(agent_id: str, title: str, description: str) -> bool:
         return iran and conflict and (_contains(title, profile["terms"] + _IRAN_CONFLICT)
             or (_contains(title, _IRAN_CONSEQUENCES) and _contains(opening, profile["terms"])))
     if agent_id == "uae-eu-trade-talks":
-        return (_contains(lead, profile["terms"])
-            and _contains(lead, ["european union", "european commission", "eu", "european", "الاتحاد الأوروبي", "الاتحاد الاوروبي", "أوروب", "اوروب"])
-            and _contains(lead, ["trade", "negotiat", "investment", "tariff", "cepa", "fta", "market access", "standards", "تجار", "مفاوض", "استثمار", "تعرف", "معايير"]))
-    if agent_id == "decision-briefing":
-        return _contains(lead, ["artificial intelligence", "ai", "الذكاء الاصطناعي", "ذكاء اصطناعي"])
+        lead = title + " " + description[:900]
+        return (_contains(lead, profile["terms"] + ["uae", "emirat", "abu dhabi", "الإمارات", "الامارات", "أبوظبي", "أبو ظبي", "ابوظبي"])
+            and _contains(lead, ["european union", "european commission", "eu", "european", "brussels", "الاتحاد الأوروبي", "الاتحاد الاوروبي", "أوروب", "اوروب", "بروكسل"])
+            and _contains(lead, ["trade", "negotiat", "investment", "tariff", "cepa", "fta", "market access", "standards", "customs", "economic partnership", "تجار", "مفاوض", "استثمار", "تعرف", "معايير", "جمرك", "شراكة اقتصادية"]))
+    if agent_id == "historical-reading-companion":
+        return _contains(lead, ["history", "historian", "archaeolog", "archive", "manuscript", "antiquit", "abbasid",
+            "تاريخ", "مؤرخ", "علم الآثار", "علم الاثار", "أثري", "أثرية", "أرشيف", "ارشيف", "مخطوط", "عباسي"])
     return _contains(lead, profile["terms"])
 
 
@@ -424,6 +434,7 @@ def _accept(source: Any, agent_id: str, window: dict[str, str], seen: dict[str, 
     item = {"id": source_id, "article_id": identifier, "source_id": source_id,
         "headline": title, "summary": description, "publisher": newsdata._text(source.get("source_name"), 200) or urlsplit(url).hostname,
         "url": url, "published_at": _stamp(published), "published_date": _stamp(published), "language": language,
+        "published_at_dubai": published.astimezone(DUBAI).isoformat(),
         "original_headline": title, "original_summary": description, "original_language": language,
         "headline_en": title if language == "en" else None, "summary_en": description if language == "en" else None,
         "headline_ar": title if language == "ar" else None, "summary_ar": description if language == "ar" else None,
@@ -445,16 +456,20 @@ async def _request_page(client: httpx.AsyncClient, *, agent_id: str, size: int,
         raise StoreError("newsdata_not_configured", "NewsData is not configured.", 503)
     params: dict[str, Any] = {"q": QUERIES[agent_id], "language": "en,ar", "size": size,
         "removeduplicate": 1, "timezone": "UTC", "sort": "pubdatedesc"}
+    if newsdata.configured_plan() == "paid":
+        params["timeframe"] = 12
     if cursor is not None:
         params["page"] = cursor
     try:
-        # Optional paid-only timeframe parameters are deliberately unnecessary:
-        # exact timestamps are enforced locally for every configured plan.
+        # Only configured paid plans send the paid-only timeframe parameter.
+        # Every returned date is still validated against the frozen cutoff.
         async with client.stream("GET", newsdata.NEWSDATA_LATEST_URL,
                                  headers={"X-ACCESS-KEY": key}, params=params) as response:
             def provider_error(data: Any) -> HTTPException:
                 error = newsdata._provider_error(response.status_code, data)
-                error.detail["retry_after_seconds"] = _retry_after(response.headers) or REFRESH_INTERVAL_SECONDS
+                delay = _retry_after(response.headers)
+                error.detail["retry_after_seconds"] = delay or REFRESH_INTERVAL_SECONDS
+                error.detail["retry_after_source"] = "provider" if delay else "application"
                 identifier = response.headers.get("X-Request-Id", "")
                 if identifier != key and re.fullmatch(r"[A-Za-z0-9-]{1,80}", identifier):
                     error.detail["provider_request_id"] = identifier
@@ -506,7 +521,8 @@ class FeedStore:
             row = connection.execute("SELECT * FROM workspace_news_provider WHERE provider='newsdata'").fetchone()
         return dict(row) if row else {}
 
-    def claim(self, agent_id: str, window: dict[str, Any] | None = None) -> tuple[str, dict[str, str]] | None:
+    def claim(self, agent_id: str, window: dict[str, Any] | None = None, *,
+              explicit_retry: bool = False, allow_web_fallback: bool = False) -> tuple[str, dict[str, str]] | None:
         key, moment = _key(agent_id), self.now()
         stamp = _stamp(moment)
         frozen = _window(window, moment)
@@ -515,11 +531,19 @@ class FeedStore:
             row = connection.execute("SELECT * FROM workspace_news_cache WHERE cache_key=?", (key,)).fetchone()
             if row["refresh_id"] and row["lease_until"] and row["lease_until"] > stamp:
                 return None
-            if row["next_refresh_at"] and row["next_refresh_at"] > stamp:
+            row_error = _decode(row["error_json"], {})
+            # App limits are re-evaluated by the ledger on each intentional
+            # retry. A fixed setting must not stay hidden behind yesterday's
+            # cached local error. Successful refreshes retain the shared guard.
+            local_retry = explicit_retry and row_error.get("scope") == "application"
+            if row["next_refresh_at"] and row["next_refresh_at"] > stamp and not local_retry:
                 return None
             connection.execute("INSERT OR IGNORE INTO workspace_news_provider(provider) VALUES ('newsdata')")
             provider = connection.execute("SELECT * FROM workspace_news_provider WHERE provider='newsdata'").fetchone()
-            if provider["cooldown_until"] and provider["cooldown_until"] > stamp:
+            provider_error = _decode(provider["error_json"], {})
+            blocked = (provider["cooldown_until"] and provider["cooldown_until"] > stamp
+                and provider_error.get("code") != "newsdata_daily_credit_limit")
+            if blocked and not allow_web_fallback:
                 return None
             # One shared provider refresh at a time also bounds thread/credit
             # pressure when several agents are opened together.
@@ -568,13 +592,15 @@ class FeedStore:
                 last_successful_refresh_at=?,next_refresh_at=?,refresh_id=NULL,lease_until=NULL,error_json=?
                 WHERE cache_key=?""", (_json(snapshot) if save_snapshot else row["snapshot_json"],
                 _stamp(moment) if complete else row["last_successful_refresh_at"], next_at,
-                _json(error) if error else None, _key(agent_id)))
-            cooldown = error and error["code"] in {"newsdata_rate_limited", "newsdata_auth_failed", "newsdata_access_denied",
-                "newsdata_not_configured", "newsdata_daily_credit_limit", "newsdata_unavailable", "newsdata_timeout", "newsdata_connection_error"}
+                _json({**error, "retrieval": snapshot.get("retrieval", {})}) if error else None, _key(agent_id)))
+            news_error = snapshot.get("retrieval", {}).get("newsdata", {}).get("error") or error
+            cooldown = news_error and news_error["code"] in {"newsdata_rate_limited", "newsdata_provider_credit_limit",
+                "newsdata_auth_failed", "newsdata_access_denied", "newsdata_unavailable", "newsdata_timeout", "newsdata_connection_error"}
             quota = snapshot.get("quota", {})
-            provider_error = error if cooldown else None
+            provider_error = news_error if cooldown else None
             if not provider_error and (quota.get("credits_remaining") == 0 or quota.get("rate_window_remaining") == 0):
-                provider_error = _safe_error(StoreError("newsdata_rate_limited", "The provider reports no remaining allowance.", 429))
+                code = "newsdata_provider_credit_limit" if quota.get("credits_remaining") == 0 else "newsdata_rate_limited"
+                provider_error = _safe_error(StoreError(code, "The provider reports no remaining allowance.", 429))
                 # Exhausting the last allowance limits the next request; it
                 # does not invalidate the page that completed successfully.
                 if error is None:
@@ -586,7 +612,8 @@ class FeedStore:
                     "accepted_count": len(snapshot["items"]), "requests": snapshot["pagination"]["requests"]}))
             connection.execute("""UPDATE workspace_news_provider SET refresh_id=NULL,lease_until=NULL,
                 cooldown_until=?,error_json=? WHERE provider='newsdata' AND refresh_id=?""",
-                (next_at if provider_error else None, _json(provider_error) if provider_error else None, refresh_id))
+                ((snapshot.get("provider_retry_at") or _stamp(moment + timedelta(seconds=provider_error["retry_after_seconds"])))
+                    if provider_error else None, _json(provider_error) if provider_error else None, refresh_id))
 
     def translations(self, agent_id: str, language: str) -> dict[str, dict[str, Any]]:
         with self.database._connect() as connection:
@@ -601,9 +628,13 @@ async def _collect(store: FeedStore, agent_id: str, refresh_id: str, state: dict
     previous_date, descending = None, True
     async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0), follow_redirects=False) as client:
         for _ in range(MAX_PAGES):
+            remaining = MAX_RAW_ITEMS - state["pagination"]["raw_count"]
+            if remaining <= 0:
+                state["pagination"]["stop_reason"] = "raw_item_limit"
+                return
             store.charge(agent_id, refresh_id)
             state["pagination"]["requests"] += 1
-            data, quota = await _request_page(client, agent_id=agent_id, size=size, cursor=cursor)
+            data, quota = await _request_page(client, agent_id=agent_id, size=min(size, remaining), cursor=cursor)
             state["quota"] = quota
             state["pagination"]["provider_total_results"] = data["totalResults"]
             raw = data["results"]
@@ -625,16 +656,15 @@ async def _collect(store: FeedStore, agent_id: str, refresh_id: str, state: dict
                     previous_date = current
                 else:
                     invalid_dates = True
-            for index, source in enumerate(raw):
+            for source in raw:
                 item, reason = _accept(source, agent_id, state["research_window"], seen)
                 if item is not None:
                     state["items"].append(item)
-                    if len(state["items"]) == MAX_ITEMS:
-                        state["pagination"]["stop_reason"] = "article_limit"
-                        state["pagination"]["unprocessed_after_article_limit"] = len(raw) - index - 1
-                        return
                 else:
                     state["excluded"][reason] += 1
+            if state["pagination"]["raw_count"] >= MAX_RAW_ITEMS:
+                state["pagination"]["stop_reason"] = "raw_item_limit"
+                return
             if (dates and not invalid_dates and descending
                     and max(dates) < newsdata._moment(state["research_window"]["start"])):
                 state["pagination"]["stop_reason"] = "window_exhausted"
@@ -647,22 +677,108 @@ async def _collect(store: FeedStore, agent_id: str, refresh_id: str, state: dict
                 state["pagination"]["stop_reason"] = "repeated_cursor"
                 return
             if quota["credits_remaining"] == 0 or quota["rate_window_remaining"] == 0:
-                raise StoreError("newsdata_rate_limited", "The provider reports no remaining allowance.", 429)
+                code = "newsdata_provider_credit_limit" if quota["credits_remaining"] == 0 else "newsdata_rate_limited"
+                raise StoreError(code, "The provider reports no remaining allowance.", 429)
             cursors.add(next_cursor)
             cursor = next_cursor
         state["pagination"]["stop_reason"] = "page_limit"
 
 
+def _fallback_reason(state: dict[str, Any], error: dict[str, Any] | None) -> str | None:
+    if error:
+        return "newsdata_unavailable"
+    if state["pagination"]["stop_reason"] in {"page_limit", "repeated_cursor", "deadline"}:
+        return "newsdata_partial"
+    if not state["items"]:
+        return "newsdata_empty"
+    if len(state["items"]) < 3:
+        return "insufficient_articles"
+    if len({item["publisher"].strip().casefold() for item in state["items"]}) < 2:
+        return "insufficient_publishers"
+    return None
+
+
+def _web_item(source: dict[str, Any], agent_id: str, window: dict[str, str]) -> dict[str, Any] | None:
+    """Accept actual publisher evidence, never a search snippet as fresh news."""
+    verification = source.get("publication_verification", {})
+    if (source.get("role") != "fresh" or source.get("publisher_text_verified") is not True
+            or not isinstance(verification, dict) or verification.get("verified") is not True):
+        return None
+    try:
+        published = newsdata._moment(source.get("published_at"))
+    except (ValueError, TypeError, OverflowError):
+        return None
+    if not newsdata._moment(window["start"]) <= published <= newsdata._moment(window["end"]):
+        return None
+    title = newsdata._text(source.get("title"), newsdata.MAX_HEADLINE_CHARS)
+    summary = newsdata._text(source.get("description") or source.get("excerpt"), newsdata.MAX_DESCRIPTION_CHARS)
+    url = runtime._safe_source_url(source.get("url"))
+    if (not title or not url or len(url) > MAX_ARTICLE_URL_CHARS
+            or (agent_id != "historical-reading-companion" and not _relevant(agent_id, title, summary))):
+        return None
+    identifier = "web:" + hashlib.sha256(runtime._canonical_url(url).encode()).hexdigest()[:32]
+    letters = re.findall(r"[A-Za-z\u0600-\u06ff]", title + " " + summary)
+    arabic = sum("\u0600" <= letter <= "\u06ff" for letter in letters)
+    language = "ar" if letters and arabic > len(letters) / 2 else "en"
+    return {**source, "id": identifier, "source_id": identifier, "article_id": identifier,
+        "source_ids": [identifier], "headline": title, "summary": summary,
+        "publisher": newsdata._text(source.get("publisher"), 200) or urlsplit(url).hostname,
+        "url": url, "published_at": _stamp(published), "published_date": _stamp(published),
+        "published_at_dubai": published.astimezone(DUBAI).isoformat(),
+        "original_headline": title, "original_summary": summary, "original_language": language,
+        "headline_en": title if language == "en" else None, "summary_en": summary if language == "en" else None,
+        "headline_ar": title if language == "ar" else None, "summary_ar": summary if language == "ar" else None,
+        "language": language, "summary_available": bool(summary), "translation_status": "original",
+        "classification": "within_window", "source_kind": source.get("source_kind") or runtime._news_source_kind(title, url),
+        "evidence_level": "publisher_page_verified", "factual_basis": "publisher_page",
+        "publisher_text_verified": True, "publication_verification": verification}
+
+
+def _add_web_sources(state: dict[str, Any], agent_id: str, sources: list[dict[str, Any]]) -> int:
+    accepted = 0
+    for source in sources:
+        item = _web_item(source, agent_id, state["research_window"])
+        if item is None:
+            state["excluded"]["web_not_fresh_or_relevant"] += 1
+            continue
+        canonical = runtime._canonical_url(item["url"])
+        same_url = next((index for index, old in enumerate(state["items"])
+            if runtime._canonical_url(old["url"]) == canonical), None)
+        if same_url is not None:
+            state["items"][same_url] = item
+            accepted += 1
+            continue
+        titles = [runtime._headline_key(old["original_headline"]) for old in state["items"]]
+        if _near_duplicate(runtime._headline_key(item["original_headline"]), titles):
+            state["excluded"]["web_duplicate"] += 1
+        elif len(state["items"]) < MAX_ITEMS:
+            state["items"].append(item)
+            accepted += 1
+    return accepted
+
+
 def _refresh(store: FeedStore, agent_id: str, claim: tuple[str, dict[str, str]], *,
-             timeout_seconds: float | None = None) -> None:
+             timeout_seconds: float | None = None, allow_web_fallback: bool = False) -> None:
     refresh_id, window = claim
     state: dict[str, Any] = {"snapshot_id": refresh_id, "agent_id": agent_id, "provider": "newsdata",
         "research_window": window, "items": [], "excluded": Counter(), "quota": {},
         "pagination": {"requests": 0, "raw_count": 0, "accepted_count": 0, "page_limit": MAX_PAGES,
             "raw_item_limit": MAX_RAW_ITEMS, "stop_reason": None, "provider_total_results": None},
-        "provider_plan": plan_metadata(), "query_version": QUERY_VERSION}
+        "provider_plan": plan_metadata(), "query_version": QUERY_VERSION,
+        "retrieval": {"options": ["newsdata", "web_search"], "newsdata": {},
+            "web_search": {"attempted": False, "status": "not_requested", "error": None}}}
     error, exception_type = None, None
     try:
+        provider = store.provider_state()
+        blocked_error = _decode(provider.get("error_json"), {})
+        if (provider.get("cooldown_until") and provider["cooldown_until"] > _stamp(store.now())
+                and blocked_error.get("code") != "newsdata_daily_credit_limit"):
+            error = {**blocked_error, "retry_after_seconds": max(1, math.ceil(
+                (newsdata._moment(provider["cooldown_until"]) - store.now()).total_seconds()))}
+            error.pop("after_snapshot_id", None)
+            state["provider_retry_at"] = provider["cooldown_until"]
+            state["pagination"]["stop_reason"] = "provider_cooldown"
+            raise StoreError("newsdata_provider_cooldown", "The provider is cooling down; no NewsData request was made.", 429)
         if not newsdata.is_ready():
             raise StoreError("newsdata_not_configured", "NewsData is not configured.", 503)
         # asyncio cancellation closes in-flight HTTP work at the total refresh
@@ -682,19 +798,43 @@ def _refresh(store: FeedStore, agent_id: str, claim: tuple[str, dict[str, str]],
             local = store.now().astimezone(DUBAI)
             midnight = local.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
             retry_after = max(1, math.ceil((midnight - local).total_seconds()))
-        error = _safe_error(exc, retry_after=retry_after)
-        state["pagination"]["stop_reason"] = error["code"]
+        if not error:
+            error = _safe_error(exc, retry_after=retry_after)
+            state["pagination"]["stop_reason"] = error["code"]
+    state["pagination"]["accepted_count"] = len(state["items"])
+    if error and error.get("scope") == "provider" and not state.get("provider_retry_at"):
+        state["provider_retry_at"] = _stamp(store.now() + timedelta(seconds=error["retry_after_seconds"]))
+    state["retrieval"]["newsdata"] = {"status": "error" if error else "complete", "error": error,
+        "raw_count": state["pagination"]["raw_count"], "accepted_count": len(state["items"])}
+    fallback_reason = _fallback_reason(state, error)
+    if allow_web_fallback and fallback_reason:
+        from app.retrieval import run_feed_discovery
+        web = {"attempted": True, "status": "error", "reason": fallback_reason, "error": None,
+            "accepted_count": 0, "verified_source_count": 0}
+        try:
+            discovered = run_feed_discovery(store.database, agent_id, refresh_id, window)
+            web.update(status="complete", accepted_count=_add_web_sources(state, agent_id, discovered["sources"]),
+                verified_source_count=discovered["verified_source_count"], excluded=discovered["excluded"],
+                stages=discovered["stages"], usage=discovered["web_search"])
+            if web["accepted_count"]:
+                state["provider"] = "newsdata+web_search" if state["pagination"]["accepted_count"] else "web_search"
+        except Exception as exc:
+            web["error"] = _safe_error(exc)
+            if not error and not state["items"]:
+                error = web["error"]
+        state["retrieval"]["web_search"] = web
+    elif allow_web_fallback:
+        state["retrieval"]["web_search"]["status"] = "not_needed"
     state["items"].sort(key=lambda item: (item["published_at"], item["id"]), reverse=True)
     state["excluded"] = dict(state["excluded"])
-    state["pagination"]["accepted_count"] = len(state["items"])
     latest = state.get("observed_latest_provider_publication_at")
     provider_age = max(0, math.floor((newsdata._moment(window["end"]) - newsdata._moment(latest)).total_seconds())) if latest else None
     state["provider_age_seconds"] = provider_age
     # The newest returned article is evidence of this query's availability,
     # not proof of the account tier or of comprehensive provider coverage.
     state["suspected_provider_delay"] = bool(provider_age is not None and 12 * 3600 <= provider_age <= 14 * 3600
-        and not state["items"] and state["pagination"]["stop_reason"] == "window_exhausted")
-    state["partial"] = bool(error) or state["pagination"]["stop_reason"] in {"page_limit", "repeated_cursor", "deadline"}
+        and not state["pagination"]["accepted_count"] and state["pagination"]["stop_reason"] == "window_exhausted")
+    state["partial"] = bool(error or state["retrieval"]["web_search"].get("error")) or state["pagination"]["stop_reason"] in {"page_limit", "repeated_cursor", "deadline"}
     state["completed_at"] = _stamp(store.now())
     store.finish(agent_id, refresh_id, state, error)
     event = {"event": "news_feed_refresh_failed" if error else "news_feed_refresh_completed",
@@ -733,19 +873,22 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
     now, row = store.now(), store.read(agent_id) or {}
     now_text = _stamp(now)
     provider = store.provider_state()
-    provider_blocked = bool(provider.get("cooldown_until") and provider["cooldown_until"] > now_text)
+    provider_saved_error = _decode(provider.get("error_json"), {})
+    provider_blocked = bool(provider.get("cooldown_until") and provider["cooldown_until"] > now_text
+        and provider_saved_error.get("code") != "newsdata_daily_credit_limit")
     provider_busy = bool(provider.get("refresh_id") and provider.get("lease_until") and provider["lease_until"] > now_text)
     active = bool(row.get("refresh_id") and row.get("lease_until") and row["lease_until"] > now_text)
     snapshot = _decode(row.get("snapshot_json"), {})
     completed = snapshot.get("completed_at")
     age = max(0, (now - newsdata._moment(completed)).total_seconds()) if completed else None
-    provider_error = _decode(provider.get("error_json")) if provider_blocked else None
+    provider_error = provider_saved_error if provider_blocked else None
     if (provider_error and provider_error.get("after_snapshot_id") == snapshot.get("snapshot_id")
             and age is not None and age < REFRESH_INTERVAL_SECONDS):
         provider_error = None
     error = _decode(row.get("error_json")) or provider_error
+    retrieval = (error.get("retrieval") if error else None) or snapshot.get("retrieval", {})
     if error:
-        error = {key: value for key, value in error.items() if key != "after_snapshot_id"}
+        error = {key: value for key, value in error.items() if key not in {"after_snapshot_id", "retrieval"}}
     expired_claim = bool(row.get("refresh_id") and not active)
     if expired_claim and not error:
         error = _safe_error(StoreError("newsdata_refresh_interrupted", "The previous refresh was interrupted.", 503))
@@ -761,7 +904,7 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
     start, end = newsdata._moment(display_window["start"]), newsdata._moment(display_window["end"])
     eligible = [item for item in snapshot.get("items", []) if start <= newsdata._moment(item["published_at"]) <= end]
     window_excluded = len(snapshot.get("items", [])) - len(eligible)
-    relevant = [item for item in eligible if agent_id not in {"geopolitical-morning", "iran-news"} or _relevant(
+    relevant = [item for item in eligible if (agent_id == "historical-reading-companion" and item.get("publisher_text_verified") is True) or _relevant(
         agent_id, item.get("original_headline") or item["headline"],
         item.get("original_summary") or item.get("summary", ""))]
     relevance_excluded = len(eligible) - len(relevant)
@@ -776,7 +919,10 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
         next_at = max(next_at or "", provider["cooldown_until"])
     if error and next_at:
         error = {**error, "retry_after_seconds": max(0, math.ceil((newsdata._moment(next_at) - now).total_seconds()))}
-    limitations = ["provider_metadata_only", "coverage_not_guaranteed"]
+    verified_count = sum(item.get("publisher_text_verified") is True for item in items)
+    limitations = ["coverage_not_guaranteed"]
+    if verified_count < len(items) or not items:
+        limitations.append("provider_metadata_only" if not verified_count else "some_sources_metadata_only")
     plan = snapshot.get("provider_plan") or plan_metadata()
     if plan["configured_plan"] == "free":
         limitations.append("free_plan_12_hour_delay")
@@ -788,7 +934,7 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
         limitations.append("partial_retrieval")
     if snapshot.get("suspected_provider_delay"):
         limitations.append("provider_delay")
-    return {"agent_id": agent_id, "provider": "newsdata", "status": status, "items": items,
+    return {"agent_id": agent_id, "provider": snapshot.get("provider", "newsdata"), "status": status, "items": items,
         "actual_count": len(items), "maximum_items": MAX_ITEMS, "coverage_hours": 12,
         "refresh_mode": REFRESH_MODE,
         "refresh_interval_seconds": REFRESH_INTERVAL_SECONDS, "last_successful_refresh_at": row.get("last_successful_refresh_at"),
@@ -799,12 +945,16 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
         "relevance_excluded_from_cache": relevance_excluded,
         "cached": bool(snapshot), "stale": stale, "partial": bool(snapshot.get("partial")), "error": error,
         "refresh_started": started, "pagination": snapshot.get("pagination", {}), "excluded": excluded,
+        "retrieval": retrieval, "retrieval_options": ["newsdata", "web_search"],
         "provider_plan": plan, "limitation_codes": limitations, "requested_language": language,
         "observed_latest_provider_publication_at": snapshot.get("observed_latest_provider_publication_at"),
         "observed_earliest_provider_publication_at": snapshot.get("observed_earliest_provider_publication_at"),
         "provider_age_seconds": snapshot.get("provider_age_seconds"),
         "suspected_provider_delay": bool(snapshot.get("suspected_provider_delay")),
-        "publication_basis": "newsdata_pubDate_pubDateTZ", "publisher_text_verified": False,
+        "publication_basis": ("publisher_page" if items and verified_count == len(items)
+            else "mixed_provider_metadata_and_publisher_pages" if verified_count else "newsdata_pubDate_pubDateTZ"),
+        "publisher_text_verified": bool(items) and verified_count == len(items),
+        "publisher_verified_count": verified_count, "display_timezone": "Asia/Dubai",
         "query": QUERIES[agent_id]}
 
 
@@ -815,17 +965,18 @@ def get_feed(agent_id: str, language: str = "ar", *, refresh: bool = False, forc
     Empty and expired snapshots stay cache-only on passive reads. ``refresh``
     or ``force`` expresses an explicit action; an eligible refresh runs once in
     a bounded shared thread. Neither bypasses the shared interval, provider
-    cooldown, or daily credit ledger. ``next_refresh_at`` is an eligibility
+    cooldown, or daily credit ledger. Failed application checks can be rechecked
+    explicitly after configuration changes. ``next_refresh_at`` is an eligibility
     time, not a scheduled refresh.
     """
     _key(agent_id)
     _language(language)
     require_capability(agent_id, "tools", "newsdata")
     store = FeedStore(database)
-    claim = store.claim(agent_id) if refresh or force else None
+    claim = store.claim(agent_id, explicit_retry=True, allow_web_fallback=True) if refresh or force else None
     if claim:
         threading.Thread(target=_refresh, args=(store, agent_id, claim),
-                         name="aihub-news-" + agent_id, daemon=True).start()
+                         kwargs={"allow_web_fallback": True}, name="aihub-news-" + agent_id, daemon=True).start()
     return _view(store, agent_id, language, started=bool(claim))
 
 
@@ -843,7 +994,7 @@ def _topic_matches(item: dict[str, Any], topic: str, agent_id: str) -> bool:
 
 def get_report_feed(agent_id: str, topic: str = "", research_window: dict[str, Any] | None = None,
                     language: str = "ar", progress: Callable[[str], None] | None = None, *,
-                    database: Store | None = None) -> dict[str, Any]:
+                    database: Store | None = None, allow_web_fallback: bool = False) -> dict[str, Any]:
     """Consume the shared snapshot, or synchronously perform its eligible refresh.
 
     A recent cached cutoff can precede the report cutoff; both are returned.
@@ -863,9 +1014,10 @@ def get_report_feed(agent_id: str, topic: str = "", research_window: dict[str, A
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise StoreError("newsdata_timeout", "The shared news refresh did not finish within the report's wait limit.", 504)
-        claim = store.claim(agent_id, requested)
+        claim = store.claim(agent_id, requested, explicit_retry=True, allow_web_fallback=allow_web_fallback)
         if claim:
-            _refresh(store, agent_id, claim, timeout_seconds=max(0.0, deadline - time.monotonic()))
+            _refresh(store, agent_id, claim, timeout_seconds=max(0.0, deadline - time.monotonic()),
+                **({"allow_web_fallback": True} if allow_web_fallback else {}))
         view = _view(store, agent_id, language, requested_window=requested)
         recent = bool(view["snapshot_id"]) and view["cache_age_seconds"] < REFRESH_INTERVAL_SECONDS
         next_at = view["next_refresh_at"]
@@ -897,12 +1049,17 @@ def get_report_feed(agent_id: str, topic: str = "", research_window: dict[str, A
         "publisher": item["publisher"], "url": item["url"], "published_at": item["published_at"],
         "excerpt": item["original_summary"], "description": item["original_summary"], "role": "fresh",
         "source_kind": item["source_kind"], "publication_verification": item["publication_verification"],
-        "publisher_text_verified": False, "evidence_level": "newsdata_structured_metadata",
+        "publisher_text_verified": item.get("publisher_text_verified") is True,
+        "evidence_level": item.get("evidence_level", "newsdata_structured_metadata"),
+        "factual_basis": item.get("factual_basis", "newsdata_structured_metadata"),
+        **{key: item[key] for key in ("citation_annotations", "content_sha256", "retrieved_at", "source_category",
+            "syndicated_sources", "syndication_agency") if key in item},
         "original_language": item["original_language"]} for item in items]
     return {**view, "items": items, "sources": sources, "actual_count": len(items),
         "requested_research_window": requested, "freshness": {"window_start": requested["start"],
             "window_end": requested["end"], "snapshot_window": view["research_window"],
-            "coverage_complete": False, "timestamp_basis": "newsdata_pubDate_pubDateTZ", "publisher_text_verified": False,
+            "coverage_complete": False, "timestamp_basis": view["publication_basis"],
+            "publisher_text_verified": bool(items) and all(item.get("publisher_text_verified") is True for item in items),
             "observed_latest_provider_publication_at": view["observed_latest_provider_publication_at"],
             "observed_earliest_provider_publication_at": view["observed_earliest_provider_publication_at"],
             "provider_age_seconds": view["provider_age_seconds"], "suspected_provider_delay": view["suspected_provider_delay"]},

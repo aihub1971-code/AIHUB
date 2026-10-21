@@ -17,10 +17,10 @@ def test_health_and_static_ui_are_available_without_credentials():
     assert client.get("/static/app.js").status_code == 200
 
 
-def test_agents_endpoint_exposes_nine_active_assistants(client):
+def test_agents_endpoint_exposes_seven_active_agents(client):
     response = client.get("/v1/agents")
     assert response.status_code == 200
-    assert response.json()["count"] == 9
+    assert response.json()["count"] == 7
     assert RETIRED_AGENT_IDS.isdisjoint(agent["id"] for agent in response.json()["agents"])
     assert any(a["id"] == "iran-news" and a["name"] == "أخبار حرب إيران" for a in response.json()["agents"])
 
@@ -64,10 +64,10 @@ def test_report_persists_replays_and_downloads_without_duplicate_call(client, mo
         return {"response": "## تقرير تجريبي اصطناعي\n\nنجح اختبار التخزين.", "provider": "openai", "model": "fixture", "usage": {"prompt_tokens": 50, "completion_tokens": 25, "total_tokens": 75}, "estimated_cost_usd": 0.01, "cost_tracking_complete": True}
     monkeypatch.setattr(runtime, "run_agent", fake_run)
     headers = {"Idempotency-Key": "api-fixture-report-1"}
-    first = client.post("/v1/agents/decision-briefing/run", json={"task": "اختبار اصطناعي"}, headers=headers)
+    first = client.post("/v1/agents/historical-reading-companion/run", json={"task": "اختبار اصطناعي"}, headers=headers)
     assert first.status_code == 200, first.text
     report_id = first.json()["report_id"]
-    replay = client.post("/v1/agents/decision-briefing/run", json={"task": "اختبار اصطناعي"}, headers=headers)
+    replay = client.post("/v1/agents/historical-reading-companion/run", json={"task": "اختبار اصطناعي"}, headers=headers)
     assert replay.json()["report_id"] == report_id
     assert replay.json()["idempotency_replayed"] is True
     assert len(calls) == 1
@@ -110,11 +110,11 @@ def test_system_status_exposes_configuration_flags_only(client, monkeypatch):
     assert response.json()["provider"] == "openai"
     assert response.json()["search_provider"] == "newsdata"
     assert response.json()["configuration_check_only"] is True
-    assert response.json()["version"] == "2.0.4"
+    assert response.json()["version"] == "2.1.0"
     assert response.json()["news_items_per_report"] is None
     assert response.json()["news_count_mode"] == "provider_page"
-    assert response.json()["news_item_limit"] == 20
-    assert response.json()["iran_news"]["result_limit"] == 20
+    assert response.json()["news_item_limit"] == 50
+    assert response.json()["iran_news"]["result_limit"] == 50
     assert response.json()["allowed_source_domains"] == []
     assert response.json()["other_news"]["processing_limit"] == 20
     assert set(response.json()["other_news"]["allowed_source_domains"]) == {
@@ -152,7 +152,7 @@ def test_system_status_checks_news_budget_configuration_too(client, monkeypatch)
     assert response.json()["configuration_issue"] == "pricing_not_configured"
 
 
-def test_system_pricing_readiness_uses_active_assistants_without_provider_calls(client, monkeypatch):
+def test_system_pricing_readiness_uses_active_agents_without_provider_calls(client, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-readiness-key")
     response = client.get("/v1/system")
     assert response.status_code == 200
@@ -211,8 +211,8 @@ def test_system_newsdata_configuration_without_openai_is_read_only_and_secret_fr
     assert result["configuration_check_only"] is True
     assert result["iran_news"] == {
         "provider": "newsdata", "configured": True, "query": "iran war",
-        "query_semantics": "iran AND war", "window_hours": 48, "source_language": "en",
-        "page_size": 7, "result_limit": 20, "plan": "free", "free_plan_delay_hours": 12,
+        "query_semantics": "iran AND war", "window_hours": 12, "source_language": "en",
+        "page_size": 7, "result_limit": 50, "plan": "free", "free_plan_delay_hours": 12,
         "translation_provider": "openai", "translation_configured": False, "configuration_issue": None,
     }
     assert "private-newsdata-fixture" not in response.text

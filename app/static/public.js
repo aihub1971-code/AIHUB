@@ -7,15 +7,15 @@
     ar:{
       "public.brand":"أخبار ومعرفة ومحادثة",
       "public.connecting":"جارٍ الاتصال","public.ready":"جاهز للبحث","public.offline":"تعذر الاتصال",
-      "public.sections":"أقسام المنصة","public.searchTab":"البحث والمساعدون","public.chatTab":"محادثة AI HUB",
-      "public.assistants":"اختر مساعدك","public.sidebarNote":"اختر المجال الذي تحتاجه، واكتب طلبك، ثم اضغط Enter.",
+      "public.sections":"أقسام المنصة","public.searchTab":"البحث والوكلاء","public.chatTab":"محادثة AI HUB",
+      "public.assistants":"اختر وكيلك","public.sidebarNote":"اختر المجال الذي تحتاجه، واكتب طلبك، ثم اضغط Enter.",
       "public.eyebrow":"مساحة المعرفة","public.iranDescription":"تابع تغطيات حرب إيران من مصادر متنوعة، بعناوين واضحة وملخصات وروابط للمقالات الأصلية.",
       "public.searchLabel":"ما الذي تريد البحث عنه؟","public.placeholder":"اكتب سؤالك أو طلبك هنا…",
       "public.keyboard":"Enter للبحث · Shift + Enter لسطر جديد","public.search":"بحث","public.searching":"جارٍ البحث…",
-      "public.iranScope":"أول 20 نتيجة عن iran war خلال آخر 48 ساعة، مرتبة من الأحدث. العربية والإنجليزية متاحتان.",
+      "public.iranScope":"حتى 50 نتيجة عن iran war خلال آخر 12 ساعة، مرتبة من الأحدث. العربية والإنجليزية متاحتان.",
       "public.results":"نتائج البحث","public.discuss":"ناقش النتائج","public.emptyTitle":"معرفة أوضح، من مصادرها",
-      "public.emptyDescription":"اضغط Enter أو «بحث» لعرض النتائج. ويمكنك مناقشتها مع مساعد AI HUB.",
-      "public.benefitOne":"مصادر وروابط مباشرة","public.benefitTwo":"ملخصات بالعربية والإنجليزية","public.benefitThree":"أول 20 نتيجة للأخبار",
+      "public.emptyDescription":"اضغط Enter أو «بحث» لعرض النتائج. ويمكنك مناقشتها مع وكيل AI HUB.",
+      "public.benefitOne":"مصادر وروابط مباشرة","public.benefitTwo":"ملخصات بالعربية والإنجليزية","public.benefitThree":"حتى 50 نتيجة للأخبار",
       "public.footer":"افتح المصادر الأصلية للتفاصيل. قد تخطئ الإجابات الآلية، فراجع المعلومات المهمة.",
       "public.loading":"جارٍ جلب النتائج وإعدادها…","public.pageLoading":"جارٍ فتح الصفحة…",
       "public.error":"تعذر إكمال الطلب الآن. حاول مرة أخرى بعد قليل.","public.unavailable":"الخدمة غير متاحة مؤقتًا. حاول مرة أخرى لاحقًا.",
@@ -31,15 +31,15 @@
     en:{
       "public.brand":"News, knowledge and conversation",
       "public.connecting":"Connecting","public.ready":"Ready to search","public.offline":"Connection unavailable",
-      "public.sections":"Workspace sections","public.searchTab":"Search and assistants","public.chatTab":"Chat with AI HUB",
-      "public.assistants":"Choose an assistant","public.sidebarNote":"Choose a topic, write your request and press Enter.",
+      "public.sections":"Workspace sections","public.searchTab":"Search and agents","public.chatTab":"Chat with AI HUB",
+      "public.assistants":"Choose an agent","public.sidebarNote":"Choose a topic, write your request and press Enter.",
       "public.eyebrow":"YOUR KNOWLEDGE WORKSPACE","public.iranDescription":"Follow Iran war coverage from a range of publishers, with clear headlines, summaries and links to original articles.",
       "public.searchLabel":"What would you like to find?","public.placeholder":"Write your question or request here…",
       "public.keyboard":"Enter to search · Shift + Enter for a new line","public.search":"Search","public.searching":"Searching…",
-      "public.iranScope":"The first 20 results for iran war over the latest 48 hours, newest first. Available in Arabic and English.",
+      "public.iranScope":"The first 50 results for iran war over the latest 12 hours, newest first. Available in Arabic and English.",
       "public.results":"Search results","public.discuss":"Discuss results","public.emptyTitle":"Knowledge, closer to the source",
-      "public.emptyDescription":"Press Enter or Search to see results. Then explore them with the AI HUB assistant.",
-      "public.benefitOne":"Direct source links","public.benefitTwo":"Arabic and English summaries","public.benefitThree":"First 20 news results",
+      "public.emptyDescription":"Press Enter or Search to see results. Then explore them with the AI HUB agent.",
+      "public.benefitOne":"Direct source links","public.benefitTwo":"Arabic and English summaries","public.benefitThree":"Up to 50 news results",
       "public.footer":"Open original sources for details. AI responses can contain mistakes; check important information.",
       "public.loading":"Finding and preparing results…","public.pageLoading":"Opening the page…",
       "public.error":"The request could not be completed right now. Please try again shortly.","public.unavailable":"The service is temporarily unavailable. Please try again later.",
@@ -183,11 +183,11 @@
     flushParagraph();
   }
   function beforeCount(data){const p=data?.pagination||{};return Number.isSafeInteger(p.results_before_page)&&p.results_before_page>=0?p.results_before_page:Math.max(0,(Number(p.page_index)||1)-1)*(Number(p.page_size)||10);}
-  function reachedLimit(data){const p=data?.pagination||{};return p.limit_reached===true||(Number.isSafeInteger(p.results_consumed)?p.results_consumed>=20:beforeCount(data)+(data?.newsdata?.returned_item_count??data?.items?.length??0)>=20);}
+  function reachedLimit(data){const p=data?.pagination||{};return p.limit_reached===true||(Number.isSafeInteger(p.results_consumed)?p.results_consumed>=50:beforeCount(data)+(data?.newsdata?.returned_item_count??data?.items?.length??0)>=50);}
   function nextUnavailable(data){const p=data?.pagination||{};return reachedLimit(data)||(!p.has_more&&!p.next_report_id)||p.next_report_status==="failed";}
   function renderNews(target,data){
     target.replaceChildren();target.className="response-body news-reading";target.dir=I18n.getDirection();target.lang=I18n.getLanguage();
-    const p=data.pagination||{},items=(Array.isArray(data.items)?data.items:[]).filter(x=>x&&typeof x==="object").slice(0,Math.max(0,20-beforeCount(data)));
+    const p=data.pagination||{},items=(Array.isArray(data.items)?data.items:[]).filter(x=>x&&typeof x==="object").slice(0,Math.max(0,50-beforeCount(data)));
     const intro=el("header","news-report-intro");
     intro.append(el("p","news-count",t("newsdata.pageCount",{page:n(p.page_index||1),count:n(items.length)})),el("p","news-result-limit",t("newsdata.limitNote")));
     if(data.generated_at)intro.append(el("p","news-prepared",t("news.prepared",{date:localDate(data.generated_at)})));

@@ -111,13 +111,13 @@ def test_language_persists_and_is_part_of_report_idempotency(client, monkeypatch
     monkeypatch.setattr(runtime, "run_agent", provider)
     headers = {"Idempotency-Key": "bilingual-report-fixture"}
     body = {"task": "Synthetic task", "language": "en"}
-    first = client.post("/v1/agents/decision-briefing/run", json=body, headers=headers)
+    first = client.post("/v1/agents/historical-reading-companion/run", json=body, headers=headers)
     assert first.status_code == 200, first.text
     report_id = first.json()["report_id"]
     assert first.json()["language"] == "en"
-    replay = client.post("/v1/agents/decision-briefing/run", json=body, headers=headers)
+    replay = client.post("/v1/agents/historical-reading-companion/run", json=body, headers=headers)
     assert replay.json()["idempotency_replayed"] is True
-    conflict = client.post("/v1/agents/decision-briefing/run", json={**body, "language": "ar"}, headers=headers)
+    conflict = client.post("/v1/agents/historical-reading-companion/run", json={**body, "language": "ar"}, headers=headers)
     assert conflict.status_code == 409
     assert calls == ["en"]
     record = client.get(f"/v1/reports/{report_id}").json()

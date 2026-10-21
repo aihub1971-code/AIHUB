@@ -22,7 +22,7 @@ from app.storage import StoreError, get_store
 router = APIRouter(prefix="/v1/public/workspace", tags=["research workspace"])
 REPORT_FIELDS = ("schema_version", "report_kind", "report_id", "agent_id", "agent_name", "topic", "language",
                  "kind", "title", "created_at", "previous_report_id", "response", "fresh_item_count",
-                 "actual_article_count", "analyzed_article_count", "requested_article_target")
+                 "actual_article_count", "analyzed_article_count", "requested_article_target", "status", "factual_basis")
 JOB_FIELDS = ("job_id", "agent_id", "topic", "language", "generation_seq", "status", "stage", "research_window",
               "research_cutoff", "created_at", "updated_at", "started_at", "finished_at", "report_id",
               "previous_report_id", "error_code", "error", "pdf_status")
@@ -61,6 +61,8 @@ def profile_view(value: dict[str, Any]) -> dict[str, Any]:
                          "description", "description_ar", "description_en", "default_topic_ar", "default_topic_en",
                          "view_labels", "views", "view_labels_ar", "view_labels_en", "uses_retrieval", "primary"))
     result["news_feed_enabled"] = news_feed.supports_agent(value.get("id", value.get("agent_id", "")))
+    result["retrieval_options"] = ["newsdata", "web_search"]
+    result["background_research_available"] = bool(value.get("allow_background"))
     return result
 
 
@@ -87,7 +89,8 @@ def result_view(value: object) -> dict[str, Any]:
             continue
         entry = _pick(item, ("id", "headline", "publisher", "published_at", "published_date", "summary",
                              "why_it_matters", "source_ids", "section", "event_date", "classification", "source_kind",
-                             "translation_status", "original_language", "original_headline", "original_summary"))
+                             "translation_status", "original_language", "original_headline", "original_summary",
+                             "publisher_text_verified", "evidence_level"))
         entry["url"] = _url(item.get("url"))
         result["items"].append(entry)
     result["sections"] = [_pick(section, ("id", "title", "body", "source_ids", "classification"))
@@ -97,7 +100,7 @@ def result_view(value: object) -> dict[str, Any]:
         if not isinstance(source, dict):
             continue
         entry = _pick(source, ("id", "title", "publisher", "published_at", "role", "source_kind", "excerpt",
-                              "publisher_text_verified", "evidence_level", "original_language"))
+                              "publisher_text_verified", "evidence_level", "original_language", "source_category"))
         entry["url"] = _url(source.get("url"))
         verification = source.get("publication_verification")
         if isinstance(verification, dict):
@@ -135,6 +138,12 @@ def result_view(value: object) -> dict[str, Any]:
     result["freshness"] = _pick(value.get("freshness"),
         ("window_start", "window_end", "coverage_complete", "timestamp_basis", "publisher_text_verified",
          "observed_latest_provider_publication_at", "provider_age_seconds", "suspected_provider_delay"))
+    result["retrieval"] = _pick(value.get("retrieval"),
+        ("providers_attempted", "selection_reason", "newsdata_raw_count", "cached_evidence_providers"))
+    for provider in ("newsdata", "web_search"):
+        if isinstance(value.get("retrieval"), dict):
+            result["retrieval"][provider + "_error"] = _pick(value["retrieval"].get(provider + "_error"),
+                ("code", "scope", "retry_after_seconds", "limit_kind"))
     if isinstance(value.get("freshness"), dict):
         result["freshness"]["snapshot_window"] = _pick(value["freshness"].get("snapshot_window"),
             ("start", "end", "cutoff", "timezone", "display_timezone"))
@@ -172,7 +181,8 @@ def _wake(request: Request) -> None:
 def configuration(session_id: str = Depends(public.require_session)) -> dict[str, Any]:
     profiles = [profile_view(value) for value in list_profiles()]
     return {"agents": profiles, "agent_count": len(profiles), "languages": ["ar", "en"],
-            "coverage_hours": 12, "maximum_news_items": 100, "display_timezone": "Asia/Dubai",
+            "coverage_hours": 12, "maximum_news_items": 50, "maximum_newsdata_articles_per_refresh": 50,
+            "display_timezone": "Asia/Dubai",
             "news_enabled_agents": [profile["id"] for profile in profiles if profile["news_feed_enabled"]],
             "refresh_mode": news_feed.REFRESH_MODE, "news_refresh_interval_seconds": news_feed.REFRESH_INTERVAL_SECONDS,
             "chat_available": runtime.runtime_is_ready()}

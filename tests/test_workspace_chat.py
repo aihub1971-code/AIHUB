@@ -193,6 +193,76 @@ def test_main_chat_routes_to_existing_relevant_domain_without_client_report_sele
     assert unrelated["report_id"] not in json.dumps(provider["calls"])
 
 
+@pytest.mark.parametrize(("label", "age"), [
+    ("Canada-programme-costs-employment-effects", timedelta(hours=1)),
+    ("Finland-programme-costs-employment-effects", timedelta(days=3)),
+])
+def test_independent_evidence_question_does_not_reuse_unrelated_or_stale_agent_report(
+        discussion, provider, label, age):
+    previous = save_report(discussion, "ubi-research", label=label, moment=NOW - age)
+    question = "What are Finland programme costs and employment effects?"
+    response = send(discussion["client"], conversation(discussion["client"]), question,
+                    agent_id="ubi-research", report_id=previous["report_id"])
+    assert response.status_code == 202, response.text
+    assert response.json()["status"] == "researching"
+    assert response.json()["job"]["topic"] == question
+    assert response.json()["job"]["research_window"]["end"] == NOW.isoformat(timespec="microseconds")
+    assert provider["calls"] == []
+    assert len(discussion["reports"].list_jobs(discussion["owner"], active_only=True)) == 1
+
+
+def test_current_relevant_evidence_can_answer_without_duplicate_research(discussion, provider):
+    selected = save_report(discussion, "ubi-research", label="Finland-programme-costs-employment-effects")
+    question = "What are Finland programme costs and employment effects?"
+    response = send(discussion["client"], conversation(discussion["client"]), question, agent_id="ubi-research")
+    assert response.status_code == 200, response.text
+    assert response.json()["context"]["fresh_research"] is False
+    assert evidence(provider["calls"][0])["report_ids"] == [selected["report_id"]]
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
+
+
+def test_explicit_dated_background_finds_relevant_older_owned_report(discussion, provider):
+    background = save_report(discussion, "ubi-research",
+        label="Finland-programme-costs-employment-effects-2017", moment=NOW - timedelta(days=3))
+    latest = save_report(discussion, "ubi-research", label="Canada-programme-costs-employment-effects")
+    question = "Explain the dated background on Finland programme costs and employment effects from 2017."
+    response = send(discussion["client"], conversation(discussion["client"]), question, agent_id="ubi-research",
+                    report_id=latest["report_id"])
+    assert response.status_code == 200, response.text
+    attached = evidence(provider["calls"][0])
+    assert attached["report_ids"] == [background["report_id"]]
+    assert attached["research_cutoffs"][0]["cutoff"] == background["research_window"]["end"]
+    assert latest["report_id"] not in attached["report_ids"]
+    assert response.json()["context"]["fresh_research"] is False
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
+
+
+@pytest.mark.parametrize("question", [
+    "Hello", "What did we discuss about research costs and employment effects?",
+    "Summarize the saved report and explain its employment effects.",
+    "Remember that I prefer clear comparisons of programme costs.",
+    "ما الذي ناقشنا بشأن الأبحاث وتكاليف البرامج؟",
+])
+def test_old_report_does_not_turn_greetings_memory_or_snapshot_discussion_into_research(
+        discussion, provider, question):
+    previous = save_report(discussion, "ubi-research", label="old-background", moment=NOW - timedelta(days=3))
+    response = send(discussion["client"], conversation(discussion["client"]), question, agent_id="ubi-research")
+    assert response.status_code == 200, response.text
+    assert response.json()["context"]["fresh_research"] is False
+    assert previous["report_id"] in response.json()["context"]["report_ids"]
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
+
+
+def test_explicit_background_question_cannot_use_another_visitors_matching_archive(discussion, provider):
+    foreign = save_report(discussion, "ubi-research", label="Finland-programme-costs-employment-effects-2017",
+                          moment=NOW - timedelta(days=3), owner_id="public:another-visitor")
+    save_report(discussion, "ubi-research", label="Canada-programme-costs-employment-effects")
+    question = "Explain the dated background on Finland programme costs and employment effects from 2017."
+    response = send(discussion["client"], conversation(discussion["client"]), question, agent_id="ubi-research")
+    assert response.status_code == 202, response.text
+    assert foreign["report_id"] not in response.text and provider["calls"] == []
+
+
 def test_follow_up_inherits_its_owned_snapshot_without_an_attachment_prompt(discussion, provider):
     selected = save_report(discussion)
     client, cid = discussion["client"], conversation(discussion["client"])
@@ -448,10 +518,10 @@ def test_retired_assistants_are_never_selected_by_main_chat_routing(agent_id, me
 def test_workspace_platform_help_uses_active_profiles_and_current_news_cap(monkeypatch):
     monkeypatch.setattr(workspace_chat.research, "MAX_NEWS_ITEMS", 100)
     context = workspace_chat.platform_context()
-    assert len(context["agents"]) == 9
+    assert len(context["agents"]) == 7
     assert RETIRED_AGENT_IDS.isdisjoint(agent["id"] for agent in context["agents"])
     assert context["news"]["maximum_items_after_validation_and_dedup"] == 100
-    assert "Retired assistants cannot generate" in context["archives"]
+    assert "Retired agents cannot generate" in context["archives"]
 
 
 def test_platform_help_has_no_research_job_and_does_not_claim_old_manual_attachment_flow(discussion, provider):
@@ -462,7 +532,7 @@ def test_platform_help_has_no_research_job_and_does_not_claim_old_manual_attachm
     payload = json.dumps(provider["calls"][0], ensure_ascii=False)
     assert "workspace_version" in payload and "Generate fresh report" in payload
     assert "No manual" in payload or "automatic" in payload
-    assert "NewsData" not in payload and "48 hours" not in payload
+    assert "NewsData" in payload and "48 hours" not in payload
     assert_workspace_public(response.json())
 
 

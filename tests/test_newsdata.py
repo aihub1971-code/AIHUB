@@ -1,6 +1,6 @@
 """Synthetic NewsData fixtures only; no real articles, keys or network calls."""
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 
 import httpx
@@ -11,6 +11,15 @@ from app import newsdata, runtime
 
 
 NOW = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def frozen_news_clock(monkeypatch):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW.astimezone(tz) if tz else NOW.replace(tzinfo=None)
+    monkeypatch.setattr(newsdata, "datetime", Clock)
 
 
 def context(**changes):
@@ -121,35 +130,37 @@ def test_next_page_uses_saved_cursor_size_and_window_without_auto_pagination(mon
     assert "opaque-next-page" not in json.dumps(result["pagination"])
 
 
-def test_configured_page_size_above_twenty_is_clamped_before_provider_request(monkeypatch):
+def test_configured_paid_page_size_fifty_reaches_raw_limit_in_one_request(monkeypatch):
     configured(monkeypatch)
+    monkeypatch.setenv("NEWSDATA_PLAN", "paid")
     monkeypatch.setenv("NEWSDATA_PAGE_SIZE", "50")
     calls = []
     def handler(request):
         calls.append(request)
-        assert request.url.params["size"] == "20"
-        return httpx.Response(200, json=page([article(number) for number in range(1, 21)],
+        assert request.url.params["size"] == "50" and request.url.params["timeframe"] == "12"
+        return httpx.Response(200, json=page([article(number) for number in range(1, 51)],
                                              totalResults=73, nextPage="must-not-fetch"))
     mock_http(monkeypatch, handler)
     result = newsdata.run_report(newsdata_context=context())
-    assert len(calls) == 1 and result["item_count"] == 20
+    assert len(calls) == 1 and result["item_count"] == 50
     assert result["target_count"] is result["shortfall"] is None
-    assert result["bounded_item_limit"] == 20
+    assert result["bounded_item_limit"] == 50
     assert result["count_mode"] == "provider_page"
-    assert result["pagination"]["results_consumed"] == 20 and result["pagination"]["limit_reached"]
+    assert result["pagination"]["results_consumed"] == 50 and result["pagination"]["limit_reached"]
     assert not result["pagination"]["has_more"] and result["newsdata_context"]["next_cursor"] is None
 
 
-def test_final_partial_page_preserves_cursor_size_and_trims_before_validation_and_translation(monkeypatch):
+def test_final_partial_page_requests_only_remaining_raw_allowance_before_validation(monkeypatch):
     configured(monkeypatch)
-    raw = [article(number) for number in range(16, 31)]
+    monkeypatch.setenv("NEWSDATA_PLAN", "paid")
+    raw = [article(number) for number in range(46, 51)]
     raw[0]["title"] = None
     raw[1]["link"] = "javascript:invalid"
     calls, parsed_sizes, translated_ids, reserved_sizes = [], [], [], []
     original_items, original_translate, original_plan = newsdata._items, newsdata.translate_items, newsdata.translation_plan
     def handler(request):
         calls.append(request)
-        assert request.url.params["size"] == "15" and request.url.params["page"] == "saved-cursor"
+        assert request.url.params["size"] == "5" and request.url.params["page"] == "saved-cursor"
         return httpx.Response(200, json=page(raw, totalResults=100, nextPage="ignored-next"))
     def parse(values, saved):
         parsed_sizes.append(len(values))
@@ -164,27 +175,56 @@ def test_final_partial_page_preserves_cursor_size_and_trims_before_validation_an
     monkeypatch.setattr(newsdata, "translate_items", translate)
     monkeypatch.setattr(newsdata, "translation_plan", plan)
     mock_http(monkeypatch, handler)
-    result = newsdata.run_report(newsdata_context=context(page_size=15, page_index=2,
-        cursor="saved-cursor", parent_report_id="rpt_parent", root_report_id="rpt_root", results_consumed=15))
+    result = newsdata.run_report(newsdata_context=context(page_size=15, page_index=4,
+        cursor="saved-cursor", parent_report_id="rpt_parent", root_report_id="rpt_root", results_consumed=45))
     assert len(calls) == 1 and parsed_sizes == [5] and reserved_sizes == [5]
-    assert translated_ids == ["synthetic-18", "synthetic-19", "synthetic-20"]
+    assert translated_ids == ["synthetic-48", "synthetic-49", "synthetic-50"]
     assert result["item_count"] == 3 and result["discarded_item_count"] == 2
-    assert result["newsdata"]["returned_item_count"] == 15 and result["newsdata"]["consumed_item_count"] == 5
-    assert result["pagination"]["results_before_page"] == 15
-    assert result["pagination"]["results_consumed"] == 20 and result["pagination"]["limit_reached"]
+    assert result["newsdata"]["returned_item_count"] == 5 and result["newsdata"]["consumed_item_count"] == 5
+    assert result["pagination"]["results_before_page"] == 45
+    assert result["pagination"]["results_consumed"] == 50 and result["pagination"]["limit_reached"]
     assert not result["pagination"]["has_more"]
 
 
 def test_runtime_rejects_exhausted_context_before_translation_plan_or_provider(monkeypatch):
     configured(monkeypatch)
     def forbidden(*args, **kwargs):
-        raise AssertionError("No provider call or translation reservation is allowed after twenty results")
+        raise AssertionError("No provider call or translation reservation is allowed after fifty results")
     monkeypatch.setattr(newsdata, "_fetch_page", forbidden)
     monkeypatch.setattr(newsdata, "translation_plan", forbidden)
     with pytest.raises(HTTPException) as capped:
-        newsdata.run_report(newsdata_context=context(page_index=3, results_consumed=20,
+        newsdata.run_report(newsdata_context=context(page_index=6, results_consumed=50,
             cursor="saved-third", parent_report_id="rpt_parent", root_report_id="rpt_root"))
     assert capped.value.detail["code"] == "newsdata_result_limit"
+
+
+@pytest.mark.parametrize("start,end", [
+    (NOW - timedelta(hours=48), NOW),
+    (NOW - timedelta(hours=12, minutes=16), NOW - timedelta(minutes=16)),
+])
+def test_old_window_requires_new_manual_refresh_before_provider_or_translation(monkeypatch, start, end):
+    configured(monkeypatch)
+    monkeypatch.setattr(newsdata, "_fetch_page", lambda *a: pytest.fail("An old window cannot retrieve news"))
+    monkeypatch.setattr(newsdata, "translation_plan", lambda *a: pytest.fail("An old window cannot reserve translation"))
+    with pytest.raises(HTTPException) as error:
+        newsdata.run_report(newsdata_context=context(window_start=start.isoformat(), window_end=end.isoformat()))
+    assert error.value.detail["code"] == "newsdata_refresh_required"
+
+
+def test_frozen_continuation_still_excludes_articles_older_than_twelve_hours_now():
+    end = NOW - timedelta(minutes=5)
+    saved = context(window_start=(end - timedelta(hours=12)).isoformat(), window_end=end.isoformat())
+    items, excluded = newsdata._items([article(pubDate="2026-10-19 23:58:00"),
+        article(2, pubDate="2026-10-20 00:00:00")], saved)
+    assert len(items) == 1 and items[0]["article_id"] == "synthetic-2"
+    assert excluded["outside_window"] == 1
+
+
+@pytest.mark.parametrize("plan,size", [("unknown", 10), ("free", 10), ("basic", 50), ("paid", 50)])
+def test_configured_entitlement_is_conservative_and_explicit(monkeypatch, plan, size):
+    monkeypatch.setenv("NEWSDATA_PLAN", plan)
+    monkeypatch.setenv("NEWSDATA_PAGE_SIZE", "50")
+    assert newsdata.page_size_setting() == size
 
 
 @pytest.mark.parametrize("value", ["0", "51", "no", "1.5"])
@@ -233,7 +273,8 @@ def test_duplicate_identity_link_and_headline_and_plan_notice_handling():
 @pytest.mark.parametrize("status,code,expected", [
     (401, "Unauthorized", "newsdata_auth_failed"),
     (403, "AccessDenied", "newsdata_access_denied"),
-    (429, "ApiLimitExceeded", "newsdata_rate_limited"),
+    (429, "ApiLimitExceeded", "newsdata_provider_credit_limit"),
+    (429, "ApiKeyLimitExceeded", "newsdata_provider_credit_limit"),
     (200, "RateLimitExceeded", "newsdata_rate_limited"),
     (400, "MaxPageLimitExceeded", "newsdata_page_unavailable"),
     (503, "ServiceUnavailable ", "newsdata_unavailable"),

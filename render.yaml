@@ -25,9 +25,9 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      # Existing NewsData values are preserved by omission. Version 2.0.4 uses
-      # NEWSDATA_API_KEY for seven live-news feeds; retain the existing key and
-      # credit limit privately. OpenAI handles bounded report work and chat.
+      # Existing NewsData values are preserved by omission. Version 2.1.0 supports
+      # NEWSDATA_API_KEY and OpenAI web search for all seven agents; retain the key and
+      # credit limit privately. Explicit refresh fallback and reports use bounded search.
       # Keep secrets private; this release preserves build settings and budgets.
       - key: OPENAI_MODEL_NAME
         value: gpt-6.1-sol

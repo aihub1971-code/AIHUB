@@ -5,16 +5,14 @@ from app.registry import RETIRED_AGENT_IDS, get_agents, get_permissions
 
 SEARCH_AGENTS = {
     "ubi-research", "iran-news", "uae-eu-trade-talks", "geopolitical-morning",
-    "education-observatory", "historical-reading-companion", "story-moodboard",
-    "economic-cultural-briefing", "decision-briefing",
+    "education-observatory", "historical-reading-companion", "economic-cultural-briefing",
 }
 
 
-def test_only_research_agents_have_hosted_web_search():
+def test_all_active_agents_have_both_retrieval_tools_and_retired_agents_have_neither():
     for agent_id in SEARCH_AGENTS | RETIRED_AGENT_IDS:
         assert is_allowed(agent_id, "tools", "web_search") is (agent_id in SEARCH_AGENTS)
-        assert is_allowed(agent_id, "tools", "newsdata") is (agent_id in SEARCH_AGENTS - {
-            "historical-reading-companion", "story-moodboard"})
+        assert is_allowed(agent_id, "tools", "newsdata") is (agent_id in SEARCH_AGENTS)
         assert not is_allowed(agent_id, "external_actions", "send_message")
 
 

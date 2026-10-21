@@ -57,18 +57,18 @@ def refresh(database, agent="iran-news"):
     return news_feed.get_feed(agent, "en", refresh=False, database=database)
 
 
-def test_queries_are_topic_specific_bilingual_bounded_and_match_seven_briefing_agents():
+def test_queries_are_topic_specific_bilingual_bounded_and_match_all_seven_agents():
     assert len(news_feed.QUERIES) == 7
     assert len(set(news_feed.QUERIES.values())) == 7
     for agent, query in news_feed.QUERIES.items():
-        assert get_profile(agent)["kind"] == "briefing"
+        assert get_profile(agent)["kind"] in {"briefing", "reading"}
         assert len(query) <= 100
         assert any("\u0600" <= char <= "\u06ff" for char in query)
-    assert not news_feed.supports_agent("historical-reading-companion")
+    assert news_feed.supports_agent("historical-reading-companion")
     assert not news_feed.supports_agent("story-moodboard")
 
 
-def test_up_to_one_hundred_accepted_articles_not_first_raw_results(monkeypatch, database):
+def test_fifty_raw_results_stop_before_filtering_can_expand_the_request_budget(monkeypatch, database):
     calls = []
     raw = [article(number) for number in range(1, 131)]
     for index in range(0, 30):
@@ -86,32 +86,84 @@ def test_up_to_one_hundred_accepted_articles_not_first_raw_results(monkeypatch, 
             nextPage=str(index + 10) if index < 120 else None))
     mock_http(monkeypatch, handler)
     result = refresh(database)
-    assert len(calls) == 13
-    assert result["actual_count"] == result["maximum_items"] == 100
-    assert result["pagination"]["raw_count"] == 130
-    assert result["pagination"]["stop_reason"] == "article_limit"
+    assert len(calls) == 5
+    assert result["actual_count"] == 20 and result["maximum_items"] == 50
+    assert result["pagination"]["raw_count"] == 50
+    assert result["pagination"]["stop_reason"] == "raw_item_limit"
     assert result["excluded"] == {"irrelevant": 30}
     assert result["coverage_hours"] == 12 and not result["partial"]
     with database._connect() as connection:
-        assert news_feed.accounted_credits(connection, local_date="2026-10-20") == 13
+        assert news_feed.accounted_credits(connection, local_date="2026-10-20") == 5
         assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
-def test_paid_page_size_50_can_reach_100_without_legacy_twenty_cap(monkeypatch, database):
+def test_paid_page_size_fifty_uses_one_page_and_never_follows_the_extra_cursor(monkeypatch, database):
     monkeypatch.setenv("NEWSDATA_PLAN", "paid")
     monkeypatch.setenv("NEWSDATA_PAGE_SIZE", "50")
     calls = []
     def handler(request):
         calls.append(request)
         assert request.url.params["size"] == "50"
+        assert request.url.params["timeframe"] == "12"
         start = 1 if "page" not in request.url.params else 51
         return httpx.Response(200, json=page([article(n) for n in range(start, start + 50)],
             totalResults=200, nextPage="second" if start == 1 else "must-not-fetch"))
     mock_http(monkeypatch, handler)
     result = refresh(database)
-    assert len(calls) == 2 and result["actual_count"] == 100
-    assert newsdata.MAX_NEWSDATA_RESULTS == 20
-    assert newsdata.initial_context(NOW)["window_start"].startswith("2026-10-18")
+    assert len(calls) == 1 and result["actual_count"] == 50
+    assert newsdata.MAX_NEWSDATA_RESULTS == 50
+    assert newsdata.initial_context(NOW)["window_start"].startswith("2026-10-20T00:00")
+
+
+def test_non_divisor_page_size_reduces_last_request_before_io_and_counts_rejected_rows(monkeypatch, database):
+    monkeypatch.setenv("NEWSDATA_PLAN", "basic")
+    monkeypatch.setenv("NEWSDATA_PAGE_SIZE", "15")
+    sizes = []
+    def handler(request):
+        size = int(request.url.params["size"])
+        start = sum(sizes)
+        sizes.append(size)
+        return httpx.Response(200, json=page([article(n, title=None) for n in range(start, start + size)],
+            totalResults=300, nextPage=f"page-{len(sizes)}"))
+    mock_http(monkeypatch, handler)
+    result = refresh(database)
+    assert sizes == [15, 15, 15, 5]
+    assert result["pagination"]["raw_count"] == result["excluded"]["missing_title"] == 50
+    assert result["actual_count"] == 0 and result["pagination"]["stop_reason"] == "raw_item_limit"
+
+
+@pytest.mark.parametrize("title,description,expected", [
+    ("Abu Dhabi and Brussels begin free-trade negotiations", "Officials discuss market access.", True),
+    ("مفاوضات تجارية بين أبوظبي وبروكسل", "بحث المعايير الجمركية والاستثمار", True),
+    ("UAE and EU discuss a customs agreement", "Joint economic partnership talks.", True),
+    ("UAE agrees trade pact with India", "Bilateral investment meeting.", False),
+    ("Brussels begins trade talks with Beijing", "A customs negotiation.", False),
+    ("Emirates airline adds flights to Brussels", "New passenger route.", False),
+])
+def test_uae_eu_relevance_accepts_named_capitals_and_keeps_bilateral_trade_scope(title, description, expected):
+    assert news_feed._relevant("uae-eu-trade-talks", title, description) is expected
+
+
+def test_local_credit_block_can_be_rechecked_after_setting_changes_without_global_provider_cooldown(monkeypatch, database):
+    database._limits = QuotaLimits(newsdata_daily_credit_limit=0)
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json=page())
+    mock_http(monkeypatch, handler)
+    blocked = refresh(database)
+    assert blocked["error"]["scope"] == "application"
+    assert blocked["error"]["limit_kind"] == "application_daily_credit"
+    feed = news_feed.FeedStore(database)
+    assert feed.provider_state()["cooldown_until"] is None and calls == []
+    for language in ("ar", "en"):
+        news_feed.get_feed("iran-news", language, database=database)
+    assert calls == []
+    database._limits = QuotaLimits(newsdata_daily_credit_limit=2)
+    claim = feed.claim("iran-news", explicit_retry=True)
+    assert claim is not None
+    news_feed._refresh(feed, "iran-news", claim)
+    assert len(calls) == 1 and news_feed.get_feed("iran-news", "en", database=database)["error"] is None
 
 
 @pytest.mark.parametrize("plan", ["unknown", "free", "not-a-plan"])
@@ -419,7 +471,8 @@ def test_repeated_cursor_stops_without_retry_and_preserves_partial_data(monkeypa
     assert result["partial"] and result["pagination"]["stop_reason"] == "repeated_cursor"
 
 
-def test_page_limit_is_twenty_without_relaxing_relevance(monkeypatch, database):
+def test_page_limit_stops_without_relaxing_relevance(monkeypatch, database):
+    monkeypatch.setattr(news_feed, "MAX_PAGES", 3)
     calls = []
     def handler(request):
         calls.append(request)
@@ -427,7 +480,7 @@ def test_page_limit_is_twenty_without_relaxing_relevance(monkeypatch, database):
             nextPage=f"page-{len(calls)}"))
     mock_http(monkeypatch, handler)
     result = refresh(database)
-    assert len(calls) == 20 and result["actual_count"] == 0
+    assert len(calls) == 3 and result["actual_count"] == 0
     assert result["partial"] and result["pagination"]["stop_reason"] == "page_limit"
 
 
@@ -452,7 +505,9 @@ def test_total_deadline_cancels_inflight_request_and_retains_attempted_credit(mo
 
 @pytest.mark.parametrize("status,code,expected", [
     (401, "Unauthorized", "newsdata_auth_failed"), (403, "AccessDenied", "newsdata_access_denied"),
-    (429, "ApiLimitExceeded", "newsdata_rate_limited"), (200, "RateLimitExceeded", "newsdata_rate_limited"),
+    (429, "ApiLimitExceeded", "newsdata_provider_credit_limit"),
+    (429, "ApiKeyLimitExceeded", "newsdata_provider_credit_limit"),
+    (200, "RateLimitExceeded", "newsdata_rate_limited"),
     (503, "ServiceUnavailable", "newsdata_unavailable"),
 ])
 def test_provider_errors_are_safe_and_globally_cooled_down(monkeypatch, database, status, code, expected):
@@ -465,6 +520,7 @@ def test_provider_errors_are_safe_and_globally_cooled_down(monkeypatch, database
     result = refresh(database)
     assert result["status"] == "provider_error" and result["error"]["code"] == expected
     assert result["error"]["retry_after_seconds"] == 1800
+    assert result["error"]["scope"] == "provider" and result["error"]["retry_after_source"] == "provider"
     assert "SECRET" not in json.dumps(result)
     assert news_feed.FeedStore(database).claim("geopolitical-morning") is None
     again = news_feed.get_feed("iran-news", "ar", force=True, database=database)
@@ -738,8 +794,8 @@ def test_report_claim_that_exhausts_wait_budget_does_not_start_a_provider_page(m
     database.test_clock[0] += timedelta(seconds=901)
     elapsed = [0.0]
     original_claim = news_feed.FeedStore.claim
-    def delayed_claim(store, agent_id, window=None):
-        claim = original_claim(store, agent_id, window)
+    def delayed_claim(store, agent_id, window=None, **options):
+        claim = original_claim(store, agent_id, window, **options)
         if claim:
             elapsed[0] = news_feed.MAX_REFRESH_SECONDS
         return claim

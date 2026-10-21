@@ -242,3 +242,42 @@ def test_schedule_language_create_update_and_claim_persist(store):
     with pytest.raises(StoreError) as invalid:
         store.update_schedule(english["schedule_id"], language="fr")
     assert invalid.value.code == "invalid_language"
+
+
+def test_existing_unbound_chat_schema_is_migrated_without_losing_history(store):
+    cid = conversation(store)
+    turn = reserve_chat(store, cid)
+    store.finish_chat_turn(turn.turn["turn_id"], "An existing saved answer.", estimated_cost_usd=".001", cost_tracking_complete=True)
+    with store._connect() as connection:
+        connection.execute("DROP INDEX chat_owner_agent_idx")
+        connection.execute("ALTER TABLE chat_conversations DROP COLUMN agent_id")
+    store.initialize()
+    saved = store.get_chat_conversation(cid, "owner")
+    assert saved["agent_id"] is None
+    assert [message["role"] for message in saved["messages"]] == ["user", "assistant"]
+    agent = store.agent_conversation("owner", "ubi-research")
+    assert agent["conversation_id"] != cid and agent["messages"] == []
+
+
+def test_concurrent_agent_bootstrap_has_one_thread_per_owner_and_agent(store):
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        ids = list(pool.map(lambda _: store.agent_conversation("owner", "ubi-research")["conversation_id"], range(16)))
+    assert len(set(ids)) == 1
+    assert store.agent_conversation("visitor", "ubi-research")["conversation_id"] != ids[0]
+    assert store.agent_conversation("owner", "education-observatory")["conversation_id"] != ids[0]
+
+
+def test_memory_proposals_require_owner_review_and_keep_other_visitors_isolated(store):
+    cid = store.agent_conversation("alice", "ubi-research")["conversation_id"]
+    note = store.propose_workspace_memory("alice", kind="correction", content="Our institution is in Abu Dhabi, not Dubai.")
+    assert store.shared_workspace_context("alice", cid, "institution")["notes"] == []
+    with pytest.raises(StoreError) as foreign:
+        store.review_workspace_memory("bob", note["memory_id"], "approve")
+    assert foreign.value.code == "memory_not_found"
+    store.review_workspace_memory("alice", note["memory_id"], "approve")
+    shared = store.shared_workspace_context("alice", cid, "institution")
+    assert shared["notes"][0]["content"] == note["content"]
+    assert shared["notes"][0]["evidence_status"] == "visitor_approved"
+    assert store.list_workspace_memory("bob") == []
+    store.review_workspace_memory("alice", note["memory_id"], "reject")
+    assert store.shared_workspace_context("alice", cid, "institution")["notes"] == []

@@ -21,10 +21,12 @@ _STANDARD = [
 _PROFILES = {
     "ubi-research": {
         "kind": "briefing", "uses_retrieval": True,
+        "allow_background": True, "supplement_primary_research": True,
+        "preferred_domains": ["oecd.org", "worldbank.org", "nber.org", "kela.fi", "jpal.org"],
         "default_topic_en": "New universal basic income policy, pilot results and research, with lessons for the UAE",
         "default_topic_ar": "مستجدات الدخل الأساسي الشامل ونتائج التجارب والأبحاث ودروسها للإمارات",
-        "scope": "Universal basic income: policy decisions, pilot design and findings, funding, eligibility, fiscal and distributional effects, labour-market evidence. Distinguish a new release from the older period studied; do not present old results as new announcements.",
-        "research_strategy": "Search official policy releases, trial registers, research institutions and national/local reporting in relevant languages. Compare what a study measures with what politicians claim. Assess transferability to UAE population, labour and fiscal arrangements without assuming identical institutions.",
+        "scope": "Universal basic income and guaranteed-income programmes: prioritize evaluated programmes, causal evidence, programme and administrative costs, funding choices, employment and hours worked, distribution, wellbeing and public-service interactions. Distinguish a new release from the older period studied; do not present old results as new announcements.",
+        "research_strategy": "Search original trial evaluations, peer-reviewed scholarship, official programme accounts, trial registers and research institutions, then credible original reporting. State design, sample, duration, comparison group, effect sizes when reported and limitations; do not equate a pilot with universal rollout. Include useful clearly dated background evaluations even when there is no fresh news. Assess transferability to UAE population, labour and fiscal arrangements without assuming identical institutions.",
         "terms": ["universal basic income", "basic income", "guaranteed income", "citizen income", "الدخل الأساسي", "الدخل الاساسي", "دخل مضمون", "revenu universel", "renta básica", "grundeinkommen"],
         "sections": _STANDARD,
     },
@@ -42,11 +44,13 @@ _PROFILES = {
     },
     "uae-eu-trade-talks": {
         "kind": "briefing", "uses_retrieval": True,
+        "allow_background": True, "supplement_primary_research": True,
+        "preferred_domains": ["policy.trade.ec.europa.eu", "commission.europa.eu", "consilium.europa.eu", "eur-lex.europa.eu", "moet.gov.ae", "mofa.gov.ae", "wam.ae"],
         "default_topic_en": "Verified UAE–EU trade negotiations, official positions and affected sectors",
         "default_topic_ar": "التطورات الموثقة في مفاوضات تجارة الإمارات والاتحاد الأوروبي ومواقفهما والقطاعات المتأثرة",
         "scope": "Bilateral UAE–EU trade relations, negotiations, market access, investment, regulation, standards and affected sectors. Explain concrete changes and what remains unannounced. Never infer negotiating progress from a meeting, aspiration or older announcement.",
-        "research_strategy": "Prioritize UAE and European Commission releases and original legal/trade documents, then sector and national reporting in Arabic, English and relevant European languages. Distinguish proposed, negotiated, signed and implemented measures.",
-        "terms": ["uae", "emirates", "الإمارات", "الامارات", "émirats", "vereinigte arabische"],
+        "research_strategy": "Always supplement NewsData with original UAE government and European Commission/Council trade releases, negotiating mandates and legal documents. Search UAE/EU, United Arab Emirates/European Union, Abu Dhabi/Brussels, FTA/free trade agreement and CEPA as separate concise concepts, including Arabic and relevant named negotiators. CEPA is not the only label used for these negotiations. Distinguish proposed, negotiated, signed, ratified and implemented measures. A meeting does not prove negotiating progress. If there is no verified development in the last 12 hours, say so; explain the dated documented baseline and useful questions for cooperation meetings separately.",
+        "terms": ["uae", "united arab emirates", "emirates", "abu dhabi", "al zeyoudi", "al zeyoodi", "الإمارات", "الامارات", "أبوظبي", "أبو ظبي", "ابوظبي", "الزيودي", "émirats", "vereinigte arabische"],
         "sections": _STANDARD,
     },
     "geopolitical-morning": {
@@ -60,23 +64,29 @@ _PROFILES = {
     },
     "education-observatory": {
         "kind": "briefing", "uses_retrieval": True,
+        "allow_background": True, "supplement_primary_research": True,
+        "preferred_domains": ["unesco.org", "oecd.org", "worldbank.org", "educationendowmentfoundation.org.uk", "moe.gov.ae"],
         "default_topic_en": "New global education policy, research, skills and institutional developments",
         "default_topic_ar": "مستجدات سياسات التعليم والأبحاث والمهارات والمؤسسات التعليمية عالميًا",
-        "scope": "Education policy, institutions, research, skills, technology, access and international collaboration. Explain practical implications for educators, policymakers and UAE institutions; distinguish release date from study/data collection dates.",
-        "research_strategy": "Prioritize ministries, institutions, peer-reviewed research and original datasets alongside specialist and local education reporting. Identify study design, population, limitations and implementation status.",
+        "scope": "Prioritize measured learning outcomes, workforce skills, teacher development, evaluated AI effectiveness and consequential education-policy changes. Explain practical implications for public services, educators, policymakers and UAE institutions; distinguish research release, data collection and implementation dates. Technology announcements alone are not evidence of learning gains.",
+        "research_strategy": "Find original evaluations and peer-reviewed research, ministries, institutions and datasets, then specialist original reporting. Identify study design, population, comparison, measured outcomes, effect sizes when reported, costs and implementation limits. Include clearly dated landmark/background research when useful. Evaluate AI by learning, teacher workload and access outcomes rather than vendor claims. Compare institutional conditions before proposing UAE adaptation.",
         "terms": ["education", "school", "universit", "student", "teacher", "learning", "curriculum", "skills", "تعليم", "مدرس", "جامعة", "طلاب", "طلبة", "مهارات", "éducation", "université", "école", "educación", "escuela", "bildung", "schule", "образован", "университет", "教育", "大学"],
         "sections": _STANDARD,
     },
     "historical-reading-companion": {
         "kind": "reading", "uses_retrieval": True,
+        "allow_background": True, "supplement_primary_research": True,
+        "preferred_domains": ["bl.uk", "loc.gov", "qdl.qa", "archive.org", "cambridge.org", "oxfordacademic.com"],
         "default_topic_en": "The Abbasid translation movement in Baghdad: knowledge, institutions and competing interpretations",
         "default_topic_ar": "حركة الترجمة في بغداد العباسية: المعرفة والمؤسسات وتعدد التفسيرات",
-        "scope": "A sourced historical reading guide: context, chronology, people, concepts, competing interpretations and reading questions. Historical material is background, not fresh news. Use the supplied text if present without pretending an upload exists.",
-        "research_strategy": "Find museum, library, archive, academic and primary historical sources. Attribute competing interpretations and distinguish contemporary scholarship from historical actors' claims. Label all older material as background.",
+        "scope": "A companion for reading books, chapters and scholarship: establish the author's question, historical context, chronology, institutions and concepts; compare competing scholarly interpretations and the primary evidence behind them. Help UAE experts learn from historical cases while qualifying contemporary analogies. Historical material is background, not fresh news. Use supplied text when present without pretending to have read an entire book or an upload that is absent.",
+        "research_strategy": "Use web research first for scholarship, original texts, academic publishers, libraries, archives and museums; use NewsData for intentional requests about recent historical discoveries, books or scholarship. Cite author, title, edition/publication date and page or chapter only when observed. Distinguish primary testimony, later interpretation and disputed evidence. Never invent quotations, bibliographic details or access to a paywalled book. Explain what can and cannot transfer to present-day policy, and offer focused reading questions and a short evidence-led reading path.",
         "terms": [],
         "sections": [("context", "Historical context", "السياق التاريخي"), ("chronology", "Chronology", "التسلسل الزمني"),
             ("key_people", "Key people", "الشخصيات الرئيسية"), ("concepts", "Key concepts", "المفاهيم الرئيسية"),
-            ("interpretations", "Competing interpretations", "تفسيرات متباينة"), ("reading_questions", "Reading questions", "أسئلة القراءة")],
+            ("interpretations", "Competing interpretations", "تفسيرات متباينة"),
+            ("contemporary_lessons", "Contemporary lessons and their limits", "دروس للحاضر وحدود المقارنة"),
+            ("reading_questions", "Reading questions and next readings", "أسئلة القراءة ومراجع للتوسع")],
     },
     "story-moodboard": {
         "kind": "moodboard", "uses_retrieval": True,
@@ -118,6 +128,7 @@ def get_profile(agent_id: str) -> dict[str, Any]:
     profile.update(id=agent_id, agent_id=agent_id, name=agent["name"], name_en=agent["name"],
                    name_ar=agent.get("display_name_ar", agent["name"]), number=agent.get("number", ""),
                    enabled=agent.get("enabled") is True)
+    profile["retrieval_options"] = ["newsdata", "web_search"]
     profile["sections"] = [{"id": item[0], "title_en": item[1], "title_ar": item[2]} for item in profile["sections"]]
     if profile["kind"] == "reading":
         labels = ("Sources", "Reading Pack", "المصادر", "دليل القراءة")

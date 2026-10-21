@@ -1,4 +1,4 @@
-"""AI HUB: authenticated assistants, report archive, budgets and daily schedules."""
+"""AI HUB: public and owner agent workspaces, reports and bounded research."""
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -16,7 +16,9 @@ from app.auth import require_owner
 from app.chat import router as chat_router
 from app.public import router as public_router
 from app.workspace import router as workspace_router
+from app.owner_workspace import router as owner_workspace_router
 from app.workspace_chat import router as workspace_chat_router
+from app.workspace_chat import agent_router as agent_chat_router, owner_router as owner_chat_router
 from app.report_jobs import ReportWorker
 from app.report_store import get_report_store
 from app.config import docs_enabled, get_setting
@@ -28,7 +30,7 @@ from app.service import execute_report
 from app.storage import StoreError, get_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-APP_VERSION = "2.0.4"
+APP_VERSION = "2.1.0"
 
 
 def runtime_is_ready() -> bool:
@@ -70,7 +72,10 @@ app.mount("/fonts", StaticFiles(directory=STATIC_ROOT.parent / "assets" / "fonts
 app.include_router(chat_router)
 app.include_router(public_router)
 app.include_router(workspace_router)
+app.include_router(owner_workspace_router)
 app.include_router(workspace_chat_router)
+app.include_router(agent_chat_router)
+app.include_router(owner_chat_router)
 
 
 @app.exception_handler(StoreError)
@@ -103,6 +108,13 @@ def root() -> HTMLResponse:
 @app.get("/admin", tags=["system"], response_class=HTMLResponse)
 def admin() -> HTMLResponse:
     return HTMLResponse(STATIC_ROOT.joinpath("index.html").read_text(encoding="utf-8"))
+
+
+@app.get("/admin/agents", tags=["system"], response_class=HTMLResponse)
+def owner_agents(_: str = Depends(require_owner)) -> HTMLResponse:
+    html = STATIC_ROOT.joinpath("workspace.html").read_text(encoding="utf-8")
+    return HTMLResponse(html.replace("<body", '<body data-workspace-mode="owner"', 1),
+                        headers={"Cache-Control": "private, no-store"})
 
 
 @app.get("/health", tags=["system"])
@@ -178,7 +190,7 @@ def system_status(_: str = Depends(require_owner)) -> dict[str, object]:
     configuration_issue = None
     if runtime_is_ready():
         try:
-            agent_runtime.estimate_reservation("story-moodboard", "اختبار إعداد النموذج")
+            agent_runtime.estimate_reservation("historical-reading-companion", "اختبار إعداد النموذج")
             agent_runtime.estimate_reservation("geopolitical-morning", "أهم الأخبار اليوم")
             pricing_ready = True
         except HTTPException as exc:
@@ -200,7 +212,7 @@ def system_status(_: str = Depends(require_owner)) -> dict[str, object]:
         "iran_news": {
             "provider": "newsdata", "configured": news_ready,
             "query": newsdata.NEWSDATA_QUERY, "query_semantics": "iran AND war",
-            "window_hours": 48, "source_language": "en", "page_size": page_size,
+            "window_hours": 12, "source_language": "en", "page_size": page_size,
             "result_limit": newsdata.MAX_NEWSDATA_RESULTS,
             "plan": plan, "free_plan_delay_hours": 12,
             "translation_provider": "openai", "translation_configured": openai,

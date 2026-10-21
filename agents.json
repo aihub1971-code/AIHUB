@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_package_snapshot": "2026-10-12",
-  "agent_count": 9,
+  "agent_count": 7,
   "agents": [
     {
       "number": "01",
@@ -18,6 +18,7 @@
       ],
       "enabled": true,
       "tools": [
+        "newsdata",
         "web_search"
       ],
       "external_actions": [],
@@ -27,7 +28,7 @@
       "number": "02",
       "id": "iran-news",
       "name": "Iran War News",
-      "description": "Iran–US conflict and diplomacy, verified fresh reporting and consequences for Iran, the United States and the UAE. The research workspace uses OpenAI live web search.",
+      "description": "Iran–US conflict and diplomacy, fresh reporting and carefully attributed consequences for Iran, the United States and the UAE. NewsData retrieval with OpenAI web research when evidence needs supplementing.",
       "skills": [
         {
           "id": "iran-news",
@@ -38,8 +39,8 @@
       ],
       "enabled": true,
       "tools": [
-        "web_search",
-        "newsdata"
+        "newsdata",
+        "web_search"
       ],
       "external_actions": [],
       "display_name_ar": "أخبار حرب إيران"
@@ -59,6 +60,7 @@
       ],
       "enabled": true,
       "tools": [
+        "newsdata",
         "web_search"
       ],
       "external_actions": [],
@@ -79,6 +81,7 @@
       ],
       "enabled": true,
       "tools": [
+        "newsdata",
         "web_search"
       ],
       "external_actions": [],
@@ -99,6 +102,7 @@
       ],
       "enabled": true,
       "tools": [
+        "newsdata",
         "web_search"
       ],
       "external_actions": [],
@@ -108,7 +112,7 @@
       "number": "06",
       "id": "historical-reading-companion",
       "name": "Historical Reading Companion",
-      "description": "A sourced historical reading guide with context, chronology, competing interpretations and reading questions.",
+      "description": "Read books and scholarship with historical context, competing interpretations and carefully qualified lessons for contemporary institutions.",
       "skills": [
         {
           "id": "historical-reading-companion",
@@ -119,6 +123,7 @@
       ],
       "enabled": true,
       "tools": [
+        "newsdata",
         "web_search"
       ],
       "external_actions": [],
@@ -126,26 +131,6 @@
     },
     {
       "number": "07",
-      "id": "story-moodboard",
-      "name": "Story Moodboard",
-      "description": "A sourced creative pack with premise, story beats, visual direction, original palette compositions and attributed references.",
-      "skills": [
-        {
-          "id": "story-moodboard",
-          "path": "skills/story-moodboard/story-moodboard.md",
-          "sha256": "eb3f410a738ea1e7cb4e92a5488b8003dc4c9e6349f718e83e49b211810c8bca",
-          "source_resource": "skill://user/6ac906a796248191934807e7acb0e889/story-moodboard/SKILL.md"
-        }
-      ],
-      "enabled": true,
-      "tools": [
-        "web_search"
-      ],
-      "external_actions": [],
-      "display_name_ar": "لوحة أفكار القصص"
-    },
-    {
-      "number": "08",
       "id": "economic-cultural-briefing",
       "name": "Economic and Cultural Briefing",
       "description": "On-demand executive briefings connecting economic developments with evidenced cultural context and qualified UAE and Abu Dhabi implications.",
@@ -159,30 +144,11 @@
       ],
       "enabled": true,
       "tools": [
+        "newsdata",
         "web_search"
       ],
       "external_actions": [],
       "display_name_ar": "الموجز الاقتصادي والثقافي"
-    },
-    {
-      "number": "09",
-      "id": "decision-briefing",
-      "name": "Decision Briefing Partner",
-      "description": "Prepare a concise executive decision brief from a question and attached sources, with consistent option comparisons, explicit uncertainties and a conditional recommendation.",
-      "skills": [
-        {
-          "id": "decision-briefing",
-          "path": "skills/decision-briefing/decision-briefing.md",
-          "sha256": "eb6ef9cc3b4374ffac3cbb762ddb55d57db9b185a81723628795a195450dfa9d",
-          "source_resource": "skill://plugins_6ac9069d3d6c819182f5032077d5e710/decision-briefing/SKILL.md"
-        }
-      ],
-      "enabled": true,
-      "tools": [
-        "web_search"
-      ],
-      "external_actions": [],
-      "display_name_ar": "مساعد اتخاذ القرار"
     }
   ]
 }

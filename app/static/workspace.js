@@ -2,14 +2,10 @@
   "use strict";
   const words={
     skip:["انتقل إلى المحتوى","Skip to content"],brandCaption:["البحث والمعرفة والحوار","RESEARCH & DISCUSSION"],
-    agents:["المساعدون","Assistants"],mainChat:["محادثة AI HUB","AI HUB Chat"],
+    agents:["الوكلاء","Agents"],
     eyebrow:["مساحة للبحث والحوار","A WORKSPACE FOR INQUIRY"],
-    heroTitle:["افهم ما يهمّ.\nواقترب من الأدلة.","Understand what matters.\nGet closer to the evidence."],
-    heroDescription:["اختر مساعدًا متخصصًا. اقرأ تقريره ومصادره، واحصل على ملف PDF، ثم ناقش ما وجدته في مكان واحد.","Choose a specialist. Read its report and sources, receive a PDF, and discuss what you discover — all in one place."],
-    windowFact:["أخبار آخر 12 ساعة","12-hour news window"],pdfFact:["تقارير PDF تلقائية","Automatic report PDFs"],discussFact:["محادثة متصلة بالتقرير","Connected discussion"],
-    noteTitle:["اختر. اقرأ. ناقش.","Choose. Read. Discuss."],noteDescription:["بحث عند الطلب، ومصادر واضحة، وتقارير محفوظة بوقت إعدادها. افتح أي مساعد لبدء تقرير جديد.","Research on demand. Clear sources. Reports saved as dated snapshots. Open any assistant to begin a new report."],
-    count:["{n} مساعدًا متخصصًا","{n} specialist assistants"],specialists:["اختر مجال البحث","Choose your field of inquiry"],cardsHint:["اختيار المساعد يبدأ إعداد تقريره","Selecting an assistant starts its report"],
-    coverageNote:["تُحدّث الأخبار عند طلبك، وتُعد التقارير عند الطلب. يُعرض حتى 100 خبر منشور خلال آخر 12 ساعة بعد التحقق وإزالة التكرار؛ وقد تقلّ النتائج بحسب المصادر المتاحة.","News refreshes when you request it; analysis reports are generated on demand. Up to 100 articles published within the last 12 hours appear after checks and deduplication; available sources may yield fewer."],
+    count:["{n} وكلاء متخصصون","{n} specialist agents"],specialists:["اختر وكيلك","Choose your agent"],cardsHint:["افتح محادثتك. يبدأ البحث عندما تطلبه.","Open your conversation. Research starts when you ask."],
+    coverageNote:["تُحدّث الأخبار عند طلبك، وتُعد التقارير عند الطلب. يُعرض حتى 50 خبر منشور خلال آخر 12 ساعة بعد التحقق وإزالة التكرار؛ وقد تقلّ النتائج بحسب المصادر المتاحة.","News refreshes when you request it; analysis reports are generated on demand. Up to 50 articles published within the last 12 hours appear after checks and deduplication; available sources may yield fewer."],
     liveNews:["الأخبار المباشرة","Live news"],newsTopic:["مجال الأخبار","News topic"],refreshNews:["تحديث الأخبار","Refresh news"],
     newsFresh:["محدّثة","Fresh"],newsCached:["نسخة محفوظة","Cached"],newsLoading:["جارٍ تحديث الأخبار","Refreshing news"],newsReading:["جارٍ تحميل الأخبار المحفوظة","Loading saved news"],newsEmpty:["لا أخبار مستوفية للشروط","No qualifying articles"],newsProviderError:["تعذر تحديث الأخبار","News refresh failed"],
     newsLastSuccess:["آخر تحديث ناجح","Last successful refresh"],newsNeverUpdated:["لم يكتمل تحديث ناجح بعد","No successful refresh yet"],newsManual:["تحديث يدوي · اضغط تحديث الأخبار لجلب أخبار جديدة. فتح الصفحة يعرض الأخبار المحفوظة.","Manual refresh · Select Refresh news to fetch new articles. Opening this page displays saved news."],
@@ -27,6 +23,13 @@
     newsNotConfigured:["مصدر الأخبار غير مهيأ حاليًا. يلزم أن يراجع المشرف إعداد الخدمة.","The news source is not configured. The service administrator needs to check its configuration."],
     newsAuth:["لم يقبل مصدر الأخبار الاتصال. يلزم أن يراجع المشرف إعداد الوصول.","The news source rejected access. The service administrator needs to check its access settings."],
     newsRateLimited:["وصل مصدر الأخبار إلى حدّ الطلبات. لن تبدأ محاولات متكررة؛ أعد التحديث بعد المهلة الموضحة.","The news source has reached its request limit. Repeated requests are paused; refresh after the indicated wait."],
+    newsAppLimit:["وصلت المنصة إلى حصتها اليومية لجلب الأخبار من NewsData. تتجدد عند منتصف الليل بتوقيت دبي (UTC+04:00).", "AI HUB has reached its daily NewsData allowance. It resets at midnight in Dubai (UTC+04:00)."],
+    newsProviderCredits:["أبلغ NewsData عن نفاد رصيد حساب الخدمة لديه. يلزم أن يراجع المشرف رصيد المزود.", "NewsData reports that the service account's provider credits are exhausted. The administrator needs to check the provider allowance."],
+    newsWebResults:["بحث الويب الإضافي: {n} أخبار مستوفية للشروط من صفحات ناشرين تم التحقق منها.", "Additional web research: {n} qualifying articles from checked publisher pages."],
+    newsWebFailed:["لم يكتمل بحث الويب الإضافي.", "Additional web research did not complete."],
+    newsMetadata:["بيانات NewsData · لم يُفحص نص صفحة الناشر", "NewsData metadata · Publisher page text not checked"],
+    newsPublisherChecked:["فُحصت صفحة الناشر ووقت النشر", "Publisher page and publication time checked"],
+    newsLimit:["حتى 50 نتيجة من NewsData في التحديث؛ يُعرض ما يستوفي التحقق وفترة آخر 12 ساعة.", "Up to 50 NewsData results per refresh; only articles passing the checks and 12-hour window are displayed."],
     newsTimeout:["تأخر مصدر الأخبار ولم يكتمل التحديث. تبقى آخر نسخة ناجحة متاحة إن وُجدت.","The news source timed out before the refresh completed. Any previous successful cache remains available."],
     newsConnection:["تعذر الاتصال بمصدر الأخبار. تبقى آخر نسخة ناجحة متاحة إن وُجدت ويمكن إعادة التحديث لاحقًا.","The news source could not be reached. Any previous successful cache remains available; refresh again later."],
     newsInvalid:["أعاد مصدر الأخبار بيانات غير قابلة للتحقق. لم تُعامل هذه المحاولة كقائمة أخبار فارغة.","The news source returned data that could not be validated. This failed refresh was not treated as an empty news result."],
@@ -35,18 +38,15 @@
     newsLatestPublication:["أحدث وقت نشر أعاده المصدر","Latest publication returned by the source"],
     newsExpiredNote:["لا تتضمن النسخة المحفوظة مقالات مستوفية لنافذة آخر 12 ساعة الآن. تُستبعد المواد القديمة أو ذات وقت نشر غير موثّق.","The saved cache has no articles that qualify for the current 12-hour window. Older material and unverified publication times are excluded."],
     retryAfter:["يمكن إعادة المحاولة بعد {n} ثانية","Retry after {n} seconds"],errorReference:["مرجع الخطأ","Error reference"],
-    allAgents:["جميع المساعدين","All assistants"],chooseAgent:["اختر المساعد","Choose an assistant"],history:["التقارير المحفوظة","Saved reports"],
+    allAgents:["جميع الوكلاء","All agents"],chooseAgent:["اختر الوكيل","Choose an agent"],history:["التقارير المحفوظة","Saved reports"],
     discuss:["ناقش التقرير","Discuss report"],backToReading:["العودة للقراءة","Back to report"],
     topicLabel:["تحديد الموضوع · اختياري","Refine the topic · optional"],generate:["إنشاء تقرير حديث","Generate fresh report"],
     downloadPdf:["تنزيل PDF","Download PDF"],retryPdf:["إعادة تجهيز PDF","Retry PDF"],
     enterHint:["Enter للبدء · Shift + Enter لسطر جديد","Enter to start · Shift + Enter for a new line"],
-    connectedKnowledge:["معرفتك، في محادثة واحدة","YOUR KNOWLEDGE, IN CONVERSATION"],
-    mainChatTitle:["ما الذي تريد فهمه؟","What would you like to understand?"],
-    mainChatDescription:["ناقش تقاريرك، قارن بين المساعدين، أو اسأل عن تطورات جديدة. تُسترجع التقارير المناسبة من هذه الجلسة تلقائيًا.","Discuss your reports, compare assistants, or ask about new developments. Relevant reports from this session are retrieved automatically."],
     footer:["راجع المصادر الأصلية للمعلومات المهمة. الأخبار والتحليلات الآلية قد تكون غير مكتملة.","Review original sources for important information. Automated reporting and analysis can be incomplete."],
     dubaiTime:["الأوقات بتوقيت دبي","Times shown in Dubai time"],
-    kindBriefing:["أخبار وتحليل","NEWS & ANALYSIS"],kindReading:["قراءة تاريخية","HISTORICAL READING"],kindMoodboard:["تطوير إبداعي","CREATIVE DEVELOPMENT"],kindWorkspace:["مساعد متخصص","SPECIALIST WORKSPACE"],
-    openReport:["ابدأ التقرير","Start report"],opening:["جارٍ فتح مساحة البحث…","Opening the workspace…"],
+    kindBriefing:["أخبار وتحليل","NEWS & ANALYSIS"],kindReading:["قراءة تاريخية","HISTORICAL READING"],kindMoodboard:["تطوير إبداعي","CREATIVE DEVELOPMENT"],kindWorkspace:["وكيل متخصص","SPECIALIST AGENT"],
+    openReport:["افتح المحادثة","Open conversation"],opening:["جارٍ فتح مساحة البحث…","Opening the workspace…"],
     connecting:["جارٍ الاتصال بالمنصة…","Connecting to your workspace…"],connectionError:["تعذر الاتصال. حدّث الصفحة للمحاولة مجددًا.","Connection unavailable. Refresh the page to try again."],
     noHistory:["ستظهر تقاريرك المحفوظة هنا.","Your saved reports will appear here."],
     loadingHistory:["جارٍ فتح الأرشيف…","Opening report history…"],savedVersion:["نسخة محفوظة","Saved snapshot"],latestVersion:["أحدث تقرير محفوظ","Latest saved report"],previousVersion:["التقرير الناجح السابق","Previous successful report"],
@@ -66,16 +66,18 @@
     noNewsNote:["لم تُرجع هذه المحاولة أخبارًا ذات وقت نشر موثّق ضمن الفترة المحددة. هذا لا يثبت عدم وقوع أحداث. راجع حدود التحقق والمصادر في ملف الإحاطة.","This attempt found no qualifying news with a verified publication timestamp inside the frozen window. This does not prove no events occurred. Review the pack's evidence limits and sources."],
     noSources:["لا مصادر قابلة للإدراج في هذه المحاولة","No eligible sources in this attempt"],
     noSourcesNote:["يعرض الملف ما أمكن إثباته وحدود الأدلة. لم تُضف مراجع لاستكمال العدد.","The pack explains what could be established and the limits of the evidence. References were not added to fill a target."],
-    sourceTextNote:["يعمل هذا المساعد على النص الذي تقدمه. لا يتصل بحساباتك أو ملفاتك الخارجية.","This assistant works from the text you provide. It does not connect to your external accounts or files."],
+    sourceTextNote:["يعمل هذا الوكيل على النص الذي تقدمه. لا يتصل بحساباتك أو ملفاتك الخارجية.","This agent works from the text you provide. It does not connect to your external accounts or files."],
     whyMatters:["لماذا يهمّ","Why it matters"],originalArticle:["افتح المقال الأصلي","Open original article"],eventDate:["تاريخ الحدث المنسوب إلى المصدر","Event date attributed to the source"],
     conflict_diplomacy:["الصراع والدبلوماسية","Conflict and Diplomacy"],major_consequences:["التداعيات الكبرى","Major Consequences"],
+    backgroundOnly:["تحليل يستند إلى مراجع خلفية مؤرخة؛ لم يُتحقق من تطور جديد خلال نافذة آخر 12 ساعة.", "Analysis based on dated background references; no fresh development was verified within the 12-hour window."],
+    sourceChecked:["نص الناشر مفحوص", "Publisher text checked"],sourceMetadata:["بيانات وصفية من المزود", "Provider metadata"],sourceReporting:["تقرير صحفي", "Reporting"],sourceAnalysis:["تحليل", "Analysis"],sourceOpinion:["رأي", "Opinion"],sourceOfficial:["تصريح رسمي", "Official statement"],sourceResearch:["بحث", "Research"],
     sourceList:["المصادر والأدلة","Sources and evidence"],limitations:["حدود التحقق","Evidence limits"],background:["خلفية مرجعية","Background reference"],reference:["مرجع","Reference"],fresh:["نشر داخل الفترة","Publication within window"],
     undated:["وقت النشر غير موثّق","Publication time unverified"],
     visualCaption:["تكوينات بصرية أصلية باستخدام لوحة ألوان التقرير. هي تفسير إبداعي، وليست صورًا توثيقية أو صورًا مولدة بالذكاء الاصطناعي.","Original visual compositions using the report's palette. Creative interpretations, not documentary photographs or AI-generated images."],
     reportError:["تعذر إكمال التقرير. راجع سبب التعثر وحالة المحاولة أدناه.","The report could not be completed. Review this attempt's status and recovery options below."],
     previousSnapshot:["يبقى التقرير السابق محفوظًا بوقت بحثه الأصلي.","The previous report remains saved with its original research time."],previousReport:["فتح التقرير السابق","Open previous report"],retryReport:["إعادة محاولة التقرير","Retry report"],reloadWorkspace:["إعادة تحميل الحالة","Reload status"],
     submitting:["جارٍ إرسال طلب التقرير","Submitting report request"],loadingWorkspace:["جارٍ تحميل التقرير المحفوظ وحالة العمل","Loading the saved report and job status"],reportReady:["التقرير جاهز","Report ready"],statusUpdated:["آخر تحديث للحالة","Status last checked"],failedAtStage:["توقفت المحاولة عند","Attempt stopped at"],
-    providerTimeout:["انتهت مهلة مزود البحث قبل اكتمال التقرير. لم تبدأ إعادة محاولة تلقائية.","The research provider timed out before completing the report. No automatic retry was started."],
+    providerTimeout:["انتهت مهلة مزود البحث قبل اكتمال هذا الطلب. لم تبدأ إعادة محاولة تلقائية.","The research provider timed out before completing this request. No automatic retry was started."],
     providerConnection:["تعذر الاتصال بمزود البحث. يمكنك إعادة المحاولة عندما يعود الاتصال.","The research provider could not be reached. You can retry when the connection is restored."],
     providerRejected:["لم يقبل مزود البحث هذا الطلب. يلزم فحص إعداد الخدمة قبل تكرار المحاولة.","The research provider rejected this request. The service configuration needs checking before another attempt."],
     invalidReport:["لم يستوفِ رد مزود البحث متطلبات التقرير أو أدلته. لم يُعرض تقرير غير موثّق.","The research provider's response did not satisfy the report or evidence requirements. An unverified report was not displayed."],
@@ -93,31 +95,36 @@
     unavailable:["الخدمة غير متاحة مؤقتًا. جرّب مجددًا بعد قليل.","The service is temporarily unavailable. Try again shortly."],
     network:["تعذر تأكيد حالة الطلب. أعد الاتصال بالمحاولة نفسها لمتابعتها.","The request status could not be confirmed. Reconnect to the same attempt to continue."],
     reconnect:["متابعة المهمة","Reconnect to job"],expired:["انتهت الجلسة أو لم يعد هذا التقرير متاحًا لها. حدّث الصفحة.","This session has expired or cannot access that report. Refresh the page."],
-    discussion:["ناقش مع AI HUB","Discuss with AI HUB"],newChat:["محادثة جديدة","New chat"],chatHistory:["محادثات محفوظة","Saved conversations"],
+    discussion:["محادثة الوكيل","Agent conversation"],
     autoContext:["التقرير المعروض ومصادره متصلان تلقائيًا.","The displayed report and its evidence are connected automatically."],
-    autoAgent:["المساعد محدد. سيُسترجع تقريره المناسب تلقائيًا.","Your assistant is selected. Its relevant report is retrieved automatically."],
-    autoMain:["تُسترجع التقارير المناسبة من هذه الجلسة فقط.","Relevant reports are retrieved from this session only."],
-    chatWelcome:["حوّل القراءة إلى فهم أعمق","Turn reading into deeper understanding"],
-    chatWelcomeNote:["اسأل عن النتائج أو أسبابها أو آثارها. لا تحتاج إلى رفع التقرير.","Ask about findings, reasoning or implications. There is no need to upload the report."],
-    chatWelcomeMain:["اسأل عن مجال بحث أو قارن تقاريرك. ستظهر مصادر الإجابة ووقت تغطيتها.","Ask about a research field or compare your reports. Answers identify their evidence and research cutoff."],
+    autoAgent:["محادثة محفوظة لهذا الوكيل. معرفتك المعتمدة متاحة لجميع وكلائك.","A saved conversation for this agent. Approved knowledge is shared with your other agents."],
+    suggestionOverview:["ما أهم ما ينبغي فهمه في هذا المجال؟","What is most important to understand in this field?"],suggestionQuestions:["ما الأسئلة التي تستحق المتابعة؟","Which questions are worth following?"],backgroundEvidence:["خلفية أقدم من 12 ساعة","Background older than 12 hours"],reloadConversation:["استعادة المحادثة","Restore conversation"],
+    chatWelcome:["بماذا نبدأ؟","What would you like to explore?"],
+    chatWelcomeNote:["اسأل، ناقش فكرة، أو اطلب تقريرًا حديثًا. تحتفظ هذه المحادثة بسياقها عند عودتك.","Ask a question, explore an idea, or request a fresh report. This conversation keeps its context when you return."],
     suggestionSummary:["لخّص هذا التقرير.","Summarize this report."],suggestionUae:["ما أهم الآثار على الإمارات؟","What are the most important implications for the UAE?"],
     suggestionWhy:["لماذا توصلت إلى هذه الاستنتاجات؟","Why did you reach these conclusions?"],
     suggestionSince:["ما الذي حدث منذ هذا التقرير؟","What has happened since this briefing?"],
-    suggestionCompare:["قارن تقييم إيران بالتقييم الجيوسياسي العالمي.","Compare the Iran and global geopolitical assessments."],
-    suggestionLatest:["ما أحدث التطورات المتعلقة بإيران؟","What are the latest developments related to Iran?"],
-    suggestionEducation:["ما الجديد في التعليم العالمي؟","What is new in global education?"],
-    chatPlaceholder:["اسأل عن التقرير أو موضوع جديد…","Ask about the report or a new topic…"],
+    chatPlaceholder:["اسأل وكيلك أو تابع المحادثة…","Ask your agent or continue the conversation…"],
     chatInput:["رسالتك إلى AI HUB","Your message to AI HUB"],send:["إرسال","Send"],you:["أنت","You"],
-    chatThinking:["يجري إعداد إجابة من الأدلة المتاحة…","Preparing an answer from the available evidence…"],
+    chatThinking:["يجري إعداد إجابتك…","Preparing your answer…"],chatWriting:["جارٍ كتابة الإجابة…","Writing your answer…"],chatPartial:["إجابة غير مكتملة","Incomplete response"],
     chatResearch:["يجري بحث جديد للإجابة عن المستجدات…","Researching fresh evidence for your question…"],
     chatKeyboard:["Enter للإرسال · Shift + Enter لسطر جديد","Enter to send · Shift + Enter for a new line"],
+    chatBusy:["تُجهّز إجابة لهذه المحادثة الآن. استعد حالتها المحفوظة قبل إرسال رسالة أخرى.", "An answer is already in progress in this conversation. Restore its saved status before sending another message."],
+    chatInterrupted:["توقفت الإجابة قبل اكتمالها. استعد المحادثة لمراجعة حالة السؤال المحفوظ قبل إرساله مجددًا.", "The answer stopped before completion. Restore the conversation to review the saved question before sending it again."],
+    chatAlready:["جرت محاولة هذا الطلب من قبل. استعد المحادثة لمراجعة حالته المحفوظة.", "This request has already been attempted. Restore the conversation to review its saved status."],
+    chatDailyLimit:["بلغت هذه المساحة حدّ المحادثة اليومي في AI HUB. يتجدد الحد عند منتصف الليل بتوقيت دبي.", "This workspace has reached AI HUB's daily conversation allowance. It resets at midnight in Dubai."],
+    chatRestoreError:["تعذر تحميل المحادثة المحفوظة. حاول استعادتها مجددًا.", "The saved conversation could not be loaded. Try restoring it again."],
+    memoryLimit:["راجع ملاحظة محفوظة أو أزلها قبل إضافة ملاحظة أخرى.", "Review or remove a saved note before adding another."],
     chatError:["تعذر إكمال الإجابة. الرسائل المحفوظة متاحة؛ تحقق من المحاولة قبل إعادة إرسالها.","The answer could not be completed. Saved messages remain available; check this attempt before sending it again."],
     retryMessage:["تحقق من المحاولة","Check this attempt"],chatEvidence:["استندت الإجابة إلى {n} تقريرًا محفوظًا.","This answer used {n} saved report snapshots."],
     freshEvidence:["بحث جديد حتى","Fresh research through"],viewUpdated:["فتح التقرير المحدّث","Open updated report"],
+    agentWorkspaceNote:["محادثتك محفوظة. الأخبار والتقارير تبدأ بطلب منك.","Your conversation is saved. News and reports start when you request them."],researchTools:["الأخبار والتقارير","News & reports"],onDemand:["عند الطلب","On demand"],
+    sharedMemory:["المعرفة المشتركة","Shared knowledge"],memoryIntro:["الملاحظات التي توافق عليها متاحة لجميع وكلائك في مساحة عملك. تبقى منفصلة عن الأدلة المنشورة.","Notes you approve are available to all your agents in your workspace. They remain separate from published evidence."],
+    memoryKind:["نوع الملاحظة","Note type"],memoryPreference:["تفضيل","Preference"],memoryCorrection:["تصحيح","Correction"],memoryKnowledge:["معلومة","Knowledge"],memoryInput:["ملاحظة تتذكرها الوكلاء","A note for your agents to remember"],memoryPropose:["إضافة للمراجعة","Add for review"],memoryApprove:["اعتماد الملاحظة","Approve note"],memoryReject:["رفض","Reject"],memoryForget:["إزالة من المعرفة المشتركة","Remove from shared knowledge"],memoryApproved:["معتمدة من قبلك","Approved by you"],memoryProposed:["بانتظار مراجعتك","Awaiting your review"],memoryEmpty:["لا ملاحظات مشتركة بعد.","No shared notes yet."],memoryLoading:["جارٍ تحميل الملاحظات المحفوظة…","Loading saved notes…"],
     savedMessages:["رسائل المحادثة المحفوظة","Saved conversation messages"],loadEarlier:["رسائل أقدم","Earlier messages"],
     chatLoading:["جارٍ استعادة المحادثة…","Restoring the conversation…"],sourceMismatch:["تعذر اعتماد مصادر الإجابة. لم تُعرض إجابة غير موثّقة. يمكنك طرح السؤال مجددًا.","The answer's sources could not be validated. No unverified answer was displayed. You can ask again."]
   };
-  const icons={"ubi-research":"◉","iran-news":"⌁","uae-eu-trade-talks":"⇄","geopolitical-morning":"◎","education-observatory":"▤","historical-reading-companion":"◷","story-moodboard":"◇","economic-cultural-briefing":"↗","decision-briefing":"⑂"};
+  const icons={"ubi-research":"◉","iran-news":"⌁","uae-eu-trade-talks":"⇄","geopolitical-morning":"◎","education-observatory":"▤","historical-reading-companion":"◷","economic-cultural-briefing":"↗"};
   function activeJob(job){return Boolean(job && ["queued","running"].includes(job.status));}
   function canAcceptReport(state,report){return Boolean(report && Number.isSafeInteger(report.generation_seq) && report.generation_seq >= (state.latest?.generation_seq || 0));}
   function sameRequest(job,topic,language){return activeJob(job)&&job.topic===topic.trim()&&job.language===language;}
@@ -127,8 +134,16 @@
   if(!global.document)return;
   const $=id=>document.getElementById(id),el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=String(text);return n;};
   const markdown=global.AIHubMarkdown;
-  let lang="ar",ready=false,agents=[],selectedId=null,view="home",navigation=0,mobileChat=false;
-  let newsAgents=[],homeNewsId=null,feedsReady=false;
+  const ownerMode=document.body.dataset.workspaceMode==="owner";
+  function apiPath(path){
+    if(typeof path!=="string"||/[\u0000-\u0020\u007f\\]/.test(path))throw {status:400,code:"invalid_request"};
+    const bootstrap=path==="/v1/public/bootstrap",prefix="/v1/public/workspace/";
+    if(!bootstrap&&(!path.startsWith(prefix)||!new URL(path,"https://workspace.invalid").pathname.startsWith(prefix)))throw {status:400,code:"invalid_request"};
+    return ownerMode?(bootstrap?"/v1/workspace/bootstrap":path.replace(prefix,"/v1/workspace/")):path;
+  }
+  let lang="ar",ready=false,agents=[],selectedId=null,view="home",navigation=0;
+  let newsAgents=[],feedsReady=false;
+  const memoryState={items:[],loaded:false,loading:false,saving:false,error:null};
   const states=new Map(),chatStates=new Map(),polls=new Map(),newsStates=new Map(),newsTimers=new Map();
   try{const saved=localStorage.getItem("aihub.language");if(saved==="ar"||saved==="en")lang=saved;}catch(_){}
   const T=(key,params={})=>{let value=words[key]?.[lang==="en"?1:0]||key;for(const [name,text]of Object.entries(params))value=value.replaceAll("{"+name+"}",String(text));return value;};
@@ -136,7 +151,7 @@
   const titleOf=r=>r?.result?.title||r?.title||r?.topic||"AI HUB";
   const uuid=()=>global.crypto?.randomUUID?.()||String(Date.now())+"-"+Math.random().toString(16).slice(2);
   const kindKey=a=>a?.kind==="reading"?"kindReading":a?.kind==="moodboard"?"kindMoodboard":a?.kind==="workspace"?"kindWorkspace":"kindBriefing";
-  function moment(value){if(!value)return "";const date=new Date(value);if(!Number.isFinite(date.getTime()))return "";return date.toLocaleString(lang==="ar"?"ar-AE":"en-GB",{timeZone:"Asia/Dubai",dateStyle:"medium",timeStyle:"short"});}
+  function moment(value){if(!value)return "";const date=new Date(value);if(!Number.isFinite(date.getTime()))return "";const dateOnly=typeof value==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(value);return date.toLocaleString(lang==="ar"?"ar-AE":"en-GB",{timeZone:"Asia/Dubai",dateStyle:"medium",...(dateOnly?{}:{timeStyle:"short"})});}
   function state(id){if(!states.has(id))states.set(id,{topic:"",report:null,latest:null,job:null,tab:"evidence",pinned:false,submitting:false,loadingWorkspace:false,attempt:null,notice:null,error:null,errorScope:null,retryAt:0,retryTimer:null,lastCheckedAt:null,history:[],loadEpoch:0});return states.get(id);}
   function profile(id){return agents.find(agent=>agent.id===id);}
   function current(){return selectedId?state(selectedId):null;}
@@ -160,6 +175,11 @@
     if(error?.code==="openai_api_error")return error?.status===429?"providerBusy":"providerRejected";
     if(["runtime_not_configured","agent_runtime_not_configured","openai_not_configured","analysis_configuration_invalid","provider_auth_failed","openai_auth_failed","openai_access_denied","openai_request_rejected"].includes(error?.code))return "providerRejected";
     if(error?.code==="chat_source_mismatch")return "sourceMismatch";
+    if(["chat_in_progress","conversation_busy"].includes(error?.code))return "chatBusy";
+    if(["stream_interrupted","incomplete_model_response"].includes(error?.code))return "chatInterrupted";
+    if(error?.code==="chat_already_attempted")return "chatAlready";
+    if(error?.code==="public_daily_chat_limit")return "chatDailyLimit";
+    if(error?.code==="memory_limit")return "memoryLimit";
     if(error?.status===401||error?.status===404)return "expired";
     if(["report_queue_full","report_queue_session_limit","owner_job_limit","report_job_limit","owner_queue_full"].includes(error?.code))return "queueFull";
     if(error?.status===429)return "busy";if(error?.status===503)return "unavailable";
@@ -172,21 +192,54 @@
     s.retryTimer=delay?setTimeout(()=>{s.retryTimer=null;if(current()===s)renderWorkspace();},delay):null;
   }
   async function request(path,{method="GET",body,key}={}){
-    if(!path.startsWith("/v1/public/")||/[\u0000-\u0020\u007f\\]/.test(path))throw new Error("Invalid public request");
+    path=apiPath(path);
     const headers={};if(body!==undefined)headers["Content-Type"]="application/json";if(key)headers["Idempotency-Key"]=key;
     const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),110000);
     try{
       const response=await fetch(path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),credentials:"same-origin",cache:"no-store",redirect:"error",signal:controller.signal});
       let data;try{data=await response.json();}catch(_){throw {status:502,code:"invalid_response"};}
-      if(!response.ok){const detail=data?.detail?.error||data?.detail||{};throw {status:response.status,code:detail.code||"request_failed",reference:detail.reference,retryable:detail.retryable,retry_after_seconds:detail.retry_after_seconds,stage:detail.stage};}
+      if(!response.ok){const detail=data?.detail?.error||data?.detail||{};throw {status:response.status,code:detail.code||"request_failed",turn_id:detail.turn_id,reference:detail.reference||detail.turn_id,scope:detail.scope,limit_kind:detail.limit_kind,retryable:detail.retryable,retry_after_seconds:detail.retry_after_seconds,stage:detail.stage};}
       return data;
     }catch(error){if(error?.status)throw error;throw {network:true,code:"network_error"};}finally{clearTimeout(timeout);}
+  }
+  async function streamAnswer(path,{body,key},onEvent){
+    path=apiPath(path);
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),110000);
+    try{
+      const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json",Accept:"text/event-stream","Idempotency-Key":key},body:JSON.stringify(body),credentials:"same-origin",cache:"no-store",redirect:"error",signal:controller.signal});
+      if(!response.ok||!response.headers?.get("content-type")?.includes("text/event-stream")){
+        let data;try{data=await response.json();}catch(_){throw {status:502,code:"invalid_response"};}
+        if(!response.ok){const detail=data?.detail?.error||data?.detail||{};throw {status:response.status,code:detail.code||"request_failed",turn_id:detail.turn_id,reference:detail.reference||detail.turn_id,scope:detail.scope,limit_kind:detail.limit_kind,retryable:detail.retryable,retry_after_seconds:detail.retry_after_seconds};}
+        return data;
+      }
+      if(!response.body?.getReader)throw {status:502,code:"invalid_response"};
+      const reader=response.body.getReader(),decoder=new TextDecoder();let buffer="",complete=null;
+      const accept=block=>{
+        let event="message";const lines=[];
+        for(const line of block.split("\n")){if(line.startsWith("event:"))event=line.slice(6).trim();else if(line.startsWith("data:"))lines.push(line.slice(5).trimStart());}
+        if(!lines.length)return;let data;try{data=JSON.parse(lines.join("\n"));}catch(_){throw {status:502,code:"invalid_response"};}
+        if(event==="error")throw {status:Number(data.status_code||data.status)||502,code:data.code||"chat_failed",turn_id:data.turn_id,reference:data.reference||data.turn_id,retryable:data.retryable,retry_after_seconds:data.retry_after_seconds};
+        if(event==="complete"){complete=data;return;}
+        if(event==="delta"&&typeof data.delta==="string")onEvent("delta",data.delta);
+        else if(event==="status")onEvent("status",data.status);
+      };
+      try{
+        for(;;){
+          const chunk=await reader.read();buffer+=decoder.decode(chunk.value||new Uint8Array(),{stream:!chunk.done});
+          buffer=buffer.replace(/\r\n/g,"\n");let boundary;
+          while((boundary=buffer.indexOf("\n\n"))!==-1){accept(buffer.slice(0,boundary));buffer=buffer.slice(boundary+2);}
+          if(complete)return complete;
+          if(buffer.length>1000000)throw {status:502,code:"invalid_response"};
+          if(chunk.done){if(buffer.trim())accept(buffer);if(complete)return complete;throw {network:true,code:"stream_incomplete"};}
+        }
+      }finally{reader.releaseLock?.();}
+    }catch(error){if(error?.status||error?.network)throw error;throw {network:true,code:"network_error"};}finally{clearTimeout(timeout);}
   }
   function button(text,cls,handler){const node=el("button",cls,text);node.type="button";node.addEventListener("click",handler);return node;}
   function link(text,url,cls){const href=markdown.safeLink(url);if(!href)return el("span",cls,text);const node=el("a",cls,text);node.href=href;node.target="_blank";node.rel="noopener noreferrer";return node;}
   function newsEnabled(id){return newsAgents.includes(id);}
   function newsState(id,language=lang){const key=id+":"+language;if(!newsStates.has(key))newsStates.set(key,{key,id,language,data:null,loading:false,manualPending:false,pending:null,error:null,retryAt:0,retryTimer:null,pollCount:0,pollPaused:false});return newsStates.get(key);}
-  function newsVisible(n){return feedsReady&&n.language===lang&&!document.hidden&&((view==="home"&&homeNewsId===n.id)||(view==="workspace"&&selectedId===n.id&&current()?.tab==="evidence"));}
+  function newsVisible(n){return feedsReady&&n.language===lang&&!document.hidden&&view==="workspace"&&selectedId===n.id&&current()?.tab==="evidence"&&$("research-tools").open;}
   function visibleNewsItems(data){
     const now=Date.now(),lower=now-12*60*60*1000,seen=new Set();
     return (Array.isArray(data?.items)?data.items:[]).filter(item=>{
@@ -194,7 +247,7 @@
       const stamp=item.published_at;if(typeof stamp!=="string"||!/(?:Z|[+-]\d{2}:\d{2})$/i.test(stamp))return false;
       const published=Date.parse(stamp);if(!Number.isFinite(published)||published<lower||published>now)return false;
       const key="id:"+(item.article_id||item.id||item.url),url="url:"+item.url.split("#")[0];if(seen.has(key)||seen.has(url))return false;seen.add(key);seen.add(url);return true;
-    }).sort((a,b)=>Date.parse(b.published_at)-Date.parse(a.published_at)).slice(0,100);
+    }).sort((a,b)=>Date.parse(b.published_at)-Date.parse(a.published_at)).slice(0,50);
   }
   function newsStaleAt(data){const last=Date.parse(data?.last_successful_refresh_at||"");return Number.isFinite(last)?last+(Number(data.refresh_interval_seconds)||900)*1000:NaN;}
   function newsErrorKey(error){
@@ -202,7 +255,10 @@
     if(code==="newsdata_not_configured")return "newsNotConfigured";
     if(["provider_delay","newsdata_plan_delay"].includes(code))return "newsProviderDelay";
     if(["newsdata_auth_failed","newsdata_access_denied"].includes(code))return "newsAuth";
-    if(["newsdata_rate_limited","newsdata_credit_limit","newsdata_daily_credit_limit","provider_rate_limit"].includes(code)||error?.status===429)return "newsRateLimited";
+    if(code==="newsdata_daily_credit_limit"||error?.limit_kind==="application_daily_credit")return "newsAppLimit";
+    if(["newsdata_provider_credit_limit","newsdata_credit_limit"].includes(code)||error?.limit_kind==="provider_credit")return "newsProviderCredits";
+    if(["daily_budget_limit","monthly_budget_limit","daily_report_limit"].includes(code))return errorKey(error);
+    if(["newsdata_rate_limited","provider_rate_limit"].includes(code)||error?.status===429)return "newsRateLimited";
     if(code.includes("timeout"))return "newsTimeout";
     if(code.includes("invalid")||code.includes("response_too_large"))return "newsInvalid";
     return "newsConnection";
@@ -233,14 +289,13 @@
   }
   function syncNews(){
     clearNewsTimers();if(!feedsReady||document.hidden)return;
-    const id=view==="home"?homeNewsId:view==="workspace"&&current()?.tab==="evidence"?selectedId:null;
+    const id=view==="workspace"&&$("research-tools").open&&current()?.tab==="evidence"?selectedId:null;
     if(!newsEnabled(id))return;const n=newsState(id);
     const next=Date.parse(n.data?.next_refresh_at||""),due=Number.isFinite(next)&&next<=Date.now();
     const canCheck=!n.loading&&!n.pollPaused&&n.data?.status!=="loading"&&n.error?.retryable!==false&&n.data?.error?.retryable!==false&&n.retryAt<=Date.now();
     if((!n.data&&!n.loading&&!n.error)||(due&&canCheck))loadNews(id);else scheduleNews(n);
   }
   function renderVisibleNews(id){
-    if(view==="home"&&homeNewsId===id)renderHomeNews();
     if(view==="workspace"&&selectedId===id&&current()?.tab==="evidence")renderReport();
   }
   function loadNews(id,manual=false,{poll=false}={}){
@@ -254,19 +309,12 @@
         const path="/v1/public/workspace/agents/"+encodeURIComponent(id)+"/news";
         const data=await request(manual?path+"/refresh":path+"?language="+encodeURIComponent(n.language),manual?{method:"POST",body:{language:n.language}}:{});
         if(!data||typeof data!=="object"||!Array.isArray(data.items)||!["fresh","cached","empty","loading","provider_error"].includes(data.status))throw {status:502,code:"newsdata_invalid_response"};
-        n.data=data;newsRetryAfter(n,data.error?.retry_after_seconds);
-        if(data.status==="loading"){n.pollCount++;if(n.pollCount>=30)n.pollPaused=true;}else n.pollCount=0;
+        n.data=data;newsRetryAfter(n,data.error?.scope==="application"?0:data.error?.retry_after_seconds);
+        if(data.status==="loading"){n.pollCount++;if(n.pollCount>=210)n.pollPaused=true;}else n.pollCount=0;
         return data;
-      }catch(error){n.error=error;newsRetryAfter(n,error?.retry_after_seconds);return null;}
+      }catch(error){n.error=error;newsRetryAfter(n,error?.scope==="application"?0:error?.retry_after_seconds);return null;}
       finally{n.loading=false;n.manualPending=false;n.pending=null;if(n.language===lang)renderVisibleNews(id);scheduleNews(n);}
     })();n.pending=pending;return pending;
-  }
-  function renderHomeNews(){
-    const root=$("home-news"),selector=$("home-news-agent");if(!root||!selector)return;
-    root.hidden=!newsAgents.length;if(root.hidden)return;
-    if(!newsEnabled(homeNewsId))homeNewsId=newsAgents.includes("iran-news")?"iran-news":newsAgents[0];
-    selector.replaceChildren();for(const id of newsAgents){const option=el("option","",nameOf(profile(id)));option.value=id;selector.append(option);}selector.value=homeNewsId;
-    renderNewsSurface($("home-news-content"),homeNewsId,true);
   }
   function renderNewsSurface(target,id,compact=false){
     target.replaceChildren();target.dir=lang==="ar"?"rtl":"ltr";target.lang=lang;
@@ -280,12 +328,15 @@
     header.append(statusNode,refresh);target.append(header);
     const meta=el("div","news-feed-meta");
     if(data.last_successful_refresh_at)meta.append(el("p","",T("newsLastSuccess")+": "+moment(data.last_successful_refresh_at)+" · UTC+04:00"));else meta.append(el("p","",T("newsNeverUpdated")));
-    meta.append(el("p","news-auto-note",T("newsManual")));target.append(meta);
+    meta.append(el("p","news-auto-note",T("newsManual")),el("p","",T("newsLimit")));target.append(meta);
     if(loading)target.append(el("p","news-feed-note",T(n.pollPaused?"newsPending":fetching?"newsLoadingNote":"newsReadingNote")));
     if(error||status==="provider_error"){const alert=el("div","news-feed-error");alert.setAttribute("role","alert");alert.append(el("p","",T(newsErrorKey(error))));errorDetails(alert,{...error,retry_after_seconds:Math.max(0,(n.retryAt-Date.now())/1000)});target.append(alert);}
     if(stale)target.append(el("p","news-feed-note warning",T("newsStale")));
     if(data.partial)target.append(el("p","news-feed-note warning",T("newsPartial")));
     renderNewsDelay(target,data);
+    const web=data.retrieval?.web_search;
+    if(web?.attempted&&web.status==="complete")target.append(el("p","news-feed-note",T("newsWebResults",{n:Number.isInteger(web.accepted_count)?web.accepted_count:0})));
+    if(web?.attempted&&web.error){const note=el("div","news-feed-note warning");note.append(el("p","",T("newsWebFailed")+" "+T(errorKey(web.error))));errorDetails(note,web.error);target.append(note);}
     const counts=el("div","news-feed-counts");counts.append(el("span","",T("newsShowing",{n:items.length})));
     const fetched=data.counts?.fetched??data.pagination?.raw_count;if(Number.isInteger(fetched)&&fetched>=0)counts.append(el("span","",T("newsFetched",{n:fetched})));
     if(items.length)counts.append(el("span","",T("newsPublishers",{n:new Set(items.map(item=>item.publisher).filter(Boolean)).size})));target.append(counts);
@@ -293,7 +344,7 @@
       empty(target,neverFetched?"newsNotLoaded":"newsEmpty",neverFetched?"newsManualStart":data.items?.length?"newsExpiredNote":"newsEmptyNote");
     }
     const list=el("div",compact?"live-news-list compact":"live-news-list");
-    for(const item of items.slice(0,compact?6:100))renderNewsArticle(list,item);target.append(list);
+    for(const item of items.slice(0,compact?6:50))renderNewsArticle(list,item);target.append(list);
     if(compact&&items.length){const all=button(T("newsAll",{n:items.length}),"quiet-button news-view-all",()=>{state(id).tab="evidence";openAgent(id,false);});target.append(all);}
     if(!compact&&state(id).report)target.append(el("p","news-feed-note",T("newsSnapshotNote")));
   }
@@ -312,7 +363,7 @@
     const article=el("article","news-item live-news-item");article.dir="auto";article.lang=display;
     const top=el("div","article-topline"),time=el("time","",T("newsPublished")+": "+moment(item.published_at));time.setAttribute("datetime",item.published_at);
     top.append(el("span","publisher-name",item.publisher||""),time);const title=el("h3");title.append(link(headline,item.url,""));
-    article.append(top,title);if(summary)article.append(el("p","news-summary",summary));
+    article.append(top,title);if(item.publisher_text_verified===true)article.append(el("p","news-evidence-note",T("newsPublisherChecked")));else if(item.publisher_text_verified===false)article.append(el("p","news-evidence-note",T("newsMetadata")));if(summary)article.append(el("p","news-summary",summary));
     if(display!==lang)article.append(el("p","news-translation-note",T("newsTranslationMissing")));
     article.append(link(T("newsOriginal")+" ↗",item.url,"article-link"));target.append(article);
   }
@@ -324,16 +375,16 @@
     document.querySelectorAll("[data-text]").forEach(node=>{node.textContent=T(node.dataset.text);});
     $("language-ar").setAttribute("aria-pressed",String(lang==="ar"));$("language-en").setAttribute("aria-pressed",String(lang==="en"));
     $("agent-count").textContent=T("count",{n:agents.length});
-    renderCards();renderSelector();renderWorkspace();renderVisibleChat();renderHistory();renderHomeNews();syncNews();
+    renderCards();renderSelector();renderWorkspace();renderVisibleChat();renderHistory();renderMemory();syncNews();
   }
   function renderCards(){
     $("agent-grid").replaceChildren();
     for(const [index,a]of agents.entries()){
-      const card=button("","agent-card"+(index>7?" secondary-agent":""),()=>openAgent(a.id,true));
+      const card=button("","agent-card"+(index>7?" secondary-agent":""),()=>openAgent(a.id));
       card.dataset.agentId=a.id;card.disabled=!ready;card.setAttribute("aria-label",nameOf(a)+" — "+T("openReport"));
       const top=el("span","agent-card-top");top.append(el("span","agent-icon",icons[a.id]||"◉"),el("span","agent-number",String(index+1).padStart(2,"0")));
       const bottom=el("span","agent-card-bottom");bottom.append(el("span","",T(kindKey(a))),el("span","card-arrow",lang==="ar"?"←":"→"));
-      card.append(top,el("h3","",nameOf(a)),el("p","",a["default_topic_"+lang]),bottom);
+      card.append(top,el("h3","",nameOf(a)),el("p","",a["description_"+lang]||a["default_topic_"+lang]),bottom);
       $("agent-grid").append(card);
     }
   }
@@ -343,15 +394,14 @@
     selector.value=selectedId||agents[0]?.id||"";
   }
   function setView(value){
-    view=value;navigation++;mobileChat=false;
-    $("home-view").hidden=value!=="home";$("workspace-view").hidden=value!=="workspace";$("main-chat-view").hidden=value!=="chat";
-    $("workspace-view").classList.remove("chat-open");
-    $("nav-home").classList.toggle("is-current",value!=="chat");$("nav-chat").classList.toggle("is-current",value==="chat");
-    saveNavigation();renderVisibleChat();renderHomeNews();syncNews();
+    if(!["home","workspace"].includes(value))return;view=value;navigation++;
+    $("home-view").hidden=value!=="home";$("workspace-view").hidden=value!=="workspace";
+    $("nav-home").classList.toggle("is-current",value==="home");
+    saveNavigation();renderVisibleChat();syncNews();
   }
-  async function openAgent(id,generate){
+  async function openAgent(id){
     if(!ready||!profile(id))return;
-    selectedId=id;const s=state(id);if(generate)s.topic=defaultTopic(id);else if(!s.topic)s.topic=defaultTopic(id);
+    selectedId=id;const s=state(id);if(!s.topic)s.topic=defaultTopic(id);$("research-tools").open=false;
     s.loadingWorkspace=true;s.notice=null;s.error=null;s.errorScope=null;setView("workspace");renderSelector();renderWorkspace();
     const epoch=++s.loadEpoch;
     try{
@@ -361,8 +411,7 @@
       if(data.active_job)acceptJob(id,data.active_job);
       else if(data.last_job){acceptJob(id,data.last_job);if(["failed","interrupted","pdf_failed"].includes(data.last_job.status))reportFailure(s,jobFailure(data.last_job));}
       s.loadingWorkspace=false;
-      if(generate)await generateReport(id);
-      else if(activeJob(s.job))pollJob(id,s.job.job_id);
+      if(activeJob(s.job))pollJob(id,s.job.job_id);
     }catch(error){reportFailure(s,error,"load");}finally{if(epoch===s.loadEpoch)s.loadingWorkspace=false;if(selectedId===id)renderWorkspace();}
   }
   function acceptReport(id,record){
@@ -376,8 +425,8 @@
     s.job=job;if(selectedId===id&&view==="workspace")renderProgress();
   }
   async function generateReport(id=selectedId){
-    if(!ready||!id)return;const s=state(id);
-    if(s.submitting||s.retryAt>Date.now())return;
+    if(!ready||!id)return;const s=state(id);if(selectedId===id)$("research-tools").open=true;
+    if(s.submitting||s.retryAt>Date.now())return;s.tab="pack";
     const topic=(s.topic||defaultTopic(id)).trim(),language=lang;
     if(sameRequest(s.job,topic,language)){s.pinned=false;if(s.latest)s.report=s.latest;renderWorkspace();pollJob(id,s.job.job_id);return;}
     if(!s.attempt||s.attempt.topic!==topic||s.attempt.language!==language)s.attempt={topic,language,key:uuid()};
@@ -449,10 +498,10 @@
     const views=a.views||[{id:"evidence",title_ar:"الأخبار",title_en:"News"},{id:"pack",title_ar:"ملف الإحاطة",title_en:"Briefing Pack"}];
     views.forEach(v=>{const tab=$("tab-"+v.id);tab.textContent=v.id==="evidence"&&newsEnabled(selectedId)?T("liveNews"):v["title_"+lang];tab.setAttribute("aria-selected",String(s.tab===v.id));tab.tabIndex=s.tab===v.id?0:-1;});
     const pdf=$("pdf-download"),retry=$("pdf-retry");pdf.hidden=s.report?.pdf?.status!=="ready";retry.hidden=s.report?.pdf?.status!=="failed";
-    if(!pdf.hidden){pdf.href="/v1/public/workspace/reports/"+encodeURIComponent(s.report.report_id)+"/pdf";pdf.setAttribute("download","AI_HUB_Report.pdf");}
+    if(!pdf.hidden){pdf.href=apiPath("/v1/public/workspace/reports/"+encodeURIComponent(s.report.report_id)+"/pdf");pdf.setAttribute("download","AI_HUB_Report.pdf");}
     else pdf.removeAttribute("href");
     renderReportNotice(s);
-    renderProgress();renderReport();$("mobile-chat-toggle").textContent=T(mobileChat?"backToReading":"discuss");$("mobile-chat-toggle").setAttribute("aria-expanded",String(mobileChat));
+    renderProgress();renderReport();
   }
   function renderReport(){
     const s=current(),target=$("report-content"),meta=$("report-meta");target.replaceChildren();meta.replaceChildren();
@@ -471,6 +520,7 @@
     const articleCount=Number.isInteger(value.actual_article_count)?value.actual_article_count:value.items?.length||0;
     const note=["reading","moodboard"].includes(value.kind)?T("referenceNote"):value.kind==="workspace"?T("sourceTextNote"):T("freshCount",{n:articleCount});
     meta.append(el("p","report-window",note));
+    if(value.status==="background_only")meta.append(el("p","news-feed-note warning",T("backgroundOnly")));
     if(Number.isInteger(value.requested_article_target))meta.append(el("p","report-window",T("articleTarget",{n:value.requested_article_target})));
     if(Number.isInteger(value.analyzed_article_count))meta.append(el("p","report-window",T("analyzedCount",{n:value.analyzed_article_count})));
     if(value.news_feed?.last_successful_refresh_at)meta.append(el("p","report-window",T("reportFeedSnapshot")+": "+moment(value.news_feed.last_successful_refresh_at)+" · UTC+04:00"));
@@ -522,7 +572,10 @@
     const section=el("section","sources-section");if(heading&&sources.length)section.append(el("h3","",T("sourceList")));
     for(const [index,source]of sources.entries()){const card=el("div","source-record");card.append(link("["+String(index+1)+"] "+(source.title||source.publisher||""),source.url,""));
       const role=source.role==="fresh"?T("fresh"):source.role==="background"?T("background"):T("reference");
-      card.append(el("small","",[source.publisher,source.published_at?moment(source.published_at):T("undated"),role].filter(Boolean).join(" · ")));
+      const category={reporting:"sourceReporting",analysis:"sourceAnalysis",opinion:"sourceOpinion",official_statement:"sourceOfficial",research:"sourceResearch",provider_metadata:"sourceMetadata"}[source.source_category];
+      const evidence=source.publisher_text_verified===true?T("sourceChecked"):source.publisher_text_verified===false?T("sourceMetadata"):"";
+      const stamp=Date.parse(source.published_at),aged=source.role==="fresh"&&Number.isFinite(stamp)&&Date.now()-stamp>12*60*60*1000?T("backgroundEvidence"):"";
+      card.append(el("small","",[source.publisher,source.published_at?moment(source.published_at):T("undated"),role,category?T(category):"",evidence,aged].filter(Boolean).join(" · ")));
       if(!heading&&source.excerpt)card.append(el("p","news-summary",source.excerpt));section.append(card);}
     target.append(section);
   }
@@ -554,8 +607,8 @@
     const epoch=++navigation;
     try{
       const record=await request("/v1/public/workspace/reports/"+encodeURIComponent(reportId));if(epoch!==navigation)return;
-      const id=record.agent_id||agentId;if(!profile(id))return;selectedId=id;const s=state(id);acceptReport(id,record);s.report=record;s.pinned=true;s.topic=record.topic;s.notice=null;
-      setView("workspace");renderSelector();renderWorkspace();renderVisibleChat();$("history-menu").open=false;
+      const id=record.agent_id||agentId;if(!profile(id))return;selectedId=id;const s=state(id);acceptReport(id,record);s.report=record;s.pinned=true;s.tab="pack";s.topic=record.topic;s.notice=null;
+      setView("workspace");$("research-tools").open=true;renderSelector();renderWorkspace();renderVisibleChat();$("history-menu").open=false;
     }catch(error){showNotice($("global-notice"),errorKey(error));}
   }
   async function retryPdf(){
@@ -566,92 +619,90 @@
       if(selectedId===id)renderWorkspace();
     }catch(error){reportFailure(s,error,"pdf");if(selectedId===id)renderWorkspace();}finally{$("pdf-retry").disabled=false;}
   }
-  function chatKey(){return view==="chat"?"main":selectedId;}
+  function chatKey(){return selectedId;}
   function validConversationId(value){return typeof value==="string"&&/^conv_[a-f0-9]{32}$/.test(value);}
   function chatState(key){
-    if(!chatStates.has(key)){let id=null;try{id=sessionStorage.getItem("aihub.workspace.chat."+key);}catch(_){}
-      if(id&&!validConversationId(id)){id=null;try{sessionStorage.removeItem("aihub.workspace.chat."+key);}catch(_){}}
-      chatStates.set(key,{key,id,messages:[],draft:"",sending:false,loading:false,loaded:false,error:null,status:null,attempt:null,context:null,history:[],before:null});}
+    if(!chatStates.has(key))chatStates.set(key,{key,id:null,messages:[],draft:"",sending:false,loading:false,loaded:false,error:null,errorDetail:null,status:null,attempt:null,context:null,before:null,streamingText:""});
     return chatStates.get(key);
   }
-  function saveConversation(c){try{if(validConversationId(c.id))sessionStorage.setItem("aihub.workspace.chat."+c.key,c.id);else sessionStorage.removeItem("aihub.workspace.chat."+c.key);}catch(_){}}
-  function visibleChat(c){return (view==="workspace"||view==="chat")&&chatKey()===c.key;}
-  function chatRoot(){return view==="chat"?$("main-discussion-panel"):$("discussion-panel");}
-  function renderVisibleChat(){if(view==="home"||!chatKey())return;const c=chatState(chatKey());renderChat(c);if(!c.loaded&&!c.loading)loadConversation(c);}
+  function visibleChat(c){return view==="workspace"&&chatKey()===c.key;}
+  function chatRoot(){return $("discussion-panel");}
+  function renderVisibleChat(){if(view!=="workspace"||!chatKey())return;const c=chatState(chatKey());renderChat(c);if(!c.loaded&&!c.loading)loadConversation(c);}
   async function loadConversation(c,earlier=false){
-    if(c.loading)return;c.loading=true;if(visibleChat(c))renderChat(c);
+    if(c.loading||c.sending)return;c.loading=true;if(visibleChat(c))renderChat(c);
     try{
-      if(c.id&&!validConversationId(c.id)){c.id=null;saveConversation(c);}
-      if(c.id){
-        const data=await request("/v1/public/chat/conversations/"+encodeURIComponent(c.id)+(earlier&&c.before?"?before="+c.before:""));
-        c.messages=earlier?[...(data.messages||[]),...c.messages]:(data.messages||[]);c.before=data.pagination?.has_more?data.pagination.next_before:null;
-      }
-      const data=await request("/v1/public/chat/conversations?limit=50");c.history=data.conversations||[];c.loaded=true;c.error=null;
-    }catch(error){c.error=errorKey(error);if(error.status===404){c.id=null;c.messages=[];c.before=null;saveConversation(c);c.loaded=true;}}
+      const path=earlier&&validConversationId(c.id)?"/v1/public/workspace/conversations/"+encodeURIComponent(c.id)+(c.before?"?before="+encodeURIComponent(c.before):""):"/v1/public/workspace/agents/"+encodeURIComponent(c.key)+"/conversation?language="+encodeURIComponent(lang);
+      const data=await request(path);
+      if(!validConversationId(data.conversation_id)||data.agent_id!==c.key)throw {status:502,code:"invalid_response"};
+      c.id=data.conversation_id;
+      const messages=(data.messages||[]).filter(message=>["user","assistant"].includes(message.role));
+      c.messages=earlier?[...messages,...c.messages.filter(message=>!messages.some(item=>item.id===message.id))]:messages;
+      c.before=data.pagination?.has_more?data.pagination.next_before:null;c.context=data.context||null;c.loaded=true;c.error=null;c.errorDetail=null;if(!earlier)c.streamingText="";
+    }catch(error){const key=errorKey(error);c.error=key==="reportError"?"chatRestoreError":key;c.errorDetail=error;if(error.status===404){c.id=null;c.messages=[];c.before=null;}}
     finally{c.loading=false;if(visibleChat(c))renderChat(c);}
   }
   function renderChat(c){
-    if(!visibleChat(c))return;const root=chatRoot(),oldInput=root.querySelector("textarea");if(oldInput)c.draft=oldInput.value;
+    if(!visibleChat(c))return;const root=chatRoot(),sameAgent=root.dataset.agentKey===c.key,oldInput=sameAgent?root.querySelector("textarea"):null;if(oldInput&&!c.sending)c.draft=oldInput.value;root.dataset.agentKey=c.key;
     const hadFocus=document.activeElement===oldInput,selection=hadFocus?oldInput.selectionStart:null;
-    const oldScroll=root.querySelector(".chat-scroll"),atBottom=!oldScroll||oldScroll.scrollHeight-oldScroll.scrollTop-oldScroll.clientHeight<90,scrollTop=oldScroll?.scrollTop||0;
+    const oldScroll=sameAgent?root.querySelector(".chat-scroll"):null,atBottom=!oldScroll||oldScroll.scrollHeight-oldScroll.scrollTop-oldScroll.clientHeight<90,scrollTop=oldScroll?.scrollTop||0;
     const box=el("div","chat-box"),head=el("header","chat-header"),row=el("div","chat-heading-row");
-    const heading=el("h2","",T("discussion"));heading.id=view==="chat"?"main-discussion-heading":"discussion-heading";
-    row.append(heading,button(T("newChat"),"quiet-button",()=>{if(c.sending)return;c.id=null;c.messages=[];c.context=null;c.attempt=null;c.error=null;c.draft="";saveConversation(c);renderChat(c);}));
-    const context=el("p","chat-context");context.append(el("span","context-indicator"),document.createTextNode(T(c.key==="main"?"autoMain":state(c.key).report?"autoContext":"autoAgent")));
+    const heading=el("h2","",T("discussion"));heading.id="discussion-heading";row.append(heading);
+    const context=el("p","chat-context");context.append(el("span","context-indicator"),document.createTextNode(T(state(c.key).report?"autoContext":"autoAgent")));
     head.append(row,context);
-    if(c.history.length){const select=el("select","chat-history-select");select.setAttribute("aria-label",T("chatHistory"));
-      const placeholder=el("option","",T("chatHistory"));placeholder.setAttribute("value","");placeholder.disabled=true;placeholder.selected=true;select.append(placeholder);
-      for(const item of c.history){if(!validConversationId(item.conversation_id))continue;const option=el("option","",item.title||moment(item.created_at));option.value=item.conversation_id;select.append(option);}select.value="";
-      select.disabled=c.sending||c.loading;select.addEventListener("change",()=>{if(c.sending||c.loading||!validConversationId(select.value)||!c.history.some(item=>item.conversation_id===select.value))return;c.id=select.value;c.messages=[];c.context=null;c.draft="";c.attempt=null;saveConversation(c);loadConversation(c);});head.append(select);}
     const scroll=el("div","chat-scroll");scroll.setAttribute("role","log");scroll.setAttribute("aria-label",T("savedMessages"));
-    if(c.before)scroll.append(button(T("loadEarlier"),"quiet-button",()=>loadConversation(c,true)));
-    if(!c.messages.length&&!c.sending){const welcome=el("div","chat-welcome");welcome.append(el("h3","",T("chatWelcome")),el("p","",T(c.key==="main"?"chatWelcomeMain":"chatWelcomeNote")));
-      const suggestions=el("div","chat-suggestions"),keys=c.key==="main"?["suggestionLatest","suggestionCompare","suggestionEducation","suggestionUae"]:["suggestionSummary","suggestionUae","suggestionWhy","suggestionSince"];
+    if(c.before){const earlier=button(T("loadEarlier"),"quiet-button",()=>loadConversation(c,true));earlier.disabled=c.loading||c.sending;scroll.append(earlier);}
+    if(!c.messages.length&&!c.sending){const welcome=el("div","chat-welcome");welcome.append(el("h3","",T("chatWelcome")),el("p","",T("chatWelcomeNote")));
+      const suggestions=el("div","chat-suggestions"),keys=state(c.key).report?["suggestionSummary","suggestionUae","suggestionWhy","suggestionSince"]:["suggestionOverview","suggestionUae","suggestionQuestions"];
       for(const key of keys)suggestions.append(button(T(key),"chat-suggestion",()=>{c.draft=T(key);const input=chatRoot().querySelector("textarea");input.value=c.draft;input.focus();}));welcome.append(suggestions);scroll.append(welcome);}
     for(const message of c.messages){
-      const block=el("div","chat-message "+message.role);block.append(el("div","chat-message-label",message.role==="user"?T("you"):"AI HUB"));
+      const block=el("div","chat-message "+message.role);block.append(el("div","chat-message-label",message.role==="user"?T("you"):nameOf(profile(c.key))));
       const body=el("div","message-body"+(message.role==="assistant"?" markdown":""));body.dir="auto";
       if(message.role==="assistant")markdown.render(body,message.content||"");else body.textContent=message.content||"";
-      block.append(body);if(message.status==="failed")block.append(el("p","chat-error",T("chatError")));scroll.append(block);
+      block.append(body);if(message.created_at){const time=el("time","message-time",moment(message.created_at));time.setAttribute("datetime",message.created_at);block.append(time);}
+      if(message.status==="failed")block.append(el("p","chat-error",T("chatError")));scroll.append(block);
     }
+    if(c.sending&&c.attempt){const pending=el("div","chat-message user pending-message");pending.append(el("div","chat-message-label",T("you")),el("div","message-body",c.attempt.body.message));scroll.append(pending);}
+    if(c.streamingText){const partial=el("div","chat-message assistant streaming-message");partial.setAttribute("aria-live","polite");
+      partial.append(el("div","chat-message-label",c.sending?nameOf(profile(c.key)):T("chatPartial")));
+      const body=el("div","message-body streaming-text",c.streamingText);body.dir="auto";partial.append(body);scroll.append(partial);}
     if(c.context?.report_ids?.length){const note=el("div","chat-evidence-note");note.append(el("p","",T("chatEvidence",{n:c.context.report_ids.length})));
-      for(const cutoff of c.context.research_cutoffs||[])note.append(el("div","",nameOf(profile(cutoff.agent_id))+": "+moment(cutoff.cutoff)));
+      for(const cutoff of c.context.research_cutoffs||[]){const stamp=Date.parse(cutoff.cutoff),background=Number.isFinite(stamp)&&Date.now()-stamp>12*60*60*1000;
+        note.append(el("div","",nameOf(profile(cutoff.agent_id))+": "+moment(cutoff.cutoff)+(background?" · "+T("backgroundEvidence"):"")));}
       if(c.context.fresh_research&&c.context.report_id)note.append(button(T("viewUpdated"),"quiet-button",()=>openSaved(c.context.report_id,c.context.agent_ids?.[0])));scroll.append(note);}
     const composer=el("div","chat-composer-area");
     if(c.loading)composer.append(el("p","chat-status",T("chatLoading")));
     if(c.status){const status=el("p","chat-status",T(c.status));status.setAttribute("role","status");composer.append(status);}
-    if(c.error){const error=el("div","chat-error",T(c.error));error.setAttribute("role","alert");
-      if(c.attempt&&!c.sending)error.append(button(T("retryMessage"),"quiet-button",()=>sendChat(c,true)));composer.append(error);}
-    const form=el("form","chat-form"),input=el("textarea");input.rows=2;input.maxLength=8000;input.dir="auto";input.placeholder=T("chatPlaceholder");input.setAttribute("aria-label",T("chatInput"));input.value=c.draft;input.disabled=c.sending||c.loading;
+    if(c.error){const error=el("div","chat-error",T(c.error));error.setAttribute("role","alert");errorDetails(error,c.errorDetail);
+      if(c.attempt&&!c.sending)error.append(button(T("retryMessage"),"quiet-button",()=>sendChat(c,true)));
+      if(!c.loaded||c.errorDetail?.turn_id||c.error==="chatBusy")error.append(button(T("reloadConversation"),"quiet-button",()=>loadConversation(c)));composer.append(error);}
+    const form=el("form","chat-form"),input=el("textarea");input.rows=2;input.maxLength=8000;input.dir="auto";input.placeholder=T("chatPlaceholder");input.setAttribute("aria-label",T("chatInput"));input.value=c.sending?"":c.draft;input.disabled=c.sending||c.loading;
     input.addEventListener("input",()=>{c.draft=input.value;});
     input.addEventListener("keydown",event=>{if(event.key==="Enter"&&!event.shiftKey&&!event.isComposing){event.preventDefault();form.requestSubmit();}});
-    const bar=el("div","chat-composer-bar"),send=el("button","chat-send",T("send"));send.type="submit";send.disabled=!ready||c.sending||c.loading;
+    const bar=el("div","chat-composer-bar"),send=el("button","chat-send",T("send"));send.type="submit";send.disabled=!ready||!c.loaded||c.sending||c.loading;
     bar.append(el("span","",T("chatKeyboard")),send);form.append(input,bar);form.addEventListener("submit",event=>{event.preventDefault();sendChat(c);});
     composer.append(form);box.append(head,scroll,composer);root.replaceChildren(box);
     if(atBottom)scroll.scrollTop=scroll.scrollHeight;else scroll.scrollTop=scrollTop;
     if(hadFocus&&!input.disabled){input.focus();if(selection!==null)input.setSelectionRange(selection,selection);}
   }
   async function sendChat(c,retry=false){
-    if(!ready||c.sending||c.loading)return;
+    if(!ready||c.sending||c.loading||!c.loaded||!validConversationId(c.id))return;
     const text=c.draft.trim();if(!retry&&!text)return;
-    if(!retry){
-      const currentReport=c.key==="main"?null:state(c.key).report;
-      c.attempt={key:uuid(),body:{message:text,language:lang,agent_id:c.key==="main"?null:c.key,report_id:currentReport?.report_id||null,topic:c.key==="main"?"":state(c.key).topic}};
-    }
+    if(!retry){const currentReport=state(c.key).report;c.attempt={key:uuid(),body:{message:text,language:lang,agent_id:c.key,report_id:currentReport?.report_id||null,topic:state(c.key).topic}};}
     const attempt=c.attempt;if(!attempt)return;
-    c.sending=true;c.error=null;c.status="chatThinking";
+    c.sending=true;c.error=null;c.errorDetail=null;c.status="chatThinking";c.streamingText="";
     if(visibleChat(c))renderChat(c);
     try{
-      if(!validConversationId(c.id)){const conversation=await request("/v1/public/chat/conversations",{method:"POST",body:{language:attempt.body.language,title:c.key==="main"?"AI HUB":nameOf(profile(c.key))}});if(!validConversationId(conversation.conversation_id))throw {status:502,code:"invalid_response"};c.id=conversation.conversation_id;saveConversation(c);}
       let answer;
       for(;;){
-        answer=await request("/v1/public/workspace/chat/conversations/"+encodeURIComponent(c.id)+"/messages",{method:"POST",body:attempt.body,key:attempt.key});
+        answer=await streamAnswer("/v1/public/workspace/conversations/"+encodeURIComponent(c.id)+"/messages/stream",{body:attempt.body,key:attempt.key},(event,value)=>{
+          if(event==="delta"){if(c.streamingText.length+value.length>500000)throw {status:502,code:"invalid_response"};c.streamingText+=value;c.status="chatWriting";}
+          else if(event==="status")c.status=value==="researching"?"chatResearch":"chatWriting";
+          if(visibleChat(c))renderChat(c);
+        });
         if(answer.status!=="researching")break;
         c.status="chatResearch";attempt.body.fresh_job_id=answer.job.job_id;
         if(answer.agent_id){acceptJob(answer.agent_id,answer.job);pollJob(answer.agent_id,answer.job.job_id);}
         if(visibleChat(c))renderChat(c);
-        // Observe a saved structured report before asking for its answer. PDF
-        // progress is independent, so a PDF failure cannot block discussion.
         let saved=false;
         while(!saved){
           await pause(1800);
@@ -661,17 +712,50 @@
         }
         c.status="chatThinking";if(visibleChat(c))renderChat(c);
       }
+      if(!answer.message||answer.conversation_id&&answer.conversation_id!==c.id)throw {status:502,code:"invalid_response"};
       const seen=new Set(c.messages.map(message=>message.id));
       for(const message of [answer.user_message,answer.message])if(message&&!seen.has(message.id))c.messages.push(message);
-      c.context=answer.context;c.draft="";c.attempt=null;
-      if(answer.conversation)c.history=[answer.conversation,...c.history.filter(row=>row.conversation_id!==c.id)];
-    }catch(error){c.error=error?.network?"network":errorKey(error);if(!error?.network&&error?.code!=="chat_in_progress"&&error?.code!=="conversation_busy")c.attempt=null;}
+      c.context=answer.context;c.draft="";c.attempt=null;c.streamingText="";memoryState.loaded=false;
+    }catch(error){const key=errorKey(error);c.error=error?.network?"network":key==="reportError"?"chatError":key;c.errorDetail=error;if(!error?.network&&error?.code!=="chat_in_progress"&&error?.code!=="conversation_busy")c.attempt=null;}
     finally{c.sending=false;c.status=null;if(visibleChat(c)){const input=chatRoot().querySelector("textarea");if(input)input.value=c.draft;renderChat(c);}}
   }
+  function renderMemory(){
+    const target=$("memory-items");if(!target)return;target.replaceChildren();
+    if(memoryState.loading)target.append(el("p","memory-empty",T("memoryLoading")));
+    else if(!memoryState.items.length)target.append(el("p","memory-empty",T("memoryEmpty")));
+    for(const item of memoryState.items){
+      if(!["proposed","approved"].includes(item.status))continue;
+      const card=el("article","memory-item"),kind={preference:"memoryPreference",correction:"memoryCorrection",knowledge:"memoryKnowledge"}[item.kind]||"memoryKnowledge";
+      card.append(el("p","memory-item-meta",T(kind)+" · "+T(item.status==="approved"?"memoryApproved":"memoryProposed")));
+      const content=el("p","memory-item-content",item.content);content.dir="auto";card.append(content);
+      const actions=el("div","memory-item-actions");
+      if(item.status==="proposed")actions.append(button(T("memoryApprove"),"quiet-button",()=>updateMemory(item.memory_id,"approve")));
+      actions.append(button(T(item.status==="approved"?"memoryForget":"memoryReject"),"quiet-button",()=>updateMemory(item.memory_id,"reject")));
+      for(const control of actions.childNodes)control.disabled=memoryState.saving;card.append(actions);target.append(card);
+    }
+    showNotice($("memory-notice"),memoryState.error);$("memory-save").disabled=memoryState.saving||memoryState.loading;
+  }
+  async function loadMemory(){
+    if(memoryState.loading)return;memoryState.loading=true;renderMemory();
+    try{const data=await request("/v1/public/workspace/memory");memoryState.items=Array.isArray(data.items)?data.items:[];memoryState.loaded=true;memoryState.error=null;}
+    catch(error){memoryState.error=errorKey(error);}finally{memoryState.loading=false;renderMemory();}
+  }
+  async function updateMemory(id,action){
+    if(memoryState.saving||typeof id!=="string"||!/^[a-zA-Z0-9_-]+$/.test(id))return;
+    memoryState.saving=true;renderMemory();
+    try{await request("/v1/public/workspace/memory/"+encodeURIComponent(id),{method:"PATCH",body:{action}});await loadMemory();}
+    catch(error){memoryState.error=errorKey(error);}finally{memoryState.saving=false;renderMemory();}
+  }
+  async function proposeMemory(){
+    const content=$("memory-input").value.trim(),kind=$("memory-kind").value;if(!content||memoryState.saving||!["preference","correction","knowledge"].includes(kind))return;
+    memoryState.saving=true;renderMemory();
+    try{await request("/v1/public/workspace/memory",{method:"POST",body:{kind,content}});$("memory-input").value="";await loadMemory();}
+    catch(error){memoryState.error=errorKey(error);}finally{memoryState.saving=false;renderMemory();}
+  }
   $("brand-home").addEventListener("click",()=>setView("home"));$("nav-home").addEventListener("click",()=>setView("home"));$("back-home").addEventListener("click",()=>setView("home"));
-  $("nav-chat").addEventListener("click",()=>setView("chat"));$("language-ar").addEventListener("click",()=>setLanguage("ar"));$("language-en").addEventListener("click",()=>setLanguage("en"));
-  $("agent-selector").addEventListener("change",()=>openAgent($("agent-selector").value,true));
-  $("home-news-agent").addEventListener("change",()=>{const id=$("home-news-agent").value;if(newsEnabled(id)){homeNewsId=id;renderHomeNews();syncNews();}});
+  $("language-ar").addEventListener("click",()=>setLanguage("ar"));$("language-en").addEventListener("click",()=>setLanguage("en"));
+  $("agent-selector").addEventListener("change",()=>openAgent($("agent-selector").value));
+  $("research-tools").addEventListener("toggle",()=>{if($("research-tools").open)renderReport();syncNews();});
   $("topic-input").addEventListener("input",()=>{if(current())current().topic=$("topic-input").value;});
   $("topic-input").addEventListener("keydown",event=>{if(event.key==="Enter"&&!event.shiftKey&&!event.isComposing){event.preventDefault();$("topic-form").requestSubmit();}});
   $("topic-form").addEventListener("submit",event=>{event.preventDefault();if(current())current().topic=$("topic-input").value;generateReport();});
@@ -680,8 +764,9 @@
     $("tab-"+id).addEventListener("click",()=>{if(!current())return;current().tab=id;renderWorkspace();syncNews();});
     $("tab-"+id).addEventListener("keydown",event=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)){event.preventDefault();const next=event.key==="Home"?"evidence":event.key==="End"?"pack":id==="pack"?"evidence":"pack";current().tab=next;renderWorkspace();syncNews();$("tab-"+next).focus();}});
   }
-  $("mobile-chat-toggle").addEventListener("click",()=>{mobileChat=!mobileChat;$("workspace-view").classList.toggle("chat-open",mobileChat);renderWorkspace();renderVisibleChat();});
   $("pdf-retry").addEventListener("click",retryPdf);
+  $("shared-memory").addEventListener("toggle",()=>{if($("shared-memory").open&&!memoryState.loaded)loadMemory();});
+  $("memory-form").addEventListener("submit",event=>{event.preventDefault();proposeMemory();});
   document.addEventListener?.("visibilitychange",syncNews);
   async function initialize(){
     setLanguage(lang);showNotice($("global-notice"),"connecting");
@@ -689,11 +774,11 @@
       await request("/v1/public/bootstrap");
       const data=await request("/v1/public/workspace/config");agents=data.agents||[];
       const enabled=Array.isArray(data.news_enabled_agents)?data.news_enabled_agents:agents.filter(a=>a.news_feed_enabled).map(a=>a.id);
-      newsAgents=enabled.filter(id=>profile(id));homeNewsId=newsAgents.includes("iran-news")?"iran-news":newsAgents[0]||null;
+      newsAgents=enabled.filter(id=>profile(id));
       ready=true;showNotice($("global-notice"),null);setLanguage(lang);
       let previous=null;try{previous=sessionStorage.getItem("aihub.workspace.agent");}catch(_){}
-      if(previous&&profile(previous))await openAgent(previous,false);
-      feedsReady=true;renderHomeNews();syncNews();
+      if(previous&&profile(previous))await openAgent(previous);
+      feedsReady=true;syncNews();
     }catch(_){showNotice($("global-notice"),"connectionError");}
   }
   initialize();

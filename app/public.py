@@ -262,15 +262,18 @@ def _agents() -> list[dict[str, Any]]:
 def _platform_context() -> dict[str, Any]:
     return {"name": "AI HUB", "audience": "public", "supported_languages": ["ar", "en"],
         "agents": [{key: value for key, value in agent.items() if key != "runtime_ready"} for agent in _agents()],
-        "sections": ["Search and assistants", "Chat with AI HUB"],
-        "workflow": "Choose an assistant, write your request, and press Enter or Search. Shift+Enter inserts a new line. Discuss results opens Chat; then choose Attach displayed report to include your own current result in the conversation.",
-        "languages": "Use العربية or English in the header. Iran-war pages retain English originals and saved Arabic translations; changing language does not search again. Unavailable translations keep the original text.",
-        "iran_news": {"query": "iran war", "query_semantics": "iran AND war", "window_hours": 48,
-            "result_limit": 20, "provider": "NewsData.io", "order": "newest first",
-            "pagination": "Next page continues this search up to its first 20 provider results. Previous page reopens the saved page. Each attachment contains one page only; excluded invalid results can mean fewer displayed articles.",
-            "freshness": "The provider's free plan has a 12-hour delay. Zero accepted results does not prove no relevant news exists."},
-        "privacy": "You can discuss only this browser session's own results and conversations. There is no access to administration, other visitors' data, settings, accounts, or secret credentials.",
-        "chat_capabilities": {"web_search": False, "execute_actions": False},
+        "sections": ["Agents", "Agent workspace"],
+        "workflow": "Choose an agent to restore its own conversation and saved results. Opening or switching agents does not research. Use Refresh news for an intentional news refresh, or send a research request in the agent's chat. Shift+Enter inserts a new line. Reports and their cited evidence stay available in the relevant workspace.",
+        "languages": "Use العربية or English in the header. Changing interface language does not search again. Replies use the selected language; saved reports retain their original publication and coverage dates.",
+        "news_policy": {"window_hours": 12, "maximum_newsdata_articles_per_refresh": 50,
+            "retrieval_options": ["newsdata", "web_search"], "refresh_mode": "manual",
+            "display_timezone": "Asia/Dubai",
+            "selection": "Every active agent can use NewsData and OpenAI web search according to the task. Search supplements empty, insufficient or unavailable NewsData and useful primary documents. Duplicate and out-of-window news is excluded; older research must be clearly dated background.",
+            "freshness": "Zero accepted results does not prove no relevant news exists. NewsData free-plan delivery can lag by 12 hours. A refresh can report a specific provider or application-limit error; it never starts automatically on page load, agent switching or a background timer."},
+        "privacy": "This browser visitor has separate agent histories and shared relevant conversations, approved preferences or corrections, reports and cited evidence. Other visitors and the owner's workspace are isolated. Clearing or losing the browser session does not restore another visitor's identity. There is no access to administration, settings, accounts or secret credentials.",
+        "chat_capabilities": {"agent_workspace_research": True, "retrieval_options": ["newsdata", "web_search"],
+            "legacy_endpoint_tools": [], "execute_external_actions": False},
+        "memory_review": "Propose a preference, correction or knowledge note in the shared-memory review control, then approve or reject it. Approved user notes remain user-provided knowledge, not independently verified facts. Saved context helps future conversations; this does not train the underlying model.",
         "guidance": "Explain the public interface only. Never direct visitors to configuration, account setup, administration, schedules, usage dashboards or billing. Say a feature is temporarily unavailable when necessary; do not invent service settings or charges."}
 
 
