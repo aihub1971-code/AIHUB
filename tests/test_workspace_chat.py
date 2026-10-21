@@ -7,7 +7,7 @@ import json
 from fastapi import HTTPException
 import pytest
 
-from app import public, report_store, runtime, workspace_chat
+from app import chat_research, public, report_store, runtime, workspace_chat
 from app.registry import RETIRED_AGENT_IDS
 from app.report_store import get_report_store
 from app.storage import QuotaLimits, get_store
@@ -100,7 +100,7 @@ def save_retired_report(state, monkeypatch, agent_id):
 @pytest.fixture
 def provider(monkeypatch):
     calls = []
-    state = {"calls": calls, "answer": "A synthetic explanation of the selected evidence.", "error": None}
+    state = {"calls": calls, "research_calls": [], "answer": "A synthetic explanation of the selected evidence.", "error": None}
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-workspace-key-not-a-credential")
 
     def model(key, payload):
@@ -111,6 +111,20 @@ def provider(monkeypatch):
                 "usage_reported": True}, "tier_matches": True, "usage_bound_matches": True}
 
     monkeypatch.setattr(runtime, "_call_model", model)
+    def discover(plan, *, on_stage=None):
+        state["research_calls"].append(deepcopy(plan))
+        if on_stage:
+            on_stage("searching")
+            on_stage("checking_sources")
+        return {"sources": [{"id": "web1", "url": "https://new-online-source.example/study",
+            "title": "Synthetic checked study", "publisher": "Synthetic original publisher",
+            "published_at": "2025-01-15", "publication_precision": "day", "retrieved_at": NOW.isoformat(),
+            "role": "reference", "publisher_text_verified": True, "evidence_level": "publisher_page_verified",
+            "excerpt": "Synthetic checked source text for this research question."}],
+            "searched_at": NOW.isoformat(), "limitations": [], "cost_tracking_complete": True,
+            "estimated_cost_usd": .012, "usage": {"input_tokens": 200, "output_tokens": 100,
+                "usage_reported": True, "web_search_calls": 1, "native_actions": 1}, "usage_stages": []}
+    monkeypatch.setattr(chat_research, "discover_chat_sources", discover)
     return state
 
 
@@ -210,20 +224,22 @@ def test_independent_evidence_question_does_not_reuse_unrelated_or_stale_agent_r
     question = "What are Finland programme costs and employment effects?"
     response = send(discussion["client"], conversation(discussion["client"]), question,
                     agent_id="ubi-research", report_id=previous["report_id"])
-    assert response.status_code == 202, response.text
-    assert response.json()["status"] == "researching"
-    assert response.json()["job"]["topic"] == question
-    assert response.json()["job"]["research_window"]["end"] == NOW.isoformat(timespec="microseconds")
-    assert provider["calls"] == []
-    assert len(discussion["reports"].list_jobs(discussion["owner"], active_only=True)) == 1
+    assert response.status_code == 200, response.text
+    assert response.json()["context"]["web_research"]["status"] == "complete"
+    assert provider["research_calls"][0]["question"] == question
+    assert provider["research_calls"][0]["topic_context"] == ""
+    assert len(provider["calls"]) == 1
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
 
 
-def test_current_relevant_evidence_can_answer_without_duplicate_research(discussion, provider):
+def test_current_report_remains_context_for_an_independent_online_question(discussion, provider):
     selected = save_report(discussion, "ubi-research", label="Finland-programme-costs-employment-effects")
     question = "What are Finland programme costs and employment effects?"
     response = send(discussion["client"], conversation(discussion["client"]), question, agent_id="ubi-research")
     assert response.status_code == 200, response.text
     assert response.json()["context"]["fresh_research"] is False
+    assert response.json()["context"]["web_research"]["status"] == "complete"
+    assert len(provider["research_calls"]) == 1
     assert evidence(provider["calls"][0])["report_ids"] == [selected["report_id"]]
     assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
 
@@ -242,15 +258,18 @@ def test_ordinary_factual_question_researches_beyond_displayed_report(
     """A normal question must not require specialist keywords or a manual attachment."""
     agent_id = "economic-cultural-briefing"
     previous = save_report(discussion, agent_id, label="unrelated-tourism") if with_report else None
+    provider["answer"] = "A checked factual answer [source](https://new-online-source.example/study)."
     response = send(discussion["client"], conversation(discussion["client"]), question,
                     agent_id=agent_id, language=language,
                     report_id=previous["report_id"] if previous else None,
                     topic=previous["topic"] if previous else "")
-    assert response.status_code == 202, response.text
-    assert response.json()["status"] == "researching"
-    assert response.json()["job"]["topic"] == question
-    assert provider["calls"] == []
-    assert len(discussion["reports"].list_jobs(discussion["owner"], active_only=True)) == 1
+    assert response.status_code == 200, response.text
+    assert response.json()["context"]["web_research"]["status"] == "complete"
+    assert response.json()["message"]["content"] == provider["answer"]
+    assert provider["research_calls"][0]["question"] == question
+    assert provider["research_calls"][0]["topic_context"] == ""
+    assert len(provider["calls"]) == 1
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
 
 
 @pytest.mark.parametrize("language,question", [
@@ -261,10 +280,12 @@ def test_current_followup_retains_displayed_subject_for_new_research(discussion,
     previous = save_report(discussion, "economic-cultural-briefing", label="European-Central-Bank")
     response = send(discussion["client"], conversation(discussion["client"]), question,
                     agent_id="economic-cultural-briefing", language=language, report_id=previous["report_id"])
-    assert response.status_code == 202, response.text
-    topic = response.json()["job"]["topic"]
-    assert previous["topic"] in topic and question in topic
-    assert provider["calls"] == []
+    assert response.status_code == 200, response.text
+    assert response.json()["context"]["web_research"]["status"] == "complete"
+    assert provider["research_calls"][0]["question"] == question
+    assert provider["research_calls"][0]["topic_context"] == previous["topic"]
+    assert len(provider["calls"]) == 1
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
 
 
 @pytest.mark.parametrize("question", [
@@ -298,15 +319,16 @@ def test_chat_payload_from_old_ui_cannot_reapply_archived_topic_to_new_subject(d
     # topic, even when the new chat question introduced another country.
     response = send(discussion["client"], conversation(discussion["client"]), question,
                     agent_id="ubi-research", report_id=previous["report_id"], topic=previous["topic"])
-    assert response.status_code == 202, response.text
-    assert response.json()["job"]["topic"] == question
-    assert "Canada" not in response.json()["job"]["topic"]
-    assert provider["calls"] == []
+    assert response.status_code == 200, response.text
+    plan = provider["research_calls"][0]
+    assert plan["question"] == question and plan["topic_context"] == ""
+    assert "Canada" not in plan["question"]
+    assert len(provider["calls"]) == 1
 
 
 def test_relevant_explicit_custom_topic_remains_part_of_new_research_request(discussion, provider):
     previous = save_report(discussion, "ubi-research", label="Canada-programme-costs-employment-effects")
-    question = "Research Finland programme costs and employment effects."
+    question = "Generate a report on Finland programme costs and employment effects."
     topic = "Finland 2017–2018 basic-income trial, with original evaluation and fiscal accounts"
     response = send(discussion["client"], conversation(discussion["client"]), question,
                     agent_id="ubi-research", report_id=previous["report_id"], topic=topic)
@@ -320,10 +342,11 @@ def test_pronoun_followup_can_discuss_relevant_dated_evidence_without_research(d
     previous = save_report(discussion, "ubi-research", label="Canada-programme-costs-employment-effects",
                            moment=NOW - timedelta(days=3))
     response = send(discussion["client"], conversation(discussion["client"]),
-        "What were their programme costs and employment effects?", agent_id="ubi-research",
+        "What were their programme costs and employment effects? Use only the saved report.", agent_id="ubi-research",
         report_id=previous["report_id"], topic=previous["topic"])
     assert response.status_code == 200, response.text
     assert response.json()["context"]["fresh_research"] is False
+    assert provider["research_calls"] == []
     assert evidence(provider["calls"][0])["report_ids"] == [previous["report_id"]]
     assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
 
@@ -370,8 +393,10 @@ def test_explicit_background_question_cannot_use_another_visitors_matching_archi
     save_report(discussion, "ubi-research", label="Canada-programme-costs-employment-effects")
     question = "Explain the dated background on Finland programme costs and employment effects from 2017."
     response = send(discussion["client"], conversation(discussion["client"]), question, agent_id="ubi-research")
-    assert response.status_code == 202, response.text
-    assert foreign["report_id"] not in response.text and provider["calls"] == []
+    assert response.status_code == 200, response.text
+    assert foreign["report_id"] not in response.text
+    assert foreign["report_id"] not in json.dumps(provider["calls"])
+    assert provider["research_calls"][0]["question"] == question
 
 
 def test_follow_up_inherits_its_owned_snapshot_without_an_attachment_prompt(discussion, provider):
@@ -487,7 +512,7 @@ def test_preflight_retry_keeps_pinned_snapshot_when_a_newer_report_appears(discu
 def test_fresh_question_waits_then_answers_from_new_cutoff_and_saved_old_snapshot(discussion, provider, pdf_failed, language):
     previous = save_report(discussion, label="older", moment=NOW - timedelta(hours=1))
     client, cid = discussion["client"], conversation(discussion["client"])
-    question = "What has changed in Iran since this report?"
+    question = "Generate a fresh report on what has changed in Iran since this report."
     first = send(client, cid, question, agent_id=IRAN, report_id=previous["report_id"], language=language)
     assert first.status_code == 202, first.text
     job = first.json()["job"]
@@ -513,20 +538,22 @@ def test_fresh_question_waits_then_answers_from_new_cutoff_and_saved_old_snapsho
     assert discussion["reports"].get_report(discussion["owner"], previous["report_id"])["research_window"] == previous["research_window"]
 
 
-def test_unavailable_current_report_enqueues_main_domain_research_without_paid_answer(discussion, provider):
+def test_online_question_without_a_report_answers_without_creating_a_report(discussion, provider):
     client = discussion["client"]
     response = send(client, conversation(client), "Explain the education policy evidence")
-    assert response.status_code == 202, response.text
-    assert response.json()["agent_id"] == "education-observatory"
-    assert response.json()["job"]["agent_id"] == "education-observatory"
-    assert not provider["calls"]
+    assert response.status_code == 200, response.text
+    assert response.json()["context"]["agent_ids"][0] == "education-observatory"
+    assert response.json()["context"]["web_research"]["status"] == "complete"
+    assert provider["research_calls"][0]["agent_id"] == "education-observatory"
+    assert len(provider["calls"]) == 1
+    assert discussion["reports"].list_jobs(discussion["owner"]) == []
 
 
 @pytest.mark.parametrize("language", ["en", "ar"])
 def test_fresh_empty_research_returns_persisted_free_notice_without_a_provider_call(
         discussion, provider, monkeypatch, language):
     client, cid = discussion["client"], conversation(discussion["client"])
-    question = "What is the European Central Bank's inflation target?"
+    question = "Generate a report answering: What is the European Central Bank's inflation target?"
     first = send(client, cid, question, agent_id="economic-cultural-briefing", language=language)
     assert first.status_code == 202
     job = first.json()["job"]
@@ -553,7 +580,7 @@ def test_fresh_empty_research_returns_persisted_free_notice_without_a_provider_c
 @pytest.mark.parametrize("cited", [False, True])
 def test_fresh_answer_needs_a_citation_to_supported_retrieved_evidence(discussion, provider, cited):
     client, cid = discussion["client"], conversation(discussion["client"])
-    question = "What is happening in Iran now?"
+    question = "Generate a fresh report on what is happening in Iran now."
     first = send(client, cid, question, agent_id=IRAN)
     job = first.json()["job"]
     complete_job(discussion, job["job_id"], label="fresh-support")
@@ -569,7 +596,7 @@ def test_fresh_answer_needs_a_citation_to_supported_retrieved_evidence(discussio
 def test_failed_fresh_job_keeps_previous_report_and_never_retries_research_or_answer(discussion, provider):
     old = save_report(discussion, label="old")
     client, cid = discussion["client"], conversation(discussion["client"])
-    question = "What is happening in Iran now?"
+    question = "Generate a fresh report about Iran now."
     first = send(client, cid, question, agent_id=IRAN).json()
     claim = discussion["reports"].claim("fixture-worker")
     assert claim["job_id"] == first["job"]["job_id"]

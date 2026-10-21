@@ -449,7 +449,7 @@ test("an incomplete follow-up and separate event dates are visible and localized
 
 test("maintenance console links the owner workspaces without a separate chat destination and logout clears private state", async () => {
   const sources=[...html.matchAll(/<script src="([^"]+)"/g)].map(match=>match[1]);
-  assert.deepEqual(sources,["/static/i18n.js?v=2.1.1","/static/app.js?v=2.1.1"]);
+  assert.deepEqual(sources,["/static/i18n.js?v=2.1.6","/static/app.js?v=2.1.6"]);
   const ui=harness(null,{language:"en",fetch:(url,_options,respond)=>dashboardFixture(url,respond)});
   assert.equal(ui.chatCalls.create,0);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
   assert.equal(ui.getCurrentReport(),null);

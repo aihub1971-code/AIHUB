@@ -28,11 +28,11 @@
 |---|---|
 | `NEWSDATA_API_KEY` | وصول الأخبار؛ تبقى القيمة سرية |
 | `NEWSDATA_PLAN` / `NEWSDATA_PAGE_SIZE` | تهيئة الوصول وحجم الصفحة، وليسا إثباتًا لاستحقاق الحساب |
-| `NEWSDATA_DAILY_CREDIT_LIMIT` | السقف المحلي القائم؛ مثال البيئة يستخدم 200 |
+| `NEWSDATA_DAILY_CREDIT_LIMIT` | `500` في الإعداد الحالي؛ سقف محلي منفصل عن رصيد حساب NewsData |
 | `OPENAI_API_KEY` | المحادثة والتحليل والترجمة وبحث الويب المحدود لجميع الوكلاء |
 | `OPENAI_MODEL_NAME` / `OPENAI_REASONING_EFFORT` | `gpt-6.1-sol` / `low` |
 | `APP_USERNAME` / `APP_PASSWORD` | مصادقة المالك |
-| `MAX_REPORTS_PER_DAY` | `100` في إعداد المشروع |
+| `MAX_REPORTS_PER_DAY` | `500` في الإعداد الحالي؛ حصة بحث مشتركة للتقارير وبحث الويب في المحادثة، مع بقاء الاسم البرمجي القديم |
 | `DAILY_BUDGET_USD` / `MONTHLY_BUDGET_USD` | `900` / `28000` في إعداد المشروع |
 | `REPORT_WORKER_ENABLED` / `REPORT_JOB_WORKERS` | `true` / `2` |
 | `SCHEDULER_ENABLED` | `false` للتشغيل اليدوي |

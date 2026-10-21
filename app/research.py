@@ -947,7 +947,8 @@ def _relevant(profile: dict[str, Any], title: str, description: str, text: str, 
 
 
 def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict[str, Any],
-                 topic: str, window: dict[str, str]) -> tuple[dict[str, Any] | None, str | None]:
+                 topic: str, window: dict[str, str], *,
+                 reference_mode: bool = False) -> tuple[dict[str, Any] | None, str | None]:
     parser = _ArticleHTML()
     try:
         parser.feed(page["html"])
@@ -983,7 +984,10 @@ def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict
     description = _text(main.get("description"), 2000) or _text((parser.meta.get("description") or parser.meta.get("og:description") or [""])[0], 2000)
     article_text = _text(main.get("articleBody"), 12000) or _text(" ".join(parser.article_text), 12000)
     article_text = article_text or description
-    reference = profile["kind"] in {"reading", "moodboard"} or profile.get("allow_background", False)
+    # Ordinary chat verifies evidence for the question, independently of the
+    # agent's news domain. It may use historical or undated references, but it
+    # never turns retrieval time into a publication time or a fresh-news label.
+    reference = reference_mode or profile["kind"] in {"reading", "moodboard"} or profile.get("allow_background", False)
     if not title or (not reference and not runtime._is_article_url(title, url)):
         return None, "non_article_page"
     if not article_text and reference:
@@ -994,7 +998,7 @@ def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict
     source_host = (urlsplit(url).hostname or "").lower()
     if profile["id"] == "uae-eu-trade-talks" and (source_host == "europa.eu" or source_host.endswith(".europa.eu")):
         relevance_description += " European Union official document"
-    if not _relevant(profile, title, relevance_description, article_text, topic):
+    if not reference_mode and not _relevant(profile, title, relevance_description, article_text, topic):
         return None, "irrelevant"
     start, end = _timestamp(window["start"]), _timestamp(window["end"])
     publications: list[tuple[datetime, dict[str, Any]]] = []
@@ -1011,17 +1015,17 @@ def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict
                     continue
                 stamp = _timestamp(update.get("datePublished"))
                 body = _text(update.get("articleBody") or update.get("text") or update.get("description"), 12000)
-                if stamp is not None and start <= stamp <= end and body:
+                if stamp is not None and stamp <= end and (reference_mode or start <= stamp) and body:
                     entries.append((stamp, path + f".liveBlogUpdate[{index}].datePublished", update, body))
         if entries:
             stamp, path, entry, body = max(entries, key=lambda item: item[0])
             title = _text(entry.get("headline"), 500) or title
             article_text = body
-            if not _relevant(profile, title, _text(entry.get("description"), 2000), article_text, topic):
+            if not reference_mode and not _relevant(profile, title, _text(entry.get("description"), 2000), article_text, topic):
                 return None, "irrelevant_live_entry"
             publications.append((stamp, {"method": "publisher_jsonld_live_entry", "path": path,
                                          "value": entry["datePublished"], "verified": True}))
-        else:
+        elif not reference_mode:
             return None, "unverified_live_entry"
     else:
         for path, node in article_nodes:
@@ -1051,7 +1055,9 @@ def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict
     fresh = publication is not None and start <= publication[0] <= end
     if not fresh and not reference:
         return None, "outside_window" if publication else "unverified_publication_timestamp"
-    role = "fresh" if fresh and (profile["kind"] not in {"reading", "moodboard"} or "NewsArticle" in _types(main)) else ("reference" if profile["kind"] == "moodboard" else "background")
+    role = ("reference" if reference_mode else
+        "fresh" if fresh and (profile["kind"] not in {"reading", "moodboard"} or "NewsArticle" in _types(main)) else
+        "reference" if profile["kind"] == "moodboard" else "background")
     publisher = _text((parser.meta.get("og:site_name") or [""])[0], 200)
     if isinstance(main.get("publisher"), dict):
         publisher = _text(main["publisher"].get("name"), 200) or publisher
@@ -1062,6 +1068,7 @@ def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict
     date_only = None
     if not publication and reference:
         candidates = [node.get("datePublished") for _, node in article_nodes] + parser.meta.get("article:published_time", [])
+        dated_candidates = set()
         for candidate in candidates:
             if isinstance(candidate, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", candidate):
                 try:
@@ -1070,8 +1077,12 @@ def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict
                     continue
                 if day > end.date():
                     return None, "future_publication"
-                date_only = candidate
-                break
+                dated_candidates.add(candidate)
+                date_only = date_only or candidate
+                if not reference_mode:
+                    break
+        if reference_mode and len(dated_candidates) > 1:
+            return None, "conflicting_publication_dates"
     verification = publication[1] if publication else ({"method": "publisher_date_only_background", "verified": False,
         "value": date_only, "precision": "day"} if date_only else {"method": "background_reference_no_verified_timestamp", "verified": False})
     verification = {**verification, "fetched_url": url, "page_sha256": page["sha256"], "retrieved_at": page["retrieved_at"]}
@@ -1086,16 +1097,19 @@ def _verify_page(discovered: dict[str, Any], page: dict[str, Any], profile: dict
         "factual_basis": "publisher_page", "event_date": None}
     host = (urlsplit(url).hostname or "").casefold()
     official = host.endswith((".gov", ".gov.ae", ".europa.eu")) or host == "europa.eu"
+    scholarly = "ScholarlyArticle" in _types(main) or bool(parser.meta.get("citation_journal_title"))
     source["source_category"] = ("opinion" if "OpinionNewsArticle" in _types(main) else
         "analysis" if "AnalysisNewsArticle" in _types(main) else
+        "research" if scholarly else
         "official_statement" if official or "PressRelease" in _types(main) else
-        "research" if "ScholarlyArticle" in _types(main) else "reporting")
+        "reporting")
     return source, None
 
 
 def _verified_sources(discovered: list[dict[str, Any]], profile: dict[str, Any], topic: str,
                       window: dict[str, str], *, page_limit: int = MAX_PUBLISHER_PAGES,
-                      page_cache: dict[str, tuple[dict[str, Any] | None, str | None]] | None = None
+                      page_cache: dict[str, tuple[dict[str, Any] | None, str | None]] | None = None,
+                      reference_mode: bool = False
                       ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     authorized = {item["url"] for item in discovered}
     cache = page_cache if page_cache is not None else {}
@@ -1104,7 +1118,7 @@ def _verified_sources(discovered: list[dict[str, Any]], profile: dict[str, Any],
             return cache[item["url"]]
         try:
             page = _download_page(item["url"], authorized)
-            result = _verify_page(item, page, profile, topic, window)
+            result = _verify_page(item, page, profile, topic, window, reference_mode=reference_mode)
         except (ValueError, OSError, ssl.SSLError, http.client.HTTPException) as error:
             known = str(error) if isinstance(error, ValueError) else "publisher_unavailable"
             result = (None, known if re.fullmatch(r"[a-z_]{1,60}", known) else "publisher_unavailable")
