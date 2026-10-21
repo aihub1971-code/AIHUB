@@ -590,7 +590,12 @@ def test_no_evidence_is_concise_dated_and_does_not_make_a_synthesis_request(monk
     assert result["title"] == title
     assert [section["id"] for section in result["sections"]] == ["executive_summary"]
     body = result["sections"][0]["body"]
-    assert len(body) < 220 and body.count(WINDOW["start"]) == body.count(WINDOW["end"]) == 1
+    assert len(body) < 220
+    assert "20 Oct 2026, 04:00 (UTC+04)" in body and "20 Oct 2026, 16:00 (UTC+04)" in body
+    assert ("بتوقيت دبي" if language == "ar" else "Dubai time") in body
+    assert WINDOW["start"] not in body and WINDOW["end"] not in body
+    assert result["research_window"]["start"] == WINDOW["start"]
+    assert result["research_window"]["end"] == WINDOW["end"] and result["research_window"]["timezone"] == "UTC"
     assert body not in result["limitations"]
     assert result["sections"][0]["source_ids"] == []
     assert result["status"] == "no_evidence"
