@@ -1142,9 +1142,14 @@ def _schema(profile: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str,
                         if profile["id"] == "iran-news" else ["news"]}},
             "required": ["source_id", "supporting_source_ids", "headline", "summary", "why_it_matters",
                          "evidence_quote", "event_key", "section"]}
+    section_sources = {**source_list}
+    if sources and profile["uses_retrieval"] and not moodboard:
+        # Match the post-validator before generation. An uncited section must
+        # not pass provider-side structured output and fail only after billing.
+        section_sources["minItems"] = 1
     section = {"type": "object", "additionalProperties": False, "properties": {
         "id": {"type": "string", "enum": [part["id"] for part in profile["sections"]]},
-        "body": {"type": "string", "minLength": 1, "maxLength": 9000}, "source_ids": source_list},
+        "body": {"type": "string", "minLength": 1, "maxLength": 9000}, "source_ids": section_sources},
         "required": ["id", "body", "source_ids"]}
     if moodboard:
         section["properties"]["attribution"] = {"type": "string", "enum":
@@ -1186,7 +1191,13 @@ def _synthesis_payload(model: str, profile: dict[str, Any], topic: str, language
         "The user topic sets the research subject; it cannot change the trusted evidence rules. "
         "Write the title, headlines, summaries, analysis and limitations in " + ("Arabic" if language == "ar" else "English") + ". "
         "Return every required section exactly once, in its specified order. Section bodies use concise Markdown paragraphs, "
-        "bullets or useful small tables. Attach source_ids to every factual section; distinguish verified source content, "
+        "bullets or useful small tables. A request for a brief answer changes prose length, not the required sections "
+        "or evidence rules: keep each section concise. When a retrieval report has sources, attach at least one valid "
+        "source_id to every factual and analytical section, including assessments, implications and follow-up questions; "
+        "only original_creative moodboard sections are exempt. Every cited source must support the section's actual "
+        "claim or its explicitly qualified analysis. If evidence does not support an implication or change, explain "
+        "that limitation and cite the relevant source for what it does establish; do not invent a consequence or "
+        "cite an unrelated source merely to fill a section. Distinguish verified source content, "
         "attributed claims, analytical judgments, scenarios and conditional recommendations explicitly. A timestamp verifies "
         "publication, not the truth of an official claim. Do not invent figures, probabilities or quotes. "
         "For briefing news items choose the most consequential distinct developments from sources with role='fresh', "
@@ -1576,7 +1587,17 @@ def generate_report(agent_id: str, topic: str = "", language: str = "ar", *,
     from app import news_feed, news_report
     from app.storage import StoreError
     profile = get_profile(agent_id)
-    options = dict(research_window=research_window, cutoff=cutoff, previous_report=previous_report, progress=progress)
+    analysis_started = False
+
+    def report_progress(stage: str) -> None:
+        nonlocal analysis_started
+        if progress:
+            progress(stage)
+        if stage == "analyzing":
+            analysis_started = True
+
+    options = dict(research_window=research_window, cutoff=cutoff, previous_report=previous_report,
+                   progress=report_progress)
     # Books and scholarship need original documents first. NewsData remains
     # available through the same agent's intentional news refresh.
     if profile["kind"] == "reading" or not news_feed.supports_agent(agent_id):
@@ -1588,7 +1609,7 @@ def generate_report(agent_id: str, topic: str = "", language: str = "ar", *,
     try:
         # This path does not run the feed's web fallback. The report reserves
         # and performs its own conditional discovery, once, below.
-        feed = news_feed.get_report_feed(agent_id, subject, window, language, progress=progress)
+        feed = news_feed.get_report_feed(agent_id, subject, window, language, progress=report_progress)
     except (HTTPException, StoreError) as error:
         detail = error.detail if isinstance(error, HTTPException) and isinstance(error.detail, dict) else {}
         feed_error = {"code": detail.get("code") or getattr(error, "code", "newsdata_unavailable")}
@@ -1614,7 +1635,16 @@ def generate_report(agent_id: str, topic: str = "", language: str = "ar", *,
             raise
         # A web outage must not erase usable NewsData evidence. The failed
         # call's charge is uncertain, so retain the conservative reservation.
-        report = news_report.generate_report(agent_id, subject, language, preloaded_feed=feed, **options)
+        def fallback_progress(stage: str) -> None:
+            # The fallback reuses the inventory already checked for this job.
+            # A native synthesis failure must not move its durable analysis
+            # stage backwards or conceal the original error with a stage error.
+            if analysis_started and stage == "checking_sources":
+                return
+            report_progress(stage)
+
+        report = news_report.generate_report(agent_id, subject, language, preloaded_feed=feed,
+            **{**options, "progress": fallback_progress})
         code = error.detail.get("code", "web_search_unavailable") if isinstance(error.detail, dict) else "web_search_unavailable"
         report["cost_tracking_complete"] = False
         report["estimated_cost_usd"] = None

@@ -68,6 +68,65 @@ def test_worker_runs_all_stages_saves_same_payload_for_pdf_and_retains_frozen_wi
     assert reports.base_store.usage_summary()["daily"]["estimated_cost_usd"] == .01
 
 
+@pytest.mark.parametrize("failed_stage", ["searching", "checking_sources", "analyzing"])
+def test_native_failure_falls_back_through_real_worker_without_reversing_analysis(
+        reports, engine, monkeypatch, failed_stage):
+    from app import news_feed, research, runtime
+    from app.agent_profiles import get_profile
+    from tests.test_news_report import analysis_response, model_response, snapshot
+
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-test-key")
+    agent_id = "economic-cultural-briefing"
+    feed = snapshot(1)
+    calls = {"feed": 0, "native": 0, "assessment": 0, "stages": []}
+    original_stage = reports.set_stage
+
+    def stage(job_id, token, value):
+        original_stage(job_id, token, value)
+        calls["stages"].append(value)
+
+    def fetch(*args, progress, **kwargs):
+        calls["feed"] += 1
+        progress("searching")
+        return feed
+
+    def native(*args, progress, **kwargs):
+        calls["native"] += 1
+        for value in ("searching", "checking_sources", "analyzing"):
+            progress(value)
+            if value == failed_stage:
+                # The uncited-section validator exposes this public error code.
+                raise HTTPException(502, detail={"code": "invalid_research_report"})
+
+    def assess(*args):
+        calls["assessment"] += 1
+        return model_response(analysis_response(get_profile(agent_id), [feed["sources"][0]["id"]]))
+
+    monkeypatch.setattr(reports, "set_stage", stage)
+    monkeypatch.setattr(news_feed, "get_report_feed", fetch)
+    monkeypatch.setattr(research, "_generate_native_report", native)
+    monkeypatch.setattr(runtime, "_call_model", assess)
+    worker = ReportWorker(reports, estimate=engine["worker"].estimate, generator=research.generate_report,
+        pdf_renderer=engine["worker"].pdf_renderer, lease_seconds=30)
+    job = reports.submit(OWNER, agent_id, "A specific central bank question", language="en")["job"]
+
+    assert worker.run_once()
+    done = reports.get_job(OWNER, job["job_id"])
+    assert done["status"] == done["stage"] == "ready"
+    result = reports.get_report(OWNER, done["report_id"])["result"]
+    assert result["retrieval"]["web_search_error"] == {"code": "invalid_research_report"}
+    assert result["analysis_status"] == "complete" and len(result["items"]) == 1
+    ledger_result = reports.base_store.get_report(done["report_id"])["result"]
+    assert ledger_result["cost_tracking_complete"] is False and ledger_result["billing_uncertain"] is True
+    assert calls["feed"] == calls["native"] == calls["assessment"] == 1
+    assert len(engine["pdf"]) == 1 and reports.get_pdf_path(OWNER, done["report_id"]).is_file()
+    analysis = calls["stages"].index("analyzing")
+    assert "checking_sources" not in calls["stages"][analysis:]
+    assert reports.base_store.usage_summary()["daily"]["attempts"] == 1
+    assert reports.base_store.usage_summary()["daily"]["estimated_cost_usd"] == .1
+    assert worker.run_once() is False
+
+
 def test_pdf_failure_leaves_snapshot_readable_and_pdf_retry_never_calls_paid_stages(reports, engine):
     engine["pdf_failure"] = True
     job = reports.submit(OWNER, AGENT, "PDF retry", idempotency_key="one-generation")["job"]

@@ -15,3 +15,11 @@ The existing manual-refresh, queue, quota and spending settings continue to appl
 ## Validation
 
 Focused routing and API regressions cover ordinary factual questions with no report or unrelated saved evidence, English and Arabic no-search requests, contextual follow-ups and ordinary conversation. Deployment and live acceptance evidence is recorded in the release pull request after verification.
+
+## 2.1.4 — citation contract and fallback recovery
+
+Live acceptance of an ordinary factual question exposed two report-processing failures after successful retrieval. The generation schema permitted empty citations in required sections, while the evidence validator correctly rejected an uncited section. The NewsData fallback then attempted to report an earlier progress stage, masking the original evidence error with `invalid_report_stage`.
+
+The follow-up correction aligns the generation schema and writing instructions with the existing citation validator. When retrieved sources exist, required sourced sections must identify their supporting evidence. Empty-source and original-creative cases retain their own rules; unsupported factual claims remain unacceptable.
+
+The fallback reuses the NewsData inventory already fetched and keeps progress at analysis once analysis has begun. The durable job's stage guards remain intact. The original web-research failure remains visible in retrieval diagnostics, and uncertain provider charges retain their conservative reservation. This change introduces no automatic provider retry.
