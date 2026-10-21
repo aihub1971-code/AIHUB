@@ -1,4 +1,4 @@
-# المحادثة واللغتان — AI HUB 2.1
+# المحادثة واللغتان — AI HUB 2.1.6
 
 هذا وصف للواجهة والعقود الحالية في المصدر. لا يتضمن ادعاء نشر أو نجاح فحص حي. راجع [دليل الترقية](UPGRADE_2_1.md) و[سجل التحقق](VALIDATION_AR.md).
 
@@ -8,7 +8,9 @@
 
 لكل وكيل سجل مستقل محفوظ على الخادم، ويعود عند إعادة تحميل الصفحة أو الرجوع إلى الوكيل. زر **رسائل أقدم** يقرأ التاريخ السابق. الانتقال إلى وكيل آخر لا ينقل إليه مسودة الرسالة أو المحادثة نفسها. يمكن للسياق ذي الصلة من تقاريرك ومحادثاتك أن يساعد وكلاءك الآخرين، داخل مساحة الزائر نفسه فقط.
 
-أرسل السؤال بـEnter، واستخدم Shift+Enter لسطر جديد. اقتراحات البداية تملأ المسودة دون إرسالها. تصل الإجابة تدريجيًا من المزود الحقيقي؛ لا تُحاكى الكتابة بتقطيع نص مكتمل. يُعرض النص الجزئي كما هو، وتظهر الروابط المنسقة بعد اكتمال الإجابة وفحص مصادرها. قد يحتاج سؤال عن المستجدات إلى مهمة بحث؛ عندها تظهر حالة البحث ويستأنف السؤال بعد حفظ النتيجة، دون إنشاء طلب مكرر.
+أرسل السؤال بـEnter، واستخدم Shift+Enter لسطر جديد. اقتراحات البداية تملأ المسودة دون إرسالها. لكل وكيل مسار بحث عبر الويب داخل المحادثة؛ لا تحصر التقارير المحفوظة نطاق المصادر. يمكن استخدام منشورات علمية ووثائق رسمية وصحافة أصلية ومراجع تاريخية بحسب السؤال، مع توضيح التاريخ ونوع الدليل وحدود التحقق. يُحترم الطلب الصريح بعدم البحث أو بالاقتصار على تقرير محدد.
+
+تظهر مراحل البحث وفحص المصادر، ثم تصل الإجابة تدريجيًا من المزود الحقيقي؛ لا تُحاكى الكتابة بتقطيع نص مكتمل. يُعرض النص الجزئي كما هو، وتظهر الروابط المنسقة بعد اكتمال الإجابة وفحصها. يجيب البحث العادي داخل المحادثة دون إنشاء تقرير أو PDF؛ يمر الطلب الصريح لإنشاء تقرير بمسار التقارير الدائم. إعادة الاتصال بالطلب نفسه لا تجري البحث المدفوع مرة ثانية.
 
 ### المعرفة المشتركة
 
@@ -34,9 +36,11 @@
 
 The homepage offers seven **Agents**. Opening a card restores that agent's saved conversation and workspace without starting research or refreshing a provider. Each agent has its own durable thread and draft. There is no separate AI HUB Chat destination or homepage news feed.
 
-Enter sends; Shift+Enter adds a line. Suggestions fill a draft. Replies stream actual provider deltas. Partial text remains plain and unlinked until a completed response passes source validation. A message that needs fresh evidence can start a research job; the interface polls saved progress and resumes the same logical request with its idempotency key.
+Enter sends; Shift+Enter adds a line. Suggestions fill a draft. Every agent can research the public web within a conversation; saved reports provide context rather than a source boundary. General research can use scientific papers, official documents, original reporting and historical references according to the question. Dates, source categories and verification limits remain explicit. Requests for no new research or only a specified report are respected.
 
-Relevant completed conversations and cited reports can support other agents for the same visitor or owner. In **Shared knowledge**, propose a preference, correction or knowledge note, then approve or reject it. Only approved notes enter persistent shared memory. Approval is the user's decision, not independent verification or model training.
+The interface shows searching, source checking and then real provider answer deltas. Partial text remains plain and unlinked until the completed answer passes source-link validation. An ordinary researched question receives a conversational answer without creating a report or PDF. Only an explicit report-generation request enters the durable report pipeline. Reconnecting to the same turn does not repeat its paid search.
+
+Relevant completed conversations, their checked web evidence and cited reports can support other agents for the same visitor or owner. In **Shared knowledge**, propose a preference, correction or knowledge note, then approve or reject it. Only approved notes enter persistent shared memory. Approval is the user's decision, not independent verification or model training.
 
 **News & reports** opens saved data. **Refresh news** and **Generate fresh report** are intentional actions. Every agent has both NewsData and web retrieval capabilities. NewsData is capped at 50 raw records before checks, with a strict 12-hour news window. Supplemental web retrieval is bounded and can incur OpenAI usage and application allowance. Older references remain dated background; a background-only analysis is still a readable report with PDF support.
 

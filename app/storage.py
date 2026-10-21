@@ -232,6 +232,7 @@ CREATE TABLE IF NOT EXISTS chat_turns (
     pricing_snapshot_json TEXT NOT NULL,
     usage_json TEXT,
     context_json TEXT,
+    research_attempt INTEGER NOT NULL DEFAULT 0 CHECK(research_attempt IN (0,1)),
     UNIQUE(conversation_id,idempotency_key)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS chat_one_pending_conversation_idx
@@ -316,6 +317,9 @@ class Store:
                 chat_columns = {row["name"] for row in connection.execute("PRAGMA table_info(chat_conversations)")}
                 if "agent_id" not in chat_columns:
                     connection.execute("ALTER TABLE chat_conversations ADD COLUMN agent_id TEXT")
+                turn_columns = {row["name"] for row in connection.execute("PRAGMA table_info(chat_turns)")}
+                if "research_attempt" not in turn_columns:
+                    connection.execute("ALTER TABLE chat_turns ADD COLUMN research_attempt INTEGER NOT NULL DEFAULT 0 CHECK(research_attempt IN (0,1))")
                 connection.execute("""CREATE UNIQUE INDEX IF NOT EXISTS chat_owner_agent_idx
                     ON chat_conversations(owner_id,agent_id) WHERE agent_id IS NOT NULL""")
                 run_columns = {row["name"] for row in connection.execute("PRAGMA table_info(runs)")}
@@ -498,6 +502,14 @@ class Store:
         return row["daily"], row["monthly"]
 
     @staticmethod
+    def _research_attempts(connection: sqlite3.Connection, local_date: str) -> int:
+        """Report/feed runs and researched chat share one atomic daily guard."""
+        return connection.execute("""SELECT
+            (SELECT COUNT(*) FROM runs WHERE local_date=?) +
+            (SELECT COUNT(*) FROM chat_turns WHERE local_date=? AND research_attempt=1)""",
+            (local_date, local_date)).fetchone()[0]
+
+    @staticmethod
     def _validate_key(key: str | None) -> None:
         if key is not None and (
             not isinstance(key, str) or not key.strip() or len(key) > 200
@@ -634,8 +646,8 @@ class Store:
                 (local_date,),
             ).fetchone()
             day_cost, month_cost = self._budget_costs(connection, local_date, local_month)
-            if day["attempts"] >= limits.max_reports_per_day:
-                raise StoreError("daily_report_limit", "The daily report attempt limit has been reached (Asia/Dubai).", 429)
+            if self._research_attempts(connection, local_date) >= limits.max_reports_per_day:
+                raise StoreError("daily_report_limit", "The daily research attempt limit has been reached (Asia/Dubai).", 429)
             if day_cost + reservation > daily_budget:
                 raise StoreError("daily_budget_limit", "The daily estimated USD budget cannot cover this reservation.", 429)
             if month_cost + reservation > monthly_budget:
@@ -803,10 +815,15 @@ class Store:
                 """SELECT COUNT(*) AS attempts,COALESCE(SUM(accounted_microusd),0) AS cost,
                 COALESCE(SUM(status='succeeded'),0) AS succeeded,
                 COALESCE(SUM(status IN ('failed','interrupted')),0) AS failed,
-                COALESCE(SUM(status='pending'),0) AS pending FROM chat_turns WHERE local_date=?""", (date,),
+                COALESCE(SUM(status='pending'),0) AS pending,
+                COALESCE(SUM(research_attempt),0) AS research_attempts,
+                COALESCE(SUM(research_attempt=1 AND status='succeeded'),0) AS research_succeeded,
+                COALESCE(SUM(research_attempt=1 AND status IN ('failed','interrupted')),0) AS research_failed,
+                COALESCE(SUM(research_attempt=1 AND status='pending'),0) AS research_pending
+                FROM chat_turns WHERE local_date=?""", (date,),
             ).fetchone()
             chat_monthly = connection.execute(
-                "SELECT COUNT(*) AS attempts,COALESCE(SUM(accounted_microusd),0) AS cost FROM chat_turns WHERE local_month=?",
+                "SELECT COUNT(*) AS attempts,COALESCE(SUM(accounted_microusd),0) AS cost,COALESCE(SUM(research_attempt),0) AS research_attempts FROM chat_turns WHERE local_month=?",
                 (month,),
             ).fetchone()
             credits = connection.execute("""SELECT
@@ -823,26 +840,31 @@ class Store:
         daily_budget, monthly_budget = _micros(limits.daily_budget_usd), _micros(limits.monthly_budget_usd)
         daily_cost = daily["cost"] + chat_daily["cost"]
         monthly_cost = monthly["cost"] + chat_monthly["cost"]
+        attempts = daily["attempts"] + chat_daily["research_attempts"]
         return {
             "timezone": "Asia/Dubai", "date": date, "month": month,
             "daily": {
-                "attempts": daily["attempts"], "limit": limits.max_reports_per_day,
-                "remaining": max(0, limits.max_reports_per_day - daily["attempts"]),
-                "succeeded": daily["succeeded"], "failed": daily["failed"], "pending": daily["pending"],
+                "attempts": attempts, "limit": limits.max_reports_per_day,
+                "remaining": max(0, limits.max_reports_per_day - attempts),
+                "succeeded": daily["succeeded"] + chat_daily["research_succeeded"],
+                "failed": daily["failed"] + chat_daily["research_failed"],
+                "pending": daily["pending"] + chat_daily["research_pending"],
                 "estimated_cost_usd": _usd(daily_cost), "budget_usd": _usd(daily_budget),
                 "remaining_budget_usd": _usd(max(0, daily_budget - daily_cost)),
                 "report_estimated_cost_usd": _usd(daily["cost"]),
                 "chat_estimated_cost_usd": _usd(chat_daily["cost"]),
                 "chat_turns": chat_daily["attempts"], "chat_succeeded": chat_daily["succeeded"],
                 "chat_failed": chat_daily["failed"], "chat_pending": chat_daily["pending"],
+                "chat_research_attempts": chat_daily["research_attempts"],
             },
             "monthly": {
-                "attempts": monthly["attempts"], "estimated_cost_usd": _usd(monthly_cost),
+                "attempts": monthly["attempts"] + chat_monthly["research_attempts"], "estimated_cost_usd": _usd(monthly_cost),
                 "budget_usd": _usd(monthly_budget),
                 "remaining_budget_usd": _usd(max(0, monthly_budget - monthly_cost)),
                 "report_estimated_cost_usd": _usd(monthly["cost"]),
                 "chat_estimated_cost_usd": _usd(chat_monthly["cost"]),
                 "chat_turns": chat_monthly["attempts"],
+                "chat_research_attempts": chat_monthly["research_attempts"],
             },
             "provider_credits": {"newsdata": {
                 "daily_limit": limits.newsdata_daily_credit_limit,
@@ -850,7 +872,7 @@ class Store:
                 "daily_remaining": max(0, limits.newsdata_daily_credit_limit - credits["accounted"]),
                 "monthly_accounted": credits["monthly"], "unit": "credits",
             }},
-            "cost_note": "Combined report and chat estimated USD exposure, not a provider invoice. Pending and ambiguous failures retain their full reservation. Report attempt limits exclude chat turns.",
+            "cost_note": "Combined report and chat estimated USD exposure, not a provider invoice. Pending and ambiguous failures retain their full reservation. The daily research allowance includes report/feed research and web-chat research; ordinary conversation is excluded.",
         }
 
     @staticmethod
@@ -876,13 +898,16 @@ class Store:
 
     @staticmethod
     def _chat_message_query() -> str:
-        return """SELECT m.*,t.status,t.error_code,t.report_id FROM chat_messages m
+        return """SELECT m.*,t.status,t.error_code,t.report_id,t.context_json FROM chat_messages m
                   JOIN chat_turns t ON t.turn_id=m.turn_id"""
 
     @staticmethod
     def _chat_message(row: sqlite3.Row) -> dict[str, Any]:
-        return {"id": row["message_id"], **{key: row[key] for key in (
+        result = {"id": row["message_id"], **{key: row[key] for key in (
             "role", "content", "created_at", "sequence", "turn_id", "status", "error_code", "report_id")}}
+        if row["role"] == "assistant" and row["status"] == "succeeded":
+            result["context"] = json.loads(row["context_json"] or "{}")
+        return result
 
     @classmethod
     def _chat_turn(cls, connection: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
@@ -998,7 +1023,7 @@ class Store:
             return len(terms & {word.casefold() for word in re.findall(r"[\w\u0600-\u06ff]+", value) if len(word) > 2})
         with self._connect() as connection:
             self._chat_conversation_row(connection, conversation_id, owner_id)
-            rows = connection.execute("""SELECT t.turn_id,t.report_id,t.created_at,c.agent_id,c.conversation_id,
+            rows = connection.execute("""SELECT t.turn_id,t.report_id,t.created_at,t.context_json,c.agent_id,c.conversation_id,
                 u.content AS question,a.content AS answer
                 FROM chat_turns t JOIN chat_conversations c ON c.conversation_id=t.conversation_id
                 JOIN chat_messages u ON u.turn_id=t.turn_id AND u.role='user'
@@ -1020,6 +1045,8 @@ class Store:
         for row in candidates[:6]:
             value = {"agent_id": row["agent_id"], "created_at": row["created_at"], "report_id": row["report_id"],
                      "question": row["question"][:1800], "answer": row["answer"][:2200]}
+            saved_context = json.loads(row["context_json"] or "{}")
+            value["sources"] = self._saved_chat_sources(saved_context, limit=4, excerpt_chars=900)
             size = len(_json(value).encode("utf-8"))
             if excerpt_bytes + size > 12000:
                 continue
@@ -1028,7 +1055,37 @@ class Store:
         return {"notes": notes, "conversations": conversations,
                 "truncated": len(memories) > len(notes) or len(rows) > len(conversations),
                 "scope": "this visitor only",
-                "evidence_note": "Visitor-approved notes and prior conversation excerpts are context, not independent verification. Use the dated cited reports for factual evidence. Proposed and rejected notes are excluded."}
+                "evidence_note": "Visitor-approved notes and prior conversation excerpts are context, not independent verification. Attached checked web sources and dated reports may support claims only within their actual content and dates; they are not a new search. Proposed and rejected notes are excluded."}
+
+    @staticmethod
+    def _saved_chat_sources(context: dict[str, Any], *, limit: int = 8, excerpt_chars: int = 2400) -> list[dict[str, Any]]:
+        """Read server-verified turn evidence; never attest URLs in answer prose."""
+        from app.runtime import _safe_source_url
+        sources = context.get("sources", [])
+        result = []
+        for source in sources if isinstance(sources, list) else []:
+            if (not isinstance(source, dict) or source.get("publisher_text_verified") is not True
+                    or source.get("evidence_level") != "publisher_page_verified"):
+                continue
+            url = _safe_source_url(source.get("url"))
+            if not url:
+                continue
+            value = {key: source.get(key) for key in ("id", "title", "publisher", "published_at",
+                "publication_precision", "retrieved_at", "role", "source_category", "evidence_level", "publisher_text_verified")}
+            value.update(url=url, excerpt=str(source.get("excerpt") or "")[:excerpt_chars])
+            result.append(value)
+            if len(result) >= limit:
+                break
+        return result
+
+    def owned_chat_source_urls(self, owner_id: str) -> set[str]:
+        """Attest evidence from this visitor's recent successful turns only."""
+        with self._connect() as connection:
+            rows = connection.execute("""SELECT t.context_json FROM chat_turns t
+                JOIN chat_conversations c ON c.conversation_id=t.conversation_id
+                WHERE c.owner_id=? AND t.status='succeeded'
+                ORDER BY t.created_at DESC,t.turn_id DESC LIMIT 100""", (owner_id,)).fetchall()
+        return {source["url"] for row in rows for source in self._saved_chat_sources(json.loads(row["context_json"] or "{}"))}
 
     def list_chat_conversations(self, owner_id: str, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         self.recover_stale_runs()
@@ -1053,6 +1110,10 @@ class Store:
             rows = connection.execute(query + " ORDER BY m.sequence DESC LIMIT ?", (*values, limit + 1)).fetchall()
             has_more, page = len(rows) > limit, rows[:limit]
             conversation["messages"] = [self._chat_message(row) for row in reversed(page)]
+            latest = connection.execute("""SELECT t.context_json FROM chat_turns t
+                WHERE t.conversation_id=? AND t.status='succeeded'
+                ORDER BY t.created_at DESC,t.rowid DESC LIMIT 1""", (conversation_id,)).fetchone()
+            conversation["context"] = json.loads(latest["context_json"] or "{}") if latest else {}
             conversation["pagination"] = {"has_more": has_more,
                                             "next_before": page[-1]["sequence"] if has_more else None}
             return conversation
@@ -1095,7 +1156,8 @@ class Store:
                           reservation_usd: Any, *, idempotency_key: str, expected_sequence: int,
                           report_id: str | None = None, report_selected: bool = False,
                           provider: str = "", model: str = "", pricing_snapshot: dict[str, Any] | None = None,
-                          context: dict[str, Any] | None = None, local_response: bool = False) -> ChatReservation:
+                          context: dict[str, Any] | None = None, research_attempt: bool = False,
+                          local_response: bool = False) -> ChatReservation:
         self._validate_key(idempotency_key)
         if idempotency_key is None:
             raise StoreError("invalid_idempotency_key", "Idempotency-Key is required for chat messages.", 422)
@@ -1104,10 +1166,12 @@ class Store:
         fingerprint = self._chat_fingerprint(message, language, report_id, report_selected)
         reservation = _micros(reservation_usd)
         local_notice = local_response is True and provider == "local" and model == "evidence_notice"
-        if local_response and (not local_notice or reservation != 0):
-            raise StoreError("invalid_cost_configuration", "A local evidence notice must have zero provider cost.", 503)
+        if local_response and (not local_notice or reservation != 0 or research_attempt):
+            raise StoreError("invalid_cost_configuration", "A local evidence notice must have zero provider cost and no research attempt.", 503)
         if reservation <= 0 and not local_notice:
             raise StoreError("invalid_cost_configuration", "A positive upfront cost reservation is required.", 503)
+        if type(research_attempt) is not bool:
+            raise StoreError("invalid_chat_research_mode", "The chat research mode is invalid.", 422)
         limits, moment = self.limits, self._now()
         timestamp, local_date = _stamp(moment), moment.astimezone(DUBAI).date().isoformat()
         local_month = local_date[:7]
@@ -1123,6 +1187,8 @@ class Store:
                 raise StoreError("conversation_busy", "Another message in this conversation is still being processed.", 409)
             if conversation["last_sequence"] != expected_sequence:
                 raise StoreError("chat_history_changed", "Conversation history changed. Refresh before sending this message.", 409)
+            if research_attempt and self._research_attempts(connection, local_date) >= limits.max_reports_per_day:
+                raise StoreError("daily_report_limit", "The daily research attempt limit has been reached (Asia/Dubai).", 429)
             daily_cost, monthly_cost = self._budget_costs(connection, local_date, local_month)
             if daily_cost + reservation > _micros(limits.daily_budget_usd):
                 raise StoreError("daily_budget_limit", "The daily estimated USD budget cannot cover this reservation.", 429)
@@ -1133,11 +1199,11 @@ class Store:
             connection.execute(
                 """INSERT INTO chat_turns (turn_id,conversation_id,idempotency_key,request_hash,status,language,report_id,
                 created_at,updated_at,local_date,local_month,reserved_microusd,accounted_microusd,cost_basis,
-                provider,model,pricing_snapshot_json,context_json)
-                VALUES (?,?,?,?,'pending',?,?,?,?,?,?,?,?,'reservation',?,?,?,?)""",
+                provider,model,pricing_snapshot_json,context_json,research_attempt)
+                VALUES (?,?,?,?,'pending',?,?,?,?,?,?,?,?,'reservation',?,?,?,?,?)""",
                 (turn_id, conversation_id, idempotency_key, fingerprint, language, effective_report, timestamp,
                  timestamp, local_date, local_month, reservation, reservation, provider, model,
-                 _json(pricing_snapshot or {}), _json(context or {})),
+                 _json(pricing_snapshot or {}), _json(context or {}), int(research_attempt)),
             )
             connection.execute(
                 "INSERT INTO chat_messages (message_id,conversation_id,turn_id,sequence,role,content,created_at) VALUES (?,?,?,?,'user',?,?)",
@@ -1148,6 +1214,22 @@ class Store:
                                (title, language, effective_report, timestamp, conversation_id))
             row = connection.execute("SELECT * FROM chat_turns WHERE turn_id=?", (turn_id,)).fetchone()
             return ChatReservation(True, self._chat_turn(connection, row))
+
+    def update_chat_context(self, turn_id: str, owner_id: str, context: dict[str, Any]) -> None:
+        """Persist bounded verified evidence before synthesis, scoped to its owner."""
+        encoded = _json(context)
+        if len(encoded.encode("utf-8")) > 80000:
+            raise StoreError("chat_context_too_large", "The checked evidence exceeds the chat context limit.", 413)
+        with self._transaction() as connection:
+            row = connection.execute("""SELECT t.status FROM chat_turns t
+                JOIN chat_conversations c ON c.conversation_id=t.conversation_id
+                WHERE t.turn_id=? AND c.owner_id=?""", (turn_id, owner_id)).fetchone()
+            if row is None:
+                raise StoreError("chat_turn_not_found", "Chat turn not found.", 404)
+            if row["status"] != "pending":
+                raise StoreError("chat_already_attempted", "This chat turn ended before its evidence could be saved.", 409)
+            connection.execute("UPDATE chat_turns SET context_json=?,updated_at=? WHERE turn_id=?",
+                               (encoded, _stamp(self._now()), turn_id))
 
     def finish_chat_turn(self, turn_id: str, content: str, *, estimated_cost_usd: Any | None = None,
                          cost_tracking_complete: bool = False, usage: dict[str, Any] | None = None) -> dict[str, Any]:

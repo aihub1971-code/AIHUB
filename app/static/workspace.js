@@ -94,7 +94,7 @@
     interrupted:["توقفت المهمة أثناء إعادة تشغيل الخدمة. لم يُعد البحث المدفوع تلقائيًا. ابدأ تقريرًا جديدًا للمتابعة.","The job was interrupted by a service restart. Research was not retried automatically. Start a new report to continue."],
     reportRecoveryFailed:["تعذّر حفظ التقرير بعد محاولات الاستعادة. لم يُعَد البحث تلقائيًا. يمكنك إرسال طلب تقرير جديد للمحاولة مجددًا.","The report could not be saved after recovery attempts. Research was not repeated automatically. You can submit a new report request to try again."],
     pdfFailed:["التقرير محفوظ ويمكن قراءته. تعذر تجهيز PDF؛ أعد تجهيز الملف دون إعادة البحث.","Your report is saved and readable. PDF creation failed; retry the PDF without researching again."],
-    dailyReportLimit:["تم بلوغ حدّ التقارير لهذا اليوم. يتجدد الحد عند منتصف الليل التالي، الساعة 00:00 بتوقيت دبي (UTC+04:00). تبقى التقارير المحفوظة وملفات PDF متاحة؛ إعادة المحاولة قبل ذلك لن تبدأ بحثًا جديدًا.","Today's report limit has been reached. It resets at the next midnight, 00:00 Dubai time (UTC+04:00). Saved reports and PDFs remain available; retrying before then will not start new research."],
+    dailyReportLimit:["تم بلوغ الحصة اليومية للبحث على الويب في المحادثات وإعداد التقارير. تتجدد الحصة عند منتصف الليل التالي، الساعة 00:00 بتوقيت دبي (UTC+04:00). تبقى المحادثات والتقارير المحفوظة وملفات PDF متاحة؛ إعادة المحاولة قبل ذلك لن تبدأ بحثًا جديدًا.","Today's research allowance for online chat and reports has been reached. It resets at the next midnight, 00:00 Dubai time (UTC+04:00). Saved conversations, reports and PDFs remain available; retrying before then will not start new research."],
     dailyUsageLimit:["بلغت الخدمة حدّ الاستخدام اليومي المتاح لهذا الطلب. يتجدد الحد عند منتصف الليل التالي، الساعة 00:00 بتوقيت دبي (UTC+04:00). تبقى التقارير المحفوظة وملفات PDF متاحة.","The service's daily allowance cannot cover this request. The daily allowance resets at the next midnight, 00:00 Dubai time (UTC+04:00). Saved reports and PDFs remain available."],
     monthlyUsageLimit:["بلغت الخدمة حدّ الاستخدام الشهري المتاح لهذا الطلب. يتجدد الحد في بداية الشهر التالي بتوقيت دبي. تبقى التقارير المحفوظة وملفات PDF متاحة.","The service's monthly allowance cannot cover this request. The monthly allowance resets at the start of the next month, Dubai time. Saved reports and PDFs remain available."],
     busy:["الخدمة مشغولة أو وصلت إلى حدّ الاستخدام الحالي. جرّب لاحقًا؛ تقاريرك المحفوظة متاحة.","The service is busy or has reached its current usage limit. Try later; saved reports remain available."],
@@ -103,17 +103,17 @@
     network:["تعذر تأكيد حالة الطلب. أعد الاتصال بالمحاولة نفسها لمتابعتها.","The request status could not be confirmed. Reconnect to the same attempt to continue."],
     reconnect:["متابعة المهمة","Reconnect to job"],expired:["انتهت الجلسة أو لم يعد هذا التقرير متاحًا لها. حدّث الصفحة.","This session has expired or cannot access that report. Refresh the page."],
     discussion:["محادثة الوكيل","Agent conversation"],
-    autoContext:["التقرير المعروض ومصادره متصلان تلقائيًا.","The displayed report and its evidence are connected automatically."],
-    autoAgent:["محادثة محفوظة لهذا الوكيل. معرفتك المعتمدة متاحة لجميع وكلائك.","A saved conversation for this agent. Approved knowledge is shared with your other agents."],
+    autoContext:["يستعين الوكيل بالتقرير المعروض وملاحظاتك المعتمدة لفهم السياق، ويمكنه فحص مصادر جديدة على الويب للإجابة عن سؤالك.","The displayed report and your approved notes provide context. Your agent can also check new online sources for your question."],
+    autoAgent:["يمكن لوكيلك البحث في المصادر العامة على الويب. محادثتك محفوظة، وملاحظاتك المعتمدة متاحة لجميع وكلائك.","Your agent can research public online sources. This conversation is saved, and your approved notes are shared across your agents."],
     suggestionOverview:["ما أهم ما ينبغي فهمه في هذا المجال؟","What is most important to understand in this field?"],suggestionQuestions:["ما الأسئلة التي تستحق المتابعة؟","Which questions are worth following?"],backgroundEvidence:["خلفية أقدم من 12 ساعة","Background older than 12 hours"],reloadConversation:["استعادة المحادثة","Restore conversation"],
     chatWelcome:["بماذا نبدأ؟","What would you like to explore?"],
-    chatWelcomeNote:["اسأل، ناقش فكرة، أو اطلب تقريرًا حديثًا. تحتفظ هذه المحادثة بسياقها عند عودتك.","Ask a question, explore an idea, or request a fresh report. This conversation keeps its context when you return."],
+    chatWelcomeNote:["اسأل وناقش وتابع أفكارك. يبحث وكيلك على الويب عند الحاجة ويربط إجابته بالمصادر التي فحصها. يُعد التقرير عندما تطلبه صراحةً.","Ask questions, explore ideas, and follow up. Your agent searches online when needed and links to checked sources. Reports are created when you explicitly request one."],
     suggestionSummary:["لخّص هذا التقرير.","Summarize this report."],suggestionUae:["ما أهم الآثار على الإمارات؟","What are the most important implications for the UAE?"],
     suggestionWhy:["لماذا توصلت إلى هذه الاستنتاجات؟","Why did you reach these conclusions?"],
     suggestionSince:["ما الذي حدث منذ هذا التقرير؟","What has happened since this briefing?"],
     chatPlaceholder:["اسأل وكيلك أو تابع المحادثة…","Ask your agent or continue the conversation…"],
     chatInput:["رسالتك إلى AI HUB","Your message to AI HUB"],send:["إرسال","Send"],you:["أنت","You"],
-    chatThinking:["يجري إعداد إجابتك…","Preparing your answer…"],chatWriting:["جارٍ كتابة الإجابة…","Writing your answer…"],chatPartial:["إجابة غير مكتملة","Incomplete response"],
+    chatThinking:["يجري إعداد إجابتك…","Preparing your answer…"],chatSearching:["جارٍ البحث على الويب…","Searching online…"],chatChecking:["جارٍ فحص المصادر…","Checking sources…"],chatWriting:["جارٍ كتابة الإجابة…","Writing your answer…"],chatPartial:["إجابة غير مكتملة","Incomplete response"],
     chatSending:["جارٍ إرسال سؤالك…","Sending your question…"],chatResearchQueued:["قُبل سؤالك؛ البحث اللازم للإجابة ينتظر بدء التنفيذ.","Your question is accepted. Its research is queued."],chatReportQueued:["قُبل سؤالك؛ تقريره ينتظر استكمال الحفظ وتجهيز الملف.","Your question is accepted. Its report is queued for completion."],chatReportFinishing:["يجري حفظ التقرير وتجهيز ملفه قبل إكمال إجابتك…","Saving the report and preparing its file before completing your answer…"],
     chatResearch:["يجري بحث جديد للإجابة عن المستجدات…","Researching fresh evidence for your question…"],
     chatKeyboard:["Enter للإرسال · Shift + Enter لسطر جديد","Enter to send · Shift + Enter for a new line"],
@@ -124,9 +124,13 @@
     chatRestoreError:["تعذر تحميل المحادثة المحفوظة. حاول استعادتها مجددًا.", "The saved conversation could not be loaded. Try restoring it again."],
     memoryLimit:["راجع ملاحظة محفوظة أو أزلها قبل إضافة ملاحظة أخرى.", "Review or remove a saved note before adding another."],
     chatError:["تعذر إكمال الإجابة. الرسائل المحفوظة متاحة؛ تحقق من المحاولة قبل إعادة إرسالها.","The answer could not be completed. Saved messages remain available; check this attempt before sending it again."],
+    chatResearchTimeout:["انتهت مهلة البحث على الويب وفحص المصادر قبل اكتمالهما. لم تبدأ إعادة محاولة تلقائية. يمكنك إعادة إرسال سؤالك.","The online search and source checks timed out before completion. No automatic retry was started. You can send your question again."],
+    evidenceMissing:["لم تتضمن الإجابة استشهادًا داعمًا من الأدلة المسترجعة، لذا لم تُحفظ. يمكنك توضيح السؤال وإرساله من جديد.","The answer did not include a supporting citation from the retrieved evidence, so it was not saved. You can refine the question and send it again."],
     retryMessage:["تحقق من المحاولة","Check this attempt"],chatEvidence:["عدد نسخ التقارير المحفوظة المستخدمة: {n}.","Saved report snapshots used: {n}."],
+    chatSavedWebSources:["مراجع فُحصت في محادثات سابقة: {n}","Previously checked references: {n}"],
+    chatWebSources:["مصادر الويب التي فُحصت: {n}","Online sources checked: {n}"],chatWebEmpty:["لم يُعثر في هذا البحث على مصادر ويب صالحة للاستخدام.","No usable online sources were found in this search."],chatNoSearch:["لم يُجرَ بحث جديد على الويب لهذه الإجابة.","No new online search for this answer."],chatSearchTime:["وقت البحث على الويب","Online search time"],chatSourcePublished:["تاريخ النشر","Published"],chatSourceRetrieved:["وقت فحص الصفحة","Page checked"],chatSourceUndated:["تاريخ النشر غير موثّق","Publication date not verified"],
     freshEvidence:["بحث جديد حتى","Fresh research through"],viewUpdated:["فتح التقرير المحدّث","Open updated report"],
-    agentWorkspaceNote:["محادثتك محفوظة. الأخبار والتقارير تبدأ بطلب منك.","Your conversation is saved. News and reports start when you request them."],researchTools:["الأخبار والتقارير","News & reports"],onDemand:["عند الطلب","On demand"],
+    agentWorkspaceNote:["اسأل وتابع الحوار هنا. يبحث وكيلك عند الحاجة، ويُعد التقارير عند طلبك الصريح.","Ask and follow up here. Your agent researches when needed and creates reports when you explicitly ask."],researchTools:["الأخبار والتقارير","News & reports"],onDemand:["عند الطلب","On demand"],
     sharedMemory:["المعرفة المشتركة","Shared knowledge"],memoryIntro:["الملاحظات التي توافق عليها متاحة لجميع وكلائك في مساحة عملك. تبقى منفصلة عن الأدلة المنشورة.","Notes you approve are available to all your agents in your workspace. They remain separate from published evidence."],
     memoryKind:["نوع الملاحظة","Note type"],memoryPreference:["تفضيل","Preference"],memoryCorrection:["تصحيح","Correction"],memoryKnowledge:["معلومة","Knowledge"],memoryInput:["ملاحظة تتذكرها الوكلاء","A note for your agents to remember"],memoryPropose:["إضافة للمراجعة","Add for review"],memoryApprove:["اعتماد الملاحظة","Approve note"],memoryReject:["رفض","Reject"],memoryForget:["إزالة من المعرفة المشتركة","Remove from shared knowledge"],memoryApproved:["معتمدة من قبلك","Approved by you"],memoryProposed:["بانتظار مراجعتك","Awaiting your review"],memoryEmpty:["لا ملاحظات مشتركة بعد.","No shared notes yet."],memoryLoading:["جارٍ تحميل الملاحظات المحفوظة…","Loading saved notes…"],
     savedMessages:["رسائل المحادثة المحفوظة","Saved conversation messages"],loadEarlier:["رسائل أقدم","Earlier messages"],
@@ -186,6 +190,8 @@
     if(error?.code==="openai_api_error")return error?.status===429?"providerBusy":"providerRejected";
     if(["runtime_not_configured","agent_runtime_not_configured","openai_not_configured","analysis_configuration_invalid","provider_auth_failed","openai_auth_failed","openai_access_denied","openai_request_rejected"].includes(error?.code))return "providerRejected";
     if(error?.code==="chat_source_mismatch")return "sourceMismatch";
+    if(error?.code==="chat_evidence_missing")return "evidenceMissing";
+    if(error?.code==="chat_research_timeout")return "chatResearchTimeout";
     if(["chat_in_progress","conversation_busy"].includes(error?.code))return "chatBusy";
     if(["stream_interrupted","incomplete_model_response"].includes(error?.code))return "chatInterrupted";
     if(error?.code==="chat_already_attempted")return "chatAlready";
@@ -217,7 +223,8 @@
   }
   async function streamAnswer(path,{body,key},onEvent){
     path=apiPath(path);
-    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),110000);
+    // Allow the bounded online search, publisher checks, and answer stream to finish.
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),450000);
     try{
       const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json",Accept:"text/event-stream","Idempotency-Key":key},body:JSON.stringify(body),credentials:"same-origin",cache:"no-store",redirect:"error",signal:controller.signal});
       if(!response.ok||!response.headers?.get("content-type")?.includes("text/event-stream")){
@@ -677,7 +684,7 @@
   function chatKey(){return selectedId;}
   function validConversationId(value){return typeof value==="string"&&/^conv_[a-f0-9]{32}$/.test(value);}
   function chatState(key){
-    if(!chatStates.has(key))chatStates.set(key,{key,id:null,messages:[],draft:"",sending:false,loading:false,loaded:false,error:null,errorDetail:null,status:null,queuePosition:null,attempt:null,context:null,before:null,streamingText:""});
+    if(!chatStates.has(key))chatStates.set(key,{key,id:null,messages:[],draft:"",sending:false,loading:false,loaded:false,error:null,errorDetail:null,status:null,queuePosition:null,attempt:null,context:null,before:null,streamingText:"",openSources:new Set()});
     return chatStates.get(key);
   }
   function visibleChat(c){return view==="workspace"&&chatKey()===c.key;}
@@ -692,9 +699,40 @@
       c.id=data.conversation_id;
       const messages=(data.messages||[]).filter(message=>["user","assistant"].includes(message.role));
       c.messages=earlier?[...messages,...c.messages.filter(message=>!messages.some(item=>item.id===message.id))]:messages;
-      c.before=data.pagination?.has_more?data.pagination.next_before:null;c.context=data.context||null;c.loaded=true;c.error=null;c.errorDetail=null;if(!earlier)c.streamingText="";
+      c.before=data.pagination?.has_more?data.pagination.next_before:null;if(!earlier||data.context)c.context=data.context||null;c.loaded=true;c.error=null;c.errorDetail=null;if(!earlier)c.streamingText="";
     }catch(error){const key=errorKey(error);c.error=key==="reportError"?"chatRestoreError":key;c.errorDetail=error;if(error.status===404){c.id=null;c.messages=[];c.before=null;}}
     finally{c.loading=false;if(visibleChat(c))renderChat(c);}
+  }
+  function chatEvidence(context,c,messageId){
+    if(!context||typeof context!=="object")return null;
+    const reportIds=Array.isArray(context.report_ids)?context.report_ids:[],web=context.web_research;
+    const sources=(Array.isArray(context.sources)?context.sources:[]).filter(source=>source&&source.publisher_text_verified===true&&markdown.safeLink(source.url));
+    if(!reportIds.length&&!sources.length&&!["complete","empty","not_requested"].includes(web?.status))return null;
+    const note=el("div","chat-evidence-note");
+    if(web?.status==="not_requested")note.append(el("p","chat-web-status",T("chatNoSearch")));
+    else if(web?.status==="empty")note.append(el("p","chat-web-status",T("chatWebEmpty")));
+    const searched=moment(web?.searched_at);
+    if(searched)note.append(el("p","chat-web-time",T("chatSearchTime")+": "+searched+" · "+T("dubaiTime")));
+    if(sources.length){
+      const details=el("details","chat-web-sources");details.open=c.openSources.has(messageId);details.append(el("summary","",T(["empty","not_requested"].includes(web?.status)?"chatSavedWebSources":"chatWebSources",{n:sources.length})));
+      details.addEventListener("toggle",()=>{if(details.open)c.openSources.add(messageId);else c.openSources.delete(messageId);});
+      for(const [index,source]of sources.entries()){
+        const card=el("div","source-record"),title=typeof source.title==="string"&&source.title?source.title:source.publisher||new URL(source.url).hostname;
+        const sourceLink=link("["+(index+1)+"] "+title,source.url,"chat-source-link");sourceLink.dir="auto";card.append(sourceLink);
+        const published=moment(source.published_at),role={background:"background",reference:"reference",fresh:"fresh"}[source.role];
+        const category={reporting:"sourceReporting",analysis:"sourceAnalysis",opinion:"sourceOpinion",official_statement:"sourceOfficial",research:"sourceResearch"}[source.source_category];
+        card.append(el("small","chat-source-meta",[source.publisher,published?T("chatSourcePublished")+": "+published:T("chatSourceUndated"),role?T(role):"",category?T(category):"",T("sourceChecked")].filter(Boolean).join(" · ")));
+        const retrieved=moment(source.retrieved_at);if(retrieved)card.append(el("small","chat-source-retrieved",T("chatSourceRetrieved")+": "+retrieved+" · "+T("dubaiTime")));
+        details.append(card);
+      }
+      note.append(details);
+    }
+    if(reportIds.length){note.append(el("p","chat-report-context",T("chatEvidence",{n:reportIds.length})));
+      for(const cutoff of context.research_cutoffs||[]){const stamp=Date.parse(cutoff.cutoff),background=Number.isFinite(stamp)&&Date.now()-stamp>12*60*60*1000;
+        note.append(el("div","",nameOf(profile(cutoff.agent_id))+": "+moment(cutoff.cutoff)+(background?" · "+T("backgroundEvidence"):"")));}
+      if(context.fresh_research&&context.report_id)note.append(button(T("viewUpdated"),"quiet-button",()=>openSaved(context.report_id,context.agent_ids?.[0])));
+    }
+    renderLimitations(note,web?.limitations);return note;
   }
   function renderChat(c){
     if(!visibleChat(c))return;const root=chatRoot(),sameAgent=root.dataset.agentKey===c.key,oldInput=sameAgent?root.querySelector("textarea"):null;if(oldInput&&!c.sending)c.draft=oldInput.value;root.dataset.agentKey=c.key;
@@ -709,21 +747,19 @@
     if(!c.messages.length&&!c.sending){const welcome=el("div","chat-welcome");welcome.append(el("h3","",T("chatWelcome")),el("p","",T("chatWelcomeNote")));
       const suggestions=el("div","chat-suggestions"),keys=state(c.key).report?["suggestionSummary","suggestionUae","suggestionWhy","suggestionSince"]:["suggestionOverview","suggestionUae","suggestionQuestions"];
       for(const key of keys)suggestions.append(button(T(key),"chat-suggestion",()=>{c.draft=T(key);const input=chatRoot().querySelector("textarea");input.value=c.draft;input.focus();}));welcome.append(suggestions);scroll.append(welcome);}
+    const lastAssistant=c.messages.slice().reverse().find(message=>message.role==="assistant");
     for(const message of c.messages){
       const block=el("div","chat-message "+message.role);block.append(el("div","chat-message-label",message.role==="user"?T("you"):nameOf(profile(c.key))));
       const body=el("div","message-body"+(message.role==="assistant"?" markdown":""));body.dir="auto";
       if(message.role==="assistant")markdown.render(body,message.content||"");else body.textContent=message.content||"";
       block.append(body);if(message.created_at){const time=el("time","message-time",moment(message.created_at));time.setAttribute("datetime",message.created_at);block.append(time);}
+      if(message.role==="assistant"){const evidence=chatEvidence(message.context||(message===lastAssistant?c.context:null),c,message.id);if(evidence)block.append(evidence);}
       if(message.status==="failed")block.append(el("p","chat-error",T("chatError")));scroll.append(block);
     }
     if(c.sending&&c.attempt){const pending=el("div","chat-message user pending-message");pending.append(el("div","chat-message-label",T("you")),el("div","message-body",c.attempt.body.message));scroll.append(pending);}
     if(c.streamingText){const partial=el("div","chat-message assistant streaming-message");partial.setAttribute("aria-live","polite");
       partial.append(el("div","chat-message-label",c.sending?nameOf(profile(c.key)):T("chatPartial")));
       const body=el("div","message-body streaming-text",c.streamingText);body.dir="auto";partial.append(body);scroll.append(partial);}
-    if(c.context?.report_ids?.length){const note=el("div","chat-evidence-note");note.append(el("p","",T("chatEvidence",{n:c.context.report_ids.length})));
-      for(const cutoff of c.context.research_cutoffs||[]){const stamp=Date.parse(cutoff.cutoff),background=Number.isFinite(stamp)&&Date.now()-stamp>12*60*60*1000;
-        note.append(el("div","",nameOf(profile(cutoff.agent_id))+": "+moment(cutoff.cutoff)+(background?" · "+T("backgroundEvidence"):"")));}
-      if(c.context.fresh_research&&c.context.report_id)note.append(button(T("viewUpdated"),"quiet-button",()=>openSaved(c.context.report_id,c.context.agent_ids?.[0])));scroll.append(note);}
     const composer=el("div","chat-composer-area");
     if(c.loading)composer.append(el("p","chat-status",T("chatLoading")));
     if(c.status){const status=el("p","chat-status",T(c.status)+(c.queuePosition?" "+T("queuePosition",{n:c.queuePosition}):""));status.setAttribute("role","status");composer.append(status);}
@@ -740,7 +776,7 @@
     if(hadFocus&&!input.disabled){input.focus();if(selection!==null)input.setSelectionRange(selection,selection);}
   }
   function chatResearchProgress(c,job){
-    c.status=job?.status==="queued"?(job.stage==="preparing_pdf"?"chatReportQueued":"chatResearchQueued"):["saving","preparing_pdf"].includes(job?.stage)?"chatReportFinishing":"chatResearch";
+    c.status=job?.status==="queued"?(job.stage==="preparing_pdf"?"chatReportQueued":"chatResearchQueued"):["saving","preparing_pdf"].includes(job?.stage)?"chatReportFinishing":job?.stage==="checking_sources"?"chatChecking":"chatResearch";
     c.queuePosition=job?.status==="queued"?queuePosition(job):null;
   }
   async function sendChat(c,retry=false){
@@ -755,7 +791,7 @@
       for(;;){
         answer=await streamAnswer("/v1/public/workspace/conversations/"+encodeURIComponent(c.id)+"/messages/stream",{body:attempt.body,key:attempt.key},(event,value)=>{
           if(event==="delta"){if(c.streamingText.length+value.length>500000)throw {status:502,code:"invalid_response"};c.streamingText+=value;c.status="chatWriting";c.queuePosition=null;}
-          else if(event==="status"){c.status=value==="researching"?"chatResearch":value==="queued"?"chatResearchQueued":"chatWriting";c.queuePosition=null;}
+          else if(event==="status"){c.status=({searching:"chatSearching",checking_sources:"chatChecking",answering:"chatWriting",researching:"chatResearch",queued:"chatResearchQueued"})[value]||"chatThinking";c.queuePosition=null;}
           if(visibleChat(c))renderChat(c);
         });
         if(answer.status!=="researching")break;
@@ -774,6 +810,7 @@
         c.status="chatThinking";c.queuePosition=null;if(visibleChat(c))renderChat(c);
       }
       if(!answer.message||answer.conversation_id&&answer.conversation_id!==c.id)throw {status:502,code:"invalid_response"};
+      if(answer.context&&!answer.message.context)answer.message={...answer.message,context:answer.context};
       const seen=new Set(c.messages.map(message=>message.id));
       for(const message of [answer.user_message,answer.message])if(message&&!seen.has(message.id))c.messages.push(message);
       c.context=answer.context;c.draft="";c.attempt=null;c.streamingText="";memoryState.loaded=false;

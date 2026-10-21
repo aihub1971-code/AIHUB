@@ -203,6 +203,14 @@ function answer(input = {}, overrides = {}) {
     message: {id: "message_answer_1", role: "assistant", content: "**Saved evidence answer.** [Source](https://publisher.example/synthetic)"},
     context: {report_id: input.report_id, report_ids: input.report_id ? [input.report_id] : [], agent_ids: input.agent_id ? [input.agent_id] : []}, ...overrides};
 }
+function webContext(overrides = {}) {
+  const sources = [
+    {id: "web_study", title: "Earlier policy study", publisher: "Policy Research Institute", url: "https://policy-research.example/papers/study", published_at: "2020-01-15", publication_precision: "day"},
+    {id: "web_update", title: "University research update", publisher: "University", url: "https://university.example/research/update", published_at: "2026-10-20T10:30:00Z", publication_precision: "timestamp"},
+    {id: "web_reference", title: "Public reference collection", publisher: "Public Library", url: "https://public-library.example/reference", published_at: null, publication_precision: "unknown"}
+  ].map(source => ({...source, role: "reference", evidence_level: "publisher_page_verified", publisher_text_verified: true, retrieved_at: "2026-10-20T12:02:00Z"}));
+  return {report_ids: [], agent_ids: [A], web_research: {status: "complete", searched_at: "2026-10-20T12:00:00Z", source_count: sources.length, limitations: []}, sources, ...overrides};
+}
 async function start(options = {}) { const ui = harness(options); await ui.initialize(); await ui.settle(); return ui; }
 async function openResearch(ui) {const tools = ui.elements.get("research-tools"); tools.open = true; await tools.emit("toggle"); await ui.settle();}
 async function startNews(options = {}) {const ui = await start(options); await ui.openAgent((options.newsAgents || [A])[0]); await openResearch(ui); return ui;}
@@ -478,7 +486,7 @@ test("agent total follows configuration without hardcoded removed cards", async 
 
 test("the public workspace has no credential, cost, admin, or upload controls", async () => {
   assert.doesNotMatch(html, /type="(?:password|file)"|id="(?:username|password)"|\/admin|dailyCost|monthlyCost|accountOverview|usage-details|loginBox/);
-  assert.match(html, /workspace\.js\?v=2\.1\.1"/);
+  assert.match(html, /workspace\.js\?v=2\.1\.6"/);
   assert.doesNotMatch(html, /src="\/static\/(?:app|public)\.js/);
   const ui = await start();
   await assert.rejects(ui.request("/v1/usage"));
@@ -547,14 +555,14 @@ test("an unconfirmed generation retry keeps its idempotency key and hides diagno
 });
 
 for (const language of ["en", "ar"]) {
-  test(`an asynchronous daily report limit explains the Dubai reset in ${language} and keeps the saved report`, async () => {
+  test(`an asynchronous shared research limit explains the Dubai reset in ${language} and keeps the saved report`, async () => {
     const ui = await start({language}), saved = seed(ui);
     await ui.openAgent(A); await ui.generateReport(A); await ui.settle();
     const queued = ui.current().job;
     ui.server.jobs.set(queued.job_id, {job: {...queued, status: "failed", error_code: "daily_report_limit"}, report: null});
     await ui.advance();
     const notice = ui.elements.get("report-notice").textContent;
-    assert.match(notice, language === "en" ? /Today's report limit has been reached/ : /تم بلوغ حدّ التقارير لهذا اليوم/);
+    assert.match(notice, language === "en" ? /Today's research allowance for online chat and reports has been reached/ : /تم بلوغ الحصة اليومية للبحث على الويب في المحادثات وإعداد التقارير/);
     assert.match(notice, /00:00/); assert.match(notice, /UTC\+04:00/);
     assert.match(notice, language === "en" ? /next midnight.*Dubai/ : /منتصف الليل التالي.*دبي/);
     assert.doesNotMatch(notice, /start a new attempt|بدء محاولة جديدة|\$|USD|50|budget|cost/i);
@@ -572,7 +580,7 @@ test("a synchronous report-limit rejection uses the same specific reset message"
       return respond({detail: {code: "daily_report_limit", message: "PRIVATE diagnostics"}}, 429);
   }});
   const saved = seed(ui); await ui.openAgent(A); await ui.generateReport(A); await ui.settle();
-  assert.match(ui.elements.get("report-notice").textContent, /Today's report limit.*00:00 Dubai time/);
+  assert.match(ui.elements.get("report-notice").textContent, /Today's research allowance for online chat and reports.*00:00 Dubai time/);
   assert.doesNotMatch(ui.body.textContent, /PRIVATE/);
   assert.equal(ui.current().report.report_id, saved.report_id);
 });
@@ -802,7 +810,7 @@ test("chat evidence counts read naturally for one or multiple saved reports in b
   }
 });
 
-test("fresh chat distinguishes queued research from running work and resumes the same request when its report is saved", async () => {
+test("an explicit chat report request distinguishes queued research from running work and resumes the same request when its report is saved", async () => {
   const newer = report(A, 2), freshJob = job(A, 2, {queue_position: 3});
   let messageRequests = 0;
   const ui = await start({fetch: (url, request, respond) => {
@@ -816,7 +824,7 @@ test("fresh chat distinguishes queued research from running work and resumes the
   }});
   seed(ui); ui.server.jobs.set(freshJob.job_id, {job: freshJob, report: null});
   await ui.openAgent(A, false); await ui.settle();
-  const input = await typeChat(ui, "What has happened since this briefing?");
+  const input = await typeChat(ui, "Generate a fresh report on developments since this briefing.");
   await input.emit("keydown", {key: "Enter"}); await ui.settle();
   assert.equal(ui.messages().length, 1); assert.equal(ui.chatState(A).sending, true);
   assert.match(ui.elements.get("discussion-panel").textContent, /Your question is accepted.*research is queued.*Queue position: 3/);
@@ -838,7 +846,7 @@ test("fresh chat distinguishes queued research from running work and resumes the
   assert.equal(ui.current().report.report_id, newer.report_id); assert.equal(ui.generations().length, 0);
 });
 
-test("fresh chat preserves a failed research quota code and does not retry the blocked answer", async () => {
+test("an explicit chat report request preserves a failed report quota code and does not retry the blocked answer", async () => {
   const freshJob = job(A, 2);
   const ui = await start({fetch: (url, request, respond) => {
     if (request.method === "POST" && url.endsWith("/messages/stream"))
@@ -847,12 +855,12 @@ test("fresh chat preserves a failed research quota code and does not retry the b
   const saved = seed(ui);
   ui.server.jobs.set(freshJob.job_id, {job: freshJob, report: null});
   await ui.openAgent(A, false); await ui.settle();
-  const input = await typeChat(ui, "What has happened since this briefing?");
+  const input = await typeChat(ui, "Generate a fresh report on developments since this briefing.");
   await input.emit("keydown", {key: "Enter"}); await ui.settle();
   ui.server.jobs.set(freshJob.job_id, {job: {...freshJob, status: "failed", error_code: "daily_report_limit"}, report: null});
   await ui.advance();
   assert.equal(ui.chatState(A).sending, false);
-  assert.match(ui.elements.get("discussion-panel").textContent, /Today's report limit.*00:00 Dubai time/);
+  assert.match(ui.elements.get("discussion-panel").textContent, /Today's research allowance for online chat and reports.*00:00 Dubai time/);
   assert.doesNotMatch(ui.elements.get("discussion-panel").textContent, /start a new attempt|Check this attempt/);
   assert.equal(ui.chatState(A).attempt, null);
   assert.equal(ui.current().report.report_id, saved.report_id);
@@ -990,6 +998,218 @@ function eventStream() {
   };
 }
 
+test("public and owner online chat show real bilingual search stages and checked sources without creating a report", async () => {
+  for (const language of ["en", "ar"]) for (const owner of [false, true]) {
+    const stream = eventStream(), context = webContext();
+    const ui = await start({language, owner, now: NEWS_NOW, fetch: url => url.endsWith("/messages/stream") ? stream.response : undefined});
+    await ui.openAgent(A); await ui.settle();
+    const panel = ui.elements.get("discussion-panel");
+    assert.match(panel.textContent, language === "en" ? /research public online sources/ : /المصادر العامة على الويب/);
+    assert.match(panel.textContent, language === "en" ? /Reports are created when you explicitly request one/ : /يُعد التقرير عندما تطلبه صراحةً/);
+    assert.equal(ui.requests.every(request => request.options.method === "GET"), true);
+    await typeChat(ui, "Compare education policy findings across Finland and Japan.");
+    const sending = ui.sendChat(ui.chatState(A)); await ui.settle();
+    stream.event("status", {status: "searching"}); await ui.settle();
+    assert.equal(byClass(panel, "chat-status")[0].textContent, language === "en" ? "Searching online…" : "جارٍ البحث على الويب…");
+    await ui.advance(110000);
+    assert.equal(ui.messages()[0].options.signal.aborted, false, "A valid bounded online search must survive the former110-second transport cutoff.");
+    stream.event("status", {status: "checking_sources"}); await ui.settle();
+    assert.equal(byClass(panel, "chat-status")[0].textContent, language === "en" ? "Checking sources…" : "جارٍ فحص المصادر…");
+    assert.equal(byTag(panel, "a").length, 0);
+    stream.event("status", {status: "private_provider_phase"}); await ui.settle();
+    assert.equal(byClass(panel, "chat-status")[0].textContent, language === "en" ? "Preparing your answer…" : "يجري إعداد إجابتك…");
+    stream.event("status", {status: "answering"});
+    const content = "A dated comparison using an [earlier study](" + context.sources[0].url + ").";
+    stream.event("delta", {delta: content}); await ui.settle();
+    assert.equal(byClass(panel, "chat-status")[0].textContent, language === "en" ? "Writing your answer…" : "جارٍ كتابة الإجابة…");
+    assert.equal(byTag(panel, "a").length, 0, "Partial source links remain unlinked until the completed answer is validated.");
+    stream.event("complete", answer({agent_id: A}, {context, message: {id: "online_answer", role: "assistant", content}}));
+    await sending; await ui.settle();
+    const note = byClass(panel, "chat-evidence-note")[0], links = byClass(note, "chat-source-link");
+    assert.equal(links.length, 3);
+    assert.deepEqual(links.map(link => link.href), context.sources.map(source => source.url));
+    for (const link of links) { assert.equal(link.target, "_blank"); assert.equal(link.rel, "noopener noreferrer"); }
+    assert.equal(byTag(panel, "a")[0].href, context.sources[0].url);
+    assert.match(note.textContent, language === "en" ? /Online sources checked: 3/ : /مصادر الويب التي فُحصت: 3/);
+    assert.match(note.textContent, language === "en" ? /Publication date not verified/ : /تاريخ النشر غير موثّق/);
+    assert.match(note.textContent, language === "en" ? /Publisher text checked/ : /نص الناشر مفحوص/);
+    if (language === "en") {
+      assert.match(byClass(note, "chat-source-meta")[0].textContent, /Published: 15 Jan 2020/);
+      assert.doesNotMatch(byClass(note, "chat-source-meta")[0].textContent, /\d{2}:\d{2}/, "A date-only publication must not acquire an invented time.");
+      assert.match(byClass(note, "chat-source-meta")[1].textContent, /Published: 20 Oct 2026, 14:30/);
+      assert.match(byClass(note, "chat-source-retrieved")[0].textContent, /Page checked: 20 Oct 2026, 16:02.*Dubai/);
+      assert.doesNotMatch(note.textContent, /Publication within window|Saved report snapshots used/);
+    }
+    assert.deepEqual(clone(ui.chatState(A).messages.at(-1).context), context);
+    assert.equal(ui.messages().length, 1); assert.equal(ui.generations().length, 0);
+    assert.equal(ui.requests.some(request => /\/jobs\//.test(request.url)), false);
+    assert.equal(ui.newsRequests().filter(request => request.options.method === "POST").length, 0);
+    assert.equal(Object.hasOwn(JSON.parse(ui.messages()[0].options.body), "fresh_job_id"), false);
+    assert.equal(ui.requests.every(request => !request.options.headers.Authorization), true);
+    if (owner) assert.equal(ui.requests.every(request => request.url.startsWith("/v1/workspace/")), true);
+  }
+});
+
+test("each saved web answer restores its own sources across all agent switches and a browser reload", async () => {
+  const active = [A, B, "ubi-research", "iran-news", "uae-eu-trade-talks", "historical-reading-companion", "economic-cultural-briefing"];
+  const configured = active.map((id, i) => ({...profiles[i % profiles.length], id, agent_id: id}));
+  const first = webContext(), second = webContext({sources: [webContext().sources[1]], web_research: {status: "complete", searched_at: "2026-10-20T13:00:00Z", source_count: 1, limitations: []}});
+  const ui = await start({profiles: configured, now: NEWS_NOW});
+  ui.server.threads.set(A, {conversation_id: conversationId(90), agent_id: A, messages: [
+    {id: "first_web", role: "assistant", content: "First checked answer", context: first},
+    {id: "second_web", role: "assistant", content: "Second checked answer", context: second}
+  ], context: second, pagination: {has_more: false}});
+  await ui.openAgent(A); await ui.settle();
+  const panel = ui.elements.get("discussion-panel");
+  assert.deepEqual(byClass(panel, "chat-evidence-note").map(note => byClass(note, "chat-source-link").length), [3, 1]);
+  for (const agent of active.slice(1)) {
+    await ui.openAgent(agent); await ui.settle();
+    assert.doesNotMatch(panel.textContent, /First checked answer|Second checked answer|Earlier policy study/);
+    assert.equal(byClass(panel, "chat-source-link").length, 0);
+  }
+  await ui.openAgent(A); await ui.settle(); await ui.setLanguage("ar"); await ui.settle();
+  assert.equal(byClass(panel, "chat-source-link").length, 4);
+  assert.match(panel.textContent, /مصادر الويب التي فُحصت: 3/);
+  const reloaded = await start({profiles: configured, server: ui.server, storage: ui.storage, session: ui.session, now: NEWS_NOW});
+  const restored = reloaded.elements.get("discussion-panel");
+  assert.equal(reloaded.selected(), A);
+  assert.deepEqual(byClass(restored, "chat-source-link").map(link => link.href), [...first.sources, ...second.sources].map(source => source.url));
+  assert.equal([...ui.requests, ...reloaded.requests].every(request => request.options.method === "GET"), true);
+});
+
+test("report-only and no-search answers identify local context without implying a new online lookup", async () => {
+  for (const language of ["en", "ar"]) {
+    let saved;
+    const ui = await start({language, fetch: (url, request, respond) => {
+      if (url.endsWith("/messages/stream")) return respond(answer(JSON.parse(request.body), {message: {id: "local_answer", role: "assistant", content: "Summary from the selected report."},
+        context: {report_id: saved.report_id, report_ids: [saved.report_id], agent_ids: [A], sources: [], web_research: {status: "not_requested", searched_at: null, source_count: 0, limitations: []}}}));
+    }});
+    saved = seed(ui); await ui.openAgent(A); await ui.settle(); await typeChat(ui, "Summarize this saved report without searching online.");
+    await ui.sendChat(ui.chatState(A)); await ui.settle();
+    const panel = ui.elements.get("discussion-panel"), note = byClass(panel, "chat-evidence-note")[0];
+    assert.match(panel.textContent, language === "en" ? /report and your approved notes provide context/ : /التقرير المعروض وملاحظاتك المعتمدة لفهم السياق/);
+    assert.match(note.textContent, language === "en" ? /No new online search for this answer/ : /لم يُجرَ بحث جديد على الويب لهذه الإجابة/);
+    assert.match(note.textContent, language === "en" ? /Saved report snapshots used: 1/ : /نسخ التقارير المحفوظة المستخدمة: 1/);
+    assert.equal(byClass(note, "chat-web-sources").length, 0);
+    assert.equal(byClass(note, "chat-web-time").length, 0);
+    assert.equal(ui.messages().length, 1); assert.equal(ui.generations().length, 0);
+    assert.equal(ui.requests.some(request => /\/jobs\//.test(request.url)), false);
+  }
+});
+
+test("an empty online search retains its evidence limitation without claiming checked sources or a report", async () => {
+  for (const language of ["en", "ar"]) {
+    const limitation = language === "en" ? "The requested publication date could not be verified." : "تعذر التحقق من تاريخ النشر المطلوب.";
+    const context = webContext({sources: [], web_research: {status: "empty", searched_at: "2026-10-20T12:00:00Z", source_count: 0, limitations: [limitation]}});
+    const ui = await start({language, fetch: (url, request, respond) => url.endsWith("/messages/stream") ? respond(answer(JSON.parse(request.body), {context, message: {id: "empty_search", role: "assistant", content: "The available evidence does not establish the requested fact."}})) : undefined});
+    await ui.openAgent(A); await ui.settle(); await typeChat(ui, "What is the latest published outcome?"); await ui.sendChat(ui.chatState(A)); await ui.settle();
+    const note = byClass(ui.elements.get("discussion-panel"), "chat-evidence-note")[0];
+    assert.match(note.textContent, language === "en" ? /No usable online sources were found in this search/ : /لم يُعثر في هذا البحث على مصادر ويب صالحة للاستخدام/);
+    assert.equal(byClass(note, "chat-web-sources").length, 0); assert.equal(byTag(note, "a").length, 0);
+    assert.equal(byClass(note, "chat-web-time").length, 1);
+    assert.equal(byClass(note, "limitations")[0].textContent.includes(limitation), true);
+    assert.equal(ui.generations().length, 0);
+  }
+});
+
+test("web provenance exposes only safe checked URLs and keeps source markup literal", async () => {
+  const valid = {...webContext().sources[0], title: '<img src=x onerror="alert(1)"> checked title'};
+  const context = webContext({sources: [null, valid, {...valid, url: "javascript:alert(1)"}, {...valid, url: "https://localhost/private"}, {...valid, url: "https://unchecked.example/metadata", publisher_text_verified: false}],
+    web_research: {status: "complete", searched_at: null, source_count: 99, limitations: []}});
+  const ui = await start({fetch: (url, request, respond) => url.endsWith("/messages/stream") ? respond(answer(JSON.parse(request.body), {context, message: {id: "source_safety", role: "assistant", content: "A checked reference is available below."}})) : undefined});
+  await ui.openAgent(A); await ui.settle(); await typeChat(ui, "Find a relevant public source."); await ui.sendChat(ui.chatState(A)); await ui.settle();
+  const panel = ui.elements.get("discussion-panel"), note = byClass(panel, "chat-evidence-note")[0];
+  assert.equal(byClass(note, "chat-source-link").length, 1);
+  assert.equal(byClass(note, "chat-source-link")[0].href, valid.url);
+  assert.match(note.textContent, /Online sources checked: 1/);
+  assert.match(note.textContent, /<img src=x onerror=/);
+  assert.equal(byTag(panel, "img").length, 0); assert.equal(byTag(panel, "script").length, 0);
+  assert.doesNotMatch(note.textContent, /javascript:|localhost|unchecked\.example|99/);
+});
+
+test("an empty streamed search completes without model deltas and labels retained references as previously checked", async () => {
+  for (const language of ["en", "ar"]) {
+    const stream = eventStream();
+    const previousSource = {...webContext().sources[0], retrieved_at: "2026-10-19T09:00:00Z"};
+    const context = webContext({sources: [previousSource], web_research: {status: "empty", searched_at: "2026-10-20T12:00:00Z", source_count: 0, limitations: []}});
+    const ui = await start({language, fetch: url => url.endsWith("/messages/stream") ? stream.response : undefined});
+    await ui.openAgent(A); await ui.settle(); await typeChat(ui, "What is the newly verified result?");
+    const sending = ui.sendChat(ui.chatState(A)); await ui.settle();
+    stream.event("status", {status: "searching"});
+    stream.event("status", {status: "checking_sources"}); await ui.settle();
+    stream.event("complete", answer({agent_id: A}, {context, message: {id: "local_empty_notice", role: "assistant", content: "No supporting evidence was verified in this search."}}));
+    await sending; await ui.settle();
+    const panel = ui.elements.get("discussion-panel"), note = byClass(panel, "chat-evidence-note")[0];
+    assert.match(note.textContent, language === "en" ? /No usable online sources were found in this search/ : /لم يُعثر في هذا البحث على مصادر ويب صالحة للاستخدام/);
+    assert.equal(byTag(note, "summary")[0].textContent, language === "en" ? "Previously checked references: 1" : "مراجع فُحصت في محادثات سابقة: 1");
+    assert.doesNotMatch(note.textContent, /Online sources checked:|مصادر الويب التي فُحصت:/);
+    assert.equal(byClass(note, "chat-source-link")[0].href, previousSource.url);
+    assert.equal(byClass(note, "chat-source-retrieved").length, 1);
+    assert.equal(byClass(note, "chat-web-time").length, 1);
+    assert.equal(ui.chatState(A).sending, false); assert.equal(ui.chatState(A).attempt, null);
+    assert.equal(ui.chatState(A).messages.length, 2);
+    assert.equal(byClass(panel, "streaming-text").length, 0);
+    assert.equal(ui.generations().length, 0);
+    await ui.advance(450000); assert.equal(ui.messages().length, 1);
+  }
+});
+
+test("missing supporting citations produce a specific bilingual chat error without an automatic retry", async () => {
+  for (const language of ["en", "ar"]) for (const streaming of [true, false]) {
+    const stream = eventStream();
+    const ui = await start({language, fetch: (url, request, respond) => {
+      if (url.endsWith("/messages/stream")) return streaming ? stream.response : respond({detail: {code: "chat_evidence_missing", message: "PRIVATE retrieval trace"}}, 502);
+    }});
+    await ui.openAgent(A); await ui.settle(); await typeChat(ui, "Explain the actual measured outcome.");
+    const sending = ui.sendChat(ui.chatState(A)); await ui.settle();
+    if (streaming) {
+      stream.event("delta", {delta: "An unverified [claim](https://unverified.example/claim)."});
+      stream.event("error", {code: "chat_evidence_missing", status_code: 502, message: "PRIVATE retrieval trace", retryable: false});
+    }
+    await sending; await ui.settle();
+    const panel = ui.elements.get("discussion-panel"), error = byClass(panel, "chat-error")[0];
+    assert.match(error.textContent, language === "en" ? /supporting citation from the retrieved evidence.*not saved/ : /استشهادًا داعمًا من الأدلة المسترجعة.*لم تُحفظ/);
+    assert.doesNotMatch(error.textContent, /PRIVATE|report could not be completed|تعذر إكمال التقرير/);
+    assert.equal(ui.chatState(A).messages.length, 0); assert.equal(ui.chatState(A).attempt, null);
+    assert.equal(byTag(panel, "a").length, 0);
+    await ui.advance(450000); assert.equal(ui.messages().length, 1); assert.equal(ui.generations().length, 0);
+  }
+});
+
+test("an opened answer source list stays open while the next answer streams and the interface language changes", async () => {
+  const stream = eventStream(), context = webContext();
+  const ui = await start({fetch: url => url.endsWith("/messages/stream") ? stream.response : undefined});
+  ui.server.threads.set(A, {conversation_id: conversationId(1), agent_id: A, messages: [{id: "earlier_web", role: "assistant", content: "Earlier checked answer", context}], pagination: {has_more: false}});
+  await ui.openAgent(A); await ui.settle();
+  const panel = ui.elements.get("discussion-panel"), details = byClass(panel, "chat-web-sources")[0];
+  details.open = true; await details.emit("toggle");
+  await typeChat(ui, "Explain this further."); const sending = ui.sendChat(ui.chatState(A)); await ui.settle();
+  stream.event("status", {status: "checking_sources"}); stream.event("delta", {delta: "A further explanation."}); await ui.settle();
+  assert.equal(byClass(panel, "chat-web-sources")[0].open, true);
+  await ui.setLanguage("ar"); await ui.settle();
+  assert.equal(byClass(panel, "chat-web-sources")[0].open, true);
+  assert.match(byClass(panel, "chat-web-sources")[0].textContent, /مصادر الويب التي فُحصت: 3/);
+  stream.event("complete", answer({agent_id: A}, {context: {web_research: {status: "not_requested"}}, message: {id: "followup", role: "assistant", content: "A further explanation."}}));
+  await sending; await ui.settle();
+  assert.equal(byClass(panel, "chat-web-sources")[0].open, true);
+  assert.equal(ui.messages().length, 1); assert.equal(ui.generations().length, 0);
+});
+
+test("earlier history carries its own online sources without moving them to the latest answer", async () => {
+  const id = conversationId(1), context = webContext();
+  const ui = await start({fetch: (url, request, respond) => {
+    if (url.includes("/conversations/" + id + "?before=3")) return respond({conversation_id: id, agent_id: A,
+      messages: [{id: "earlier_online", role: "assistant", content: "Earlier online answer", context}], pagination: {has_more: false}});
+  }});
+  ui.server.threads.set(A, {conversation_id: id, agent_id: A, messages: [{id: "latest_local", role: "assistant", content: "Latest local explanation", context: {web_research: {status: "not_requested"}}}], pagination: {has_more: true, next_before: 3}});
+  await ui.openAgent(A); await ui.settle();
+  await byTag(ui.elements.get("discussion-panel"), "button").find(button => button.textContent === "Earlier messages").click(); await ui.settle();
+  const notes = byClass(ui.elements.get("discussion-panel"), "chat-evidence-note");
+  assert.equal(notes.length, 2); assert.equal(byClass(notes[0], "chat-source-link").length, 3);
+  assert.equal(byClass(notes[1], "chat-source-link").length, 0); assert.match(notes[1].textContent, /No new online search/);
+  assert.equal(ui.requests.every(request => request.options.method === "GET"), true);
+});
+
 test("actual stream deltas are visible before completion and become safe Markdown only when complete", async () => {
   const stream=eventStream();
   const ui=await start({fetch:(url)=>url.endsWith("/messages/stream")?stream.response:undefined});
@@ -1061,6 +1281,51 @@ test("stream errors distinguish provider quota from app allowance and keep unval
     assert.equal(ui.chatState(A).messages.length,0);assert.equal(ui.chatState(A).attempt,null);
   }
 });
+
+for (const code of ["daily_report_limit", "chat_research_timeout"]) {
+  test(`ordinary online chat explains ${code} accurately in both languages without automatic retry`, async () => {
+    for (const language of ["en", "ar"]) {
+      const stream = eventStream(); let attempts = 0;
+      const ui = await start({language, fetch: (url, request, respond) => {
+        if (!url.endsWith("/messages/stream")) return;
+        attempts++;
+        if (attempts > 1) return respond(answer(JSON.parse(request.body)));
+        if (code === "daily_report_limit") return respond({detail: {code, message: "PRIVATE provider account diagnosis", reference: "research_limit_ref"}}, 429);
+        return stream.response;
+      }});
+      await ui.openAgent(A); await ui.settle(); await typeChat(ui, "Check the latest independent evidence online.");
+      const sending = ui.sendChat(ui.chatState(A)); await ui.settle();
+      if (code === "chat_research_timeout") {
+        stream.event("status", {status: "searching"});
+        stream.event("error", {code, status_code: 504, message: "PRIVATE worker deadline diagnosis", reference: "research_timeout_ref", retryable: true});
+      }
+      await sending; await ui.settle();
+      const panel = ui.elements.get("discussion-panel"), error = byClass(panel, "chat-error")[0];
+      assert.ok(error);
+      if (code === "daily_report_limit") {
+        assert.match(error.textContent, language === "en" ? /research allowance for online chat and reports/ : /الحصة اليومية للبحث على الويب في المحادثات وإعداد التقارير/);
+        assert.match(error.textContent, /00:00.*UTC\+04:00/);
+        assert.doesNotMatch(error.textContent, /Today's report limit|حدّ التقارير لهذا اليوم/);
+      } else {
+        assert.match(error.textContent, language === "en" ? /online search and source checks timed out/ : /انتهت مهلة البحث على الويب وفحص المصادر/);
+        assert.match(error.textContent, language === "en" ? /No automatic retry was started.*send your question again/ : /لم تبدأ إعادة محاولة تلقائية.*إعادة إرسال سؤالك/);
+        assert.doesNotMatch(error.textContent, /research provider timed out|مهلة مزود البحث/);
+      }
+      assert.doesNotMatch(panel.textContent, /PRIVATE|diagnosis|token|USD|\$/);
+      assert.equal(ui.chatState(A).attempt, null); assert.equal(ui.chatState(A).sending, false);
+      assert.equal(byClass(panel, "chat-evidence-note").length, 0);
+      await ui.advance(450000);
+      assert.equal(ui.messages().length, 1); assert.equal(ui.generations().length, 0);
+      assert.equal(ui.requests.some(request => /\/jobs\//.test(request.url)), false);
+      if (code === "chat_research_timeout") {
+        await ui.sendChat(ui.chatState(A)); await ui.settle();
+        assert.equal(ui.messages().length, 2);
+        assert.notEqual(ui.messages()[0].options.headers["Idempotency-Key"], ui.messages()[1].options.headers["Idempotency-Key"]);
+        assert.equal(ui.chatState(A).messages.length, 2);
+      }
+    }
+  });
+}
 
 test("earlier messages load only within the immutable agent thread and reject a mismatched restore", async () => {
   const id=conversationId(9);const ui=await start({fetch:(url,request,respond)=>{
@@ -1448,7 +1713,7 @@ test("Arabic chat shows queued local report completion and its position without 
     if (request.method === "POST" && url.endsWith("/messages/stream")) return respond({status: "researching", job: queued, agent_id: A}, 202);
   }});
   seed(ui); ui.server.jobs.set(queued.job_id, {job: queued, report: null}); await ui.openAgent(A); await ui.settle();
-  const input = await typeChat(ui, "ما الذي حدث منذ هذا التقرير؟"); await input.emit("keydown", {key: "Enter"}); await ui.settle();
+  const input = await typeChat(ui, "أعد تقريرًا حديثًا عن التطورات منذ هذا التقرير."); await input.emit("keydown", {key: "Enter"}); await ui.settle();
   assert.match(ui.elements.get("discussion-panel").textContent, /قُبل سؤالك.*ينتظر استكمال الحفظ.*قائمة الانتظار: 2/);
   assert.doesNotMatch(ui.elements.get("discussion-panel").textContent, /يجري بحث جديد/);
   await ui.elements.get("language-en").click(); await ui.settle();

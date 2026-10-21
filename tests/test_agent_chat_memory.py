@@ -234,15 +234,15 @@ def test_memory_sources_must_belong_to_this_visitors_reports(discussion):
         assert stranger.post(f"{PREFIX}/memory", json={"kind": "knowledge", "content": "Claim", "source_urls": ["https://fixture.example/owned-source"]}).status_code == 422
 
 
-def test_current_question_queues_research_then_streams_same_owned_snapshot(discussion, streaming_provider):
+def test_explicit_report_request_queues_research_then_streams_same_owned_snapshot(discussion, streaming_provider):
     client = discussion["client"]
     thread = agent_thread(client, "iran-news")
-    first = send_stream(client, thread["conversation_id"], "What is happening in Iran now?", agent_id="iran-news")
+    first = send_stream(client, thread["conversation_id"], "Generate a fresh report about Iran now.", agent_id="iran-news")
     assert first.status_code == 202 and first.json()["status"] == "researching"
     assert streaming_provider["requests"] == []
     job = first.json()["job"]
     saved = complete_job(discussion, job["job_id"], label="fresh-stream")
-    response = send_stream(client, thread["conversation_id"], "What is happening in Iran now?", agent_id="iran-news", fresh_job_id=job["job_id"])
+    response = send_stream(client, thread["conversation_id"], "Generate a fresh report about Iran now.", agent_id="iran-news", fresh_job_id=job["job_id"])
     final = events(response)[-1]
     assert final[0] == "complete" and final[1]["context"]["report_id"] == saved["report_id"]
     assert final[1]["context"]["fresh_research"] is True
@@ -254,7 +254,7 @@ def test_empty_fresh_research_streams_persisted_notice_without_model_deltas(
         discussion, streaming_provider, monkeypatch, language):
     client = discussion["client"]
     thread = agent_thread(client, "iran-news", language=language)
-    question = "What is happening in Iran now?"
+    question = "Generate a fresh report on what is happening in Iran now."
     first = send_stream(client, thread["conversation_id"], question, agent_id="iran-news", language=language)
     assert first.status_code == 202
     job = first.json()["job"]
@@ -276,7 +276,7 @@ def test_empty_fresh_research_streams_persisted_notice_without_model_deltas(
 def test_uncited_fresh_stream_is_saved_as_a_limitation_not_as_a_researched_fact(discussion, streaming_provider):
     client = discussion["client"]
     thread = agent_thread(client, "iran-news")
-    question = "What is happening in Iran now?"
+    question = "Generate a fresh report on what is happening in Iran now."
     first = send_stream(client, thread["conversation_id"], question, agent_id="iran-news")
     job = first.json()["job"]
     complete_job(discussion, job["job_id"], label="fresh-evidence")

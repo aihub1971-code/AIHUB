@@ -1,8 +1,8 @@
-"""Automatic, session-scoped report retrieval for inline and main AI HUB chat.
+"""Visitor-scoped agent discussion with intentional, bounded online research.
 
-Fresh research runs as a durable report job. A persisted message plan pins its
-selected snapshots and job before the answer step, so retries, parallel clicks
-and newer reports cannot silently change a previously submitted question.
+Each submitted question pins its context and research mode. Ordinary factual
+questions search the web directly; only an explicit report request creates a
+report job. Opening a conversation remains passive.
 """
 from __future__ import annotations
 
@@ -54,12 +54,18 @@ _EXPLICIT_RESEARCH = re.compile(
     r"\b(?:do|conduct|perform|undertake)\s+(?:(?:new|fresh|further|some)\s+)?research\b|"
     r"\bupdate (?:this |the |my |our )?report\b|ابحث|أعد البحث|اعد البحث|حدّث|تحديث التقرير", re.I)
 _PLATFORM = re.compile(
-    r"how (?:do|can) I (?:use|download|upload|open|select|change)|how (?:does|do) (?:ai hub|this platform)|"
+    r"how (?:do|can) I (?:use|download|upload|open|select|change)\s+(?:(?:the|this|my|saved)\s+)?(?:ai hub|platform|agent|workspace|report|pdf|interface language)\b|how (?:does|do) (?:ai hub|this platform)|"
     r"how (?:do|can) I (?:generate|create) (?:a |the )?(?:fresh |new )?report|"
-    r"كيف (?:أستخدم|استخدم|أحمّل|احمل|أنزل|انزل|أفتح|افتح|أختار|اختار|أغير|اغير)|"
+    r"كيف (?:أستخدم|استخدم|أحمّل|احمل|أنزل|انزل|أفتح|افتح|أختار|اختار|أغير|اغير)\s+(?:(?:هذا|هذه)\s+)?(?:المنصة|منصة AI HUB|الوكيل|الوكلاء|التقرير|تقريري|لغة الواجهة)|"
     r"كيف (?:أولد|اولد|أنشئ|انشئ|أصدر|اصدر) (?:تقرير|التقرير)|زر التحويل|تغيير اللغة|language (?:switch|button)", re.I)
 _MEMORY_DISCUSS = re.compile(r"\bremember\b|\bmy preference|\bour conversation|\bwe discuss(?:ed)?\b|\bI (?:prefer|told|mentioned|said)\b|\b(?:another|other) agent\b|تذكر|تذكّر|أفضل أن|افضل ان|ناقشنا|محادثتنا|تفضيلاتي|تفضيلي|التفضيل الذي اعتمد|(?:الوكيل|المساعد) (?:الآخر|الاخر)", re.I)
 _NO_RESEARCH = re.compile(
+    r"\b(?:do not|don['’]t|dont|without|no|no need to)\s+(?:(?:any|new|further|additional|online|web|fresh)\s+)*(?:search|research|brows|look(?:ing)?\s+up)|"
+    r"\b(?:only\s+(?:use|consider|discuss)|(?:use|using|based on|rely on)\s+(?:only|solely|just))\s+"
+    r"(?:(?:this|that|the|these|my|our|your)\s+(?:(?:saved|provided|selected)\s+)?(?:reports?|text|notes?|conversation|answer|assessment|findings)\b|"
+    r"(?:saved|provided|selected|attached|previous|existing)\s+(?:reports?|sources?|evidence|text|notes?)\b|"
+    r"(?:these|those|this|that|my|our)\s+(?:sources?|evidence)\b)|"
+    r"\b(?:this|the|saved|selected)\s+report\s+only\b|"
     r"\b(?:without|no)\s+(?:(?:doing|running|performing|conducting|using)\s+)?"
     r"(?:(?:a|any|new|fresh|additional|further|live|web|online|external)\s+)*"
     r"(?:search(?:ing|es)?|research(?:ing)?|brows(?:e|ing))\b|"
@@ -70,7 +76,46 @@ _NO_RESEARCH = re.compile(
     r"\bwithout\s+using\s+(?:the\s+)?(?:web|internet)\b|"
     r"\bno\s+need\s+to\s+(?:search|research|browse|look\s+up)\b|"
     r"(?:دون|بدون)\s+(?:(?:إجراء|اجراء|عمل)\s+)?(?:(?:أي|اي)\s+)?(?:بحث|البحث)\b|"
-    r"لا\s+تبحث\b", re.I)
+    r"لا\s+تبحث\b|(?:استخدم|اعتمد|استند|باستخدام)\s+(?:فقط|حصراً|حصرا)\s+(?:(?:على|إلى|الى)\s+)?"
+    r"(?:(?:(?:هذا|ذلك)\s+)?(?:التقرير|النص|المحادثة|الإجابة|الاجابة)\b|"
+    r"(?:هذه|تلك)\s+(?:التقارير|الأدلة|الادلة|المصادر|الملاحظات)\b|"
+    r"(?:التقارير|الأدلة|الادلة|المصادر)\s+(?:المحفوظة|المقدمة|المرفقة|المحددة)\b)|"
+    r"(?:(?:هذا|ذلك)\s+التقرير|التقرير(?:\s+(?:المحفوظ|المحدد))?|"
+    r"(?:هذه|تلك)\s+(?:الأدلة|الادلة|المصادر)|(?:الأدلة|الادلة|المصادر)\s+(?:المحفوظة|المقدمة|المحددة))\s+(?:فقط|حصراً|حصرا)", re.I)
+_REPORT_ONLY = re.compile(
+    r"\b(?:only|solely|just)\s+(?:(?:use|consider|discuss)\s+)?"
+    r"(?:(?:this|that|the|these|my|our|your)\s+(?:(?:saved|selected|provided)\s+)?|(?:saved|selected|provided)\s+)reports?\b|"
+    r"\b(?:this|that|the|saved|selected|provided)\s+reports?\s+only\b|"
+    r"(?:التقرير(?:\s+(?:المحفوظ|المحدد))?|هذه التقارير|التقارير (?:المحفوظة|المحددة))\s+(?:فقط|حصراً|حصرا)|"
+    r"(?:فقط|حصراً|حصرا)\s+(?:على\s+)?(?:هذا\s+)?التقرير\b", re.I)
+_REPORT_REQUEST = re.compile(
+    r"(?:^|[.!?;:]\s*|\bplease\s+|\bcan you\s+|\bcould you\s+|\bwould you\s+)"
+    r"(?:create|generate|prepare|produce|write|draft|regenerate|update|refresh)\s+"
+    r"(?:(?:a|an|the|this|my|our|new|fresh|updated|full|detailed|research|policy)\s+)*(?:report|briefing)\b|"
+    r"(?:^|[.!?؛:؟]\s*|من فضلك\s+|هل يمكنك\s+)(?:أنشئ|انشئ|أعدّ|أعد|اعد|اكتب|جهز|جهّز|حدّث|حدث|ولّد|ولد)\s+"
+    r"(?:(?:لي|لنا)\s+)?(?:تقرير|التقرير|إحاطة|احاطة|الإحاطة|الاحاطة)|"
+    r"^\s*(?:I|we)\s+(?:want|need|would like)\s+(?:(?:a|an|new|fresh|updated|detailed|full|research|policy)\s+)*(?:report|briefing)\b|"
+    r"^\s*(?:أريد|اريد|نريد|أحتاج|احتاج|نحتاج|أود|اود)\s+(?:(?:إلى|الى)\s+)?(?:تقرير|إحاطة|احاطة)", re.I)
+_SMALL_TALK = re.compile(
+    r"^\s*(?:(?:hi|hello|hey|good morning|good evening|thanks|thank you|thank you very much|great|okay|ok|yes|no|"
+    r"how are you|مرحبا|مرحباً|أهلا|اهلا|أهلاً|السلام عليكم|وعليكم السلام|صباح الخير|مساء الخير|شكرا|شكراً|نعم|حسنا|حسناً|كيف حالك|كيف حالكم|من أنت|من انت)"
+    r"[\s,.!?؟،؛:]*|(?:hi|hello|مرحبا|مرحباً)[ ,،]+(?:there|again|بك)[.!؟،\s]*)+$", re.I)
+_WORKING_TOGETHER = re.compile(r"how (?:should|can|do) we work together|what can you (?:do|help)|how can you help|كيف (?:نتعاون|يمكنك مساعدتي|تساعدني)|هل يمكنك مساعدتي|ماذا (?:تستطيع|يمكنك) أن تفعل", re.I)
+_MEMORY_RECALL = re.compile(r"\bwhat (?:did|have) (?:we|I|you) (?:discuss|say|mention|decide|agree)|ما (?:الذي )?ناقشنا|ماذا (?:ناقشنا|قلت)|ما التفضيل|ما هي تفضيلاتي", re.I)
+_EDIT_REQUEST = re.compile(r"^\s*(?:(?:please|can you|could you)\s+)?(?:translate|rephrase|rewrite|proofread|polish|shorten|edit|format|ترجم|أعد صياغة|اعد صياغة|اختصر|صحح|صحّح|نسق|نسّق)\b", re.I)
+_EDIT_AND_RESEARCH = re.compile(r"\b(?:and|then)\s+(?:search|research|look up|verify online)\b|وابحث|ثم ابحث", re.I)
+_STYLE_REQUEST = re.compile(r"^\s*(?:please\s+)?(?:always\s+)?(?:use|write in|answer in|keep)\s+(?:clear|short|plain|concise|Arabic|English|readable|simple)\b|^\s*(?:اكتب|أجب|اجب)\s+(?:بالعربية|بالإنجليزية|بالانجليزية|بفقرات|بوضوح)", re.I)
+_CREATIVE_REQUEST = re.compile(r"^\s*(?:(?:please|can you|could you)\s+)?(?:write|compose|draft|create)\s+(?:(?:a|an|short|long|brief|simple|original)\s+)*(?:poem|fictional story|story|greeting|thank-you note)\b|^\s*(?:اكتب|ألف|الّف|ألّف)\s+(?:لي\s+)?(?:قصيدة|قصة|حكاية|رسالة شكر|تهنئة)", re.I)
+_CONTEXT_DISCUSSION = re.compile(
+    r"\b(?:explain|summari[sz]e|critique|clarify|discuss)\s+(?:(?:this|that|your|saved|selected|previous|last)\s+)+(?:answer|assessment|findings?|conclusions?)\b|"
+    r"\b(?:what|which) (?:did|have) (?:we|I|you)\b|\b(?:my|our) (?:preferences?|conversation|notes?)\b|"
+    r"(?:اشرح|لخص|لخّص|ناقش)\s+(?:هذا|هذه)\s+(?:التقييم|الإجابة|الاجابة|الخلاصة)|ما (?:ناقشنا|تفضيل|التفضيل)|ماذا (?:ناقشنا|قلت)", re.I)
+_SELECTED_ASSESSMENT = re.compile(r"\s*(?:please\s+)?(?:explain|summari[sz]e|clarify|discuss)\s+the\s+(?:assessment|answer|conclusion|findings|evidence)(?:\s+in\s+(?:Arabic|English))?[.!?\s]*", re.I)
+_SAVED_REPORT = re.compile(r"\b(?:this|that|my|our|saved|selected|displayed|previous|last)\s+(?:(?:saved|selected|Iran|education|UBI)\s+)?report\b|هذا التقرير|تقريرنا|تقريري|التقرير (?:المحفوظ|السابق|المعروض|المحدد)", re.I)
+_GENERIC_SNAPSHOT_DISCUSSION = re.compile(
+    r"\s*(?:please\s+)?(?:summari[sz]e|explain|describe|critique)\s+(?:(?:the|today's|latest|current)\s+)*report(?:'s\s+(?:assessment|conclusion|sources))?[.!?\s]*|"
+    r"\s*(?:اشرح|لخص|لخّص)\s+(?:تقييم\s+)?(?:(?:أحدث|احدث)\s+)?(?:التقرير|تقرير)(?:\s+(?:اليوم|الحالي))?[.!؟\s]*", re.I)
+_FOLLOWUP_QUERY = re.compile(r"^\s*(?:and\b|what about\b|how about\b|what of\b|وماذا|وماذا عن|ماذا عن|وبالنسبة|وكيف)|\b(?:it|its|they|their|this|that|those|these)\b|تكلفتها|آثارها|نتائجها|مستجداته|مستجداتها|تطوراته|تطوراتها|بشأنه|بشأنها", re.I)
 _SELF_DESCRIPTION = re.compile(r"\bI (?:am|work)\b|أنا أعمل|انا اعمل|أعمل في|اعمل في", re.I)
 _QUESTION_INTENT = re.compile(r"\b(?:what|which|how|why|when|where|compare|evaluate|assess|explain)\b|[?؟]|ما هي|ما الذي|كيف|قارن|قيّم", re.I)
 _INFORMATION_REQUEST = re.compile(
@@ -206,24 +251,77 @@ def needs_fresh_research(message: str, agent_id: str | None, has_report: bool) -
         return False
     # A request to use memory or saved context without searching must not be
     # reversed merely because the refusal itself contains the word "research".
-    if _NO_RESEARCH.search(message):
+    if _NO_RESEARCH.search(message) or _REPORT_ONLY.search(message):
         return False
-    if _MEMORY_DISCUSS.search(message) and not _EXPLICIT_RESEARCH.search(message):
+    if _SMALL_TALK.fullmatch(message) or _WORKING_TOGETHER.fullmatch(message.strip().rstrip(".!?؟،")):
+        return False
+    if _MEMORY_RECALL.search(message) and not (_EXPLICIT_RESEARCH.search(message) or _FRESH.search(message)):
         return False
     if (_SELF_DESCRIPTION.search(message) and not _EXPLICIT_RESEARCH.search(message)
             and not ((_QUESTION_INTENT.search(message) or _INFORMATION_REQUEST.search(message))
                      and (_FRESH.search(message) or _EVIDENCE_QUERY.search(message)
                           or _independent_information_request(message)))):
         return False
-    if _SINCE.search(message):
+    if _EDIT_REQUEST.search(message) and not _EDIT_AND_RESEARCH.search(message):
+        return False
+    if _CREATIVE_REQUEST.search(message) and not _EXPLICIT_RESEARCH.search(message):
+        return False
+    if _EXPLICIT_RESEARCH.search(message) or _REPORT_REQUEST.search(message):
         return True
     # "Summarize today's/latest report" discusses a saved snapshot; it does
     # not authorize another search. Explicit searches and "since" still do.
-    if (_REPORT_MENTION.search(message) and _DISCUSS_REPORT.search(message)
-            and not _EXPLICIT_RESEARCH.search(message)):
+    if _saved_report_discussion(message, has_report):
         return False
-    return bool(_FRESH.search(message) or _EXPLICIT_RESEARCH.search(message)
-                or (not has_report and (_EVIDENCE_QUERY.search(message) or _independent_information_request(message))))
+    factual_question = bool((_QUESTION_INTENT.search(message) or _INFORMATION_REQUEST.search(message))
+        and (_FRESH.search(message) or _EVIDENCE_QUERY.search(message) or _independent_information_request(message)))
+    if _STYLE_REQUEST.search(message) and not (_QUESTION_INTENT.search(message)
+            or _INFORMATION_REQUEST.search(message) or _FRESH.search(message)
+            or re.search(r"\b(?:about|regarding)\b|عن|حول", message, re.I)):
+        return False
+    if _MEMORY_DISCUSS.search(message) and not factual_question:
+        return False
+    if _CONTEXT_DISCUSSION.search(message) and not _FRESH.search(message):
+        return False
+    if has_report and _SELECTED_ASSESSMENT.fullmatch(message):
+        return False
+    # An agent can investigate a substantive question beyond its usual domain,
+    # with or without a report. Evidence keywords are not an admission gate.
+    return True
+
+
+def _saved_report_discussion(message: str, has_report: bool) -> bool:
+    if not has_report or _SINCE.search(message) or _EXPLICIT_RESEARCH.search(message):
+        return False
+    return bool(_SAVED_REPORT.search(message) and (_DISCUSS_REPORT.search(message) or _COMPARE.search(message))
+                or _GENERIC_SNAPSHOT_DISCUSSION.fullmatch(message))
+
+
+def _research_mode(message: str, agent_id: str | None, has_report: bool) -> str:
+    if not needs_fresh_research(message, agent_id, has_report):
+        return "conversation"
+    return "report" if _REPORT_REQUEST.search(message) else "web"
+
+
+def _search_topic_context(message: str, snapshot: dict[str, Any], agent_id: str | None,
+                          selected_topic: str = "") -> str:
+    """Resolve a follow-up from its recent question or selected report subject.
+
+    Approved preferences, other agents' conversations and unrelated report form
+    fields never enter search queries. A selected report's bounded subject is
+    used only to resolve a contextual follow-up without a prior question.
+    """
+    if not _FOLLOWUP_QUERY.search(message):
+        return ""
+    explicit_followup = bool(re.match(r"\s*(?:and\b|what about\b|how about\b|what of\b|وماذا|ماذا عن|وبالنسبة|وكيف)", message, re.I))
+    for previous in reversed(snapshot.get("history", [])):
+        question = previous.get("content", "")
+        if previous.get("role") == "user" and needs_fresh_research(question, agent_id, False):
+            # A pronoun in an otherwise independent named question is not
+            # permission to import a different country/programme into search.
+            return question[:1000] if explicit_followup or _topic_fits_question(question, message, agent_id or "") else ""
+    if selected_topic and _topic_fits_question(selected_topic, message, agent_id or ""):
+        return selected_topic[:1000]
+    return ""
 
 
 def _concepts(value: str) -> set[str]:
@@ -263,7 +361,7 @@ def _report_covers_question(report: dict[str, Any] | None, message: str, agent_i
         return False
     # Explicit snapshot discussion and ordinary references to an earlier answer
     # can use a dated archive; they do not request another paid investigation.
-    if _REPORT_MENTION.search(message) and _DISCUSS_REPORT.search(message):
+    if _saved_report_discussion(message, True):
         return True
     value = report.get("result") or {}
     if not value.get("sources") or value.get("status") in {"no_evidence", "awaiting_input"}:
@@ -373,10 +471,8 @@ def _make_plan(database: Store, reports: ReportStore, owner_id: str, conversatio
     profile = get_profile(primary_agent) if primary_agent and primary_agent not in RETIRED_AGENT_IDS else None
     topic = body.topic or (selected.get("topic") if selected else None) or (
         profile["default_topic_" + body.language] if profile else "")
-    usable_report = bool(selected and primary_agent and _report_covers_question(
-        selected, body.message, primary_agent, database.clock()))
-    fresh = needs_fresh_research(body.message, primary_agent, usable_report)
-    if fresh:
+    mode = _research_mode(body.message, primary_agent, selected is not None)
+    if mode in {"web", "report"}:
         supplied_topic = body.topic.strip()
         default_topic = profile and supplied_topic in {profile["default_topic_en"], profile["default_topic_ar"]}
         refers_to_snapshot = bool(_CONTEXTUAL_FOLLOWUP.search(body.message) or _PRONOUN_FOLLOWUP.search(body.message)
@@ -393,7 +489,9 @@ def _make_plan(database: Store, reports: ReportStore, owner_id: str, conversatio
                  if base else body.message)
     return {"agent_ids": agents, "primary_agent_id": primary_agent, "report_ids": context_ids,
             "original_report_id": selected["report_id"] if selected else None, "topic": topic,
-            "fresh": fresh}
+            "fresh": mode == "report", "research_mode": mode,
+            "search_topic_context": _search_topic_context(body.message, snapshot, primary_agent,
+                selected.get("topic", "") if selected else "") if mode == "web" else ""}
 
 
 def _binding(database: Store, reports: ReportStore, owner_id: str, conversation_id: str,
@@ -495,7 +593,10 @@ def build_context(reports: ReportStore, owner_id: str, plan: dict[str, Any], mes
                   conversation_id: str | None = None) -> dict[str, Any]:
     ids = ([answer_report_id] if answer_report_id else []) + plan["report_ids"]
     ids = list(dict.fromkeys(ids))[:MAX_CONTEXT_REPORTS]
+    report_only = bool(_REPORT_ONLY.search(message))
     shared = database.shared_workspace_context(owner_id, conversation_id, message) if database and conversation_id else None
+    if report_only and shared:
+        shared = {**shared, "conversations": [], "notes": [note for note in shared["notes"] if note["kind"] == "preference"]}
     if shared:
         for previous in shared["conversations"]:
             report_id = previous.get("report_id")
@@ -507,12 +608,35 @@ def build_context(reports: ReportStore, owner_id: str, plan: dict[str, Any], mes
                               "cutoff": value["research_window"].get("end")} for value in snapshots],
         "fresh_research": bool(plan["fresh"]), "reports": snapshots,
         "truncated": any(value["truncated"] for value in snapshots),
-        "evidence_note": "Only this visitor's selected dated reports. Older references are not fresh developments."}
+        "research_mode": plan.get("research_mode", "report" if plan["fresh"] else "conversation"),
+        "web_research": {"status": "not_requested", "searched_at": None, "source_count": 0, "limitations": []},
+        "sources": [],
+        "evidence_scope": "selected_reports_only" if report_only else "owned_context_and_checked_web",
+        "evidence_note": "Owned dated reports and checked source pages are context, not an exclusive source list. Older references are not fresh developments; a page check does not establish a publication date."}
+    if context["research_mode"] == "web":
+        context["_web_request"] = {"agent_id": plan["primary_agent_id"], "question": message,
+                                   "topic_context": plan.get("search_topic_context", "")}
+    # Saved evidence may support follow-ups without a new search if requested.
+    # Read through the conversation's owner rather than trusting prose URLs.
+    if database and conversation_id and not report_only:
+        snapshot = database.chat_snapshot(conversation_id, owner_id, history_messages=12)
+        seen = set()
+        for previous in reversed(snapshot["history"]):
+            if previous.get("role") != "assistant":
+                continue
+            for source in database._saved_chat_sources(previous.get("context", {}), limit=8, excerpt_chars=1400):
+                if source["url"] not in seen and len(context["sources"]) < 8:
+                    context["sources"].append(source)
+                    seen.add(source["url"])
     if context["fresh_research"]:
         context["fresh_evidence_source_urls"] = sorted(_fresh_supporting_sources(context))
         context["fresh_evidence_available"] = bool(context["fresh_evidence_source_urls"])
     if shared:
         context["shared_memory"] = shared
+        for previous in shared["conversations"]:
+            for source in previous.get("sources", []):
+                if len(context["sources"]) < 12 and source["url"] not in {item["url"] for item in context["sources"]}:
+                    context["sources"].append(source)
         # The evidence budget already bounds each report. Prefer the current
         # report over distant chat excerpts when the combined window is full.
         while runtime._json_bytes(context) > MAX_CONTEXT_BYTES and shared["conversations"]:
@@ -521,6 +645,9 @@ def build_context(reports: ReportStore, owner_id: str, plan: dict[str, Any], mes
         while runtime._json_bytes(context) > MAX_CONTEXT_BYTES and shared["notes"]:
             shared["notes"].pop()
             shared["truncated"] = True
+    while runtime._json_bytes(context) > MAX_CONTEXT_BYTES and context["sources"]:
+        context["sources"].pop()
+        context["truncated"] = True
     if runtime._json_bytes(context) > MAX_CONTEXT_BYTES:
         raise StoreError("chat_context_too_large", "The selected evidence exceeds the discussion limit.", 413)
     return context
@@ -540,6 +667,8 @@ def _fresh_supporting_sources(context: dict[str, Any]) -> set[str]:
 
 def validate_answer_links(answer: str, context: dict[str, Any]) -> None:
     allowed = {source["url"] for report in context.get("reports", []) for source in report.get("sources", []) if source.get("url")}
+    allowed.update(source["url"] for source in context.get("sources", []) if source.get("publisher_text_verified") is True
+                   and source.get("evidence_level") == "publisher_page_verified" and runtime._safe_source_url(source.get("url")))
     cited_urls = set()
     for destination in _MARKDOWN_DESTINATION.findall(answer):
         if not destination.lower().startswith(("https://", "http://")):
@@ -560,6 +689,17 @@ def validate_answer_links(answer: str, context: dict[str, Any]) -> None:
     if context.get("fresh_research") and not (cited_urls & _fresh_supporting_sources(context)):
         raise HTTPException(502, detail={"code": "chat_evidence_missing",
             "message": "The fresh answer did not cite evidence supporting this research question."})
+    web = context.get("web_research")
+    if isinstance(web, dict) and web.get("status") in {"complete", "empty"}:
+        current_urls = {url for value in web.get("source_urls", [])
+                        if (url := runtime._safe_source_url(value))}
+        checked_urls = {source["url"] for source in context.get("sources", [])
+            if source.get("publisher_text_verified") is True
+            and source.get("evidence_level") == "publisher_page_verified"
+            and source.get("url") in current_urls}
+        if not (cited_urls & checked_urls):
+            raise HTTPException(502, detail={"code": "chat_evidence_missing",
+                "message": "The online answer did not cite a checked source for this question."})
 
 
 def platform_context() -> dict[str, Any]:
@@ -570,7 +710,7 @@ def platform_context() -> dict[str, Any]:
         "news": {"coverage_hours": 12, "maximum_items_after_validation_and_dedup": research.MAX_NEWS_ITEMS,
                  "source_scope": "NewsData and OpenAI live web search are available to every active agent. NewsData collection is capped at 50 raw articles per intentional refresh; web search supplements empty, insufficient or unavailable coverage and retrieves official documents and scholarship.",
                  "refresh": "On demand; exact cutoff is frozen at job creation. Not continuous monitoring."},
-        "chat": "Each agent has its own restored conversation. Relevant conversations, reviewed memory and cited reports are automatically shared across agents for this visitor only. Substantive questions can start fresh web research when saved evidence does not cover the subject; no search keyword or report attachment is required. Current questions request a new check. Explicit no-search requests and discussion of saved reports use existing context. Saved snapshots remain unchanged. Responses stream as the model writes them.",
+        "chat": "Each agent has its own restored conversation. Relevant conversations, reviewed memory, cited reports and checked web evidence are shared for this visitor only. A substantive factual question normally searches the wider public web, including topics beyond the agent's usual focus, then answers directly without creating a report. Explicit no-search or report-only instructions are respected. Only an explicit request to create or update a report starts a report job. Historical material is allowed with accurate dates; the 12-hour policy applies to fresh-news claims, not all chat references. Responses stream as the model writes them.",
         "memory": "Visitors review preferences, corrections and knowledge notes before these become persistent shared memory. Approval records the visitor's decision; it does not turn a claim into independently verified evidence. Personal memory is retrieval context, not model training. Proposed or rejected notes are excluded.",
         "archives": "Saved reports from retired agents remain available for reading, PDF download and discussion. Retired agents cannot generate new reports or fresh research; discussions use the saved evidence and its original cutoff.",
         "language": "Use the Arabic/English switch in the header. UI switching does not generate or rewrite a report. New reports follow the chosen language. Chat can explain any saved report in either language.",
@@ -578,21 +718,41 @@ def platform_context() -> dict[str, Any]:
         "pdf": "Generated automatically from each structured report. A failed PDF can be retried without researching again."}
 
 
-def response_view(value: dict[str, Any]) -> dict[str, Any]:
-    result = public._pick(value, ("conversation_id", "turn_id", "idempotency_replayed"))
-    result["conversation"] = _conversation_view(value.get("conversation") or {})
-    for key in ("user_message", "message"):
-        result[key] = public._pick(value.get(key), ("id", "role", "content", "created_at", "sequence", "turn_id", "status", "error_code", "report_id"))
-    context = value.get("context") if isinstance(value.get("context"), dict) else {}
-    result["context"] = public._pick(context,
-        ("report_id", "history_messages_included", "history_truncated", "report_truncated", "fresh_research"))
+def _context_view(value: Any) -> dict[str, Any]:
+    context = value if isinstance(value, dict) else {}
+    result = public._pick(context,
+        ("report_id", "history_messages_included", "history_truncated", "report_truncated", "fresh_research", "research_mode"))
     for key in ("report_ids", "agent_ids"):
         values = context.get(key, [])
-        result["context"][key] = [item for item in values[:MAX_CONTEXT_REPORTS] if isinstance(item, str)] if isinstance(values, list) else []
+        result[key] = [item for item in values[:MAX_CONTEXT_REPORTS] if isinstance(item, str)] if isinstance(values, list) else []
     cutoffs = context.get("research_cutoffs", [])
-    result["context"]["research_cutoffs"] = [public._pick(item, ("report_id", "agent_id", "cutoff"))
+    result["research_cutoffs"] = [public._pick(item, ("report_id", "agent_id", "cutoff"))
         for item in cutoffs[:MAX_CONTEXT_REPORTS] if isinstance(item, dict)] if isinstance(cutoffs, list) else []
+    web = context.get("web_research")
+    if isinstance(web, dict):
+        result["web_research"] = public._pick(web, ("status", "searched_at", "source_count"))
+        result["web_research"]["limitations"] = [text[:800] for text in web.get("limitations", [])[:8] if isinstance(text, str)]
+    result["sources"] = []
+    for source in context.get("sources", [])[:12]:
+        if (isinstance(source, dict) and source.get("publisher_text_verified") is True
+                and source.get("evidence_level") == "publisher_page_verified" and runtime._safe_source_url(source.get("url"))):
+            result["sources"].append(public._pick(source, ("id", "url", "title", "publisher", "published_at",
+                "publication_precision", "retrieved_at", "role", "source_category", "evidence_level", "publisher_text_verified")))
     return result
+
+
+def _message_view(value: Any) -> dict[str, Any]:
+    result = public._pick(value, ("id", "role", "content", "created_at", "sequence", "turn_id", "status", "error_code", "report_id"))
+    if isinstance(value, dict) and value.get("role") == "assistant" and isinstance(value.get("context"), dict):
+        result["context"] = _context_view(value["context"])
+    return result
+
+
+def response_view(value: dict[str, Any]) -> dict[str, Any]:
+    return {**public._pick(value, ("conversation_id", "turn_id", "idempotency_replayed")),
+            "conversation": _conversation_view(value.get("conversation") or {}),
+            "user_message": _message_view(value.get("user_message")),
+            "message": _message_view(value.get("message")), "context": _context_view(value.get("context"))}
 
 
 def _prepare_answer(conversation_id: str, body: WorkspaceMessage, request: Request,
@@ -606,6 +766,7 @@ def _prepare_answer(conversation_id: str, body: WorkspaceMessage, request: Reque
         if not answer_report_id or not reports.owns(owner_id, answer_report_id):
             require_agent(plan["primary_agent_id"])
         plan["fresh"] = False
+        plan["research_mode"] = "conversation"
     if plan["fresh"]:
         if body.fresh_job_id and not binding["job_id"]:
             raise StoreError("chat_research_mismatch", "This research job belongs to a different question.", 409)
@@ -642,9 +803,11 @@ def _prepare_answer(conversation_id: str, body: WorkspaceMessage, request: Reque
 _SAFE_MESSAGES = {
     "conversation_agent_mismatch": "This conversation belongs to a different agent. Open that agent's chat before sending.",
     "chat_source_mismatch": "The reply contained a source link that could not be matched to the saved evidence. The reply was not saved.",
+    "chat_evidence_missing": "The reply did not cite supporting retrieved evidence. Refine the question or intentionally search again.",
     "chat_research_failed": "Fresh research failed. Check the specific research error; your saved reports remain available.",
     "chat_research_mismatch": "This research job belongs to a different question.",
     "daily_budget_limit": "AI HUB's application daily spending limit cannot cover this request. This is separate from provider quotas.",
+    "daily_report_limit": "AI HUB's daily research allowance has been reached. Ordinary conversation and saved evidence remain available; this is separate from provider quotas.",
     "monthly_budget_limit": "AI HUB's application monthly spending limit cannot cover this request. This is separate from provider quotas.",
     "public_daily_chat_limit": "This visitor has reached AI HUB's daily conversation allowance.",
     "openai_rate_limited": "OpenAI has rate-limited the request. Wait before trying again.",
@@ -658,7 +821,8 @@ _SAFE_MESSAGES = {
     "chat_already_attempted": "This message was already attempted. Check its saved status before starting a new attempt.",
     "conversation_busy": "Another message in this agent's conversation is still being answered.",
     "memory_not_found": "This memory note was not found in your workspace.",
-    "memory_source_unverified": "A memory source must already appear in one of your saved reports.",
+    "memory_source_unverified": "A memory source must already appear in one of your saved reports or checked chat references.",
+    "chat_research_timeout": "The online search did not finish in time. No automatic retry was made; reopen the conversation to check its saved status.",
     "memory_limit": "Review or remove a saved memory note before adding another.",
 }
 
@@ -675,12 +839,20 @@ def _safe_workspace_error(error: HTTPException | StoreError, database: Store,
     safe.detail["message"] = _SAFE_MESSAGES.get(code, "The request could not be completed. Check its error code and saved status before trying again.")
     if isinstance(raw.get("cause_code"), str) and re.fullmatch(r"[a-z0-9_]{1,80}", raw["cause_code"]):
         safe.detail["cause_code"] = raw["cause_code"]
+    if type(raw.get("retry_after_seconds")) is int and 0 <= raw["retry_after_seconds"] <= 86400:
+        safe.detail["retry_after_seconds"] = raw["retry_after_seconds"]
+    if type(raw.get("provider_status")) is int and 400 <= raw["provider_status"] <= 599:
+        safe.detail["provider_status"] = raw["provider_status"]
     return safe
 
 
 def _conversation_view(value: dict[str, Any]) -> dict[str, Any]:
     result = public._conversation(value)
     result["agent_id"] = value.get("agent_id")
+    if isinstance(value.get("messages"), list):
+        result["messages"] = [_message_view(message) for message in value["messages"]]
+    if isinstance(value.get("context"), dict):
+        result["context"] = _context_view(value["context"])
     return result
 
 
@@ -784,12 +956,12 @@ def stream_owner_message(conversation_id: str, body: WorkspaceMessage, request: 
 def _propose_memory(database: Store, owner_id: str, body: MemoryProposal) -> dict[str, Any]:
     if body.source_urls:
         reports = get_report_store(database)
-        allowed = set()
+        allowed = database.owned_chat_source_urls(owner_id)
         for summary in reports.list_reports(owner_id, limit=100):
             saved = reports.get_report(owner_id, summary["report_id"])
             allowed.update(runtime._safe_source_url(source.get("url")) for source in saved["result"].get("sources", []) if isinstance(source, dict))
         if any(runtime._safe_source_url(url) not in allowed or not runtime._safe_source_url(url) for url in body.source_urls):
-            raise StoreError("memory_source_unverified", "A memory source must already appear in your saved reports.", 422)
+            raise StoreError("memory_source_unverified", "A memory source must already appear in your saved reports or checked chat references.", 422)
     return database.propose_workspace_memory(owner_id, kind=body.kind, content=body.content,
         source_urls=[runtime._safe_source_url(url) for url in body.source_urls])
 
