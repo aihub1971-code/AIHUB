@@ -687,7 +687,7 @@
   async function sendChat(c,retry=false){
     if(!ready||c.sending||c.loading||!c.loaded||!validConversationId(c.id))return;
     const text=c.draft.trim();if(!retry&&!text)return;
-    if(!retry){const currentReport=state(c.key).report;c.attempt={key:uuid(),body:{message:text,language:lang,agent_id:c.key,report_id:currentReport?.report_id||null,topic:state(c.key).topic}};}
+    if(!retry){const currentReport=state(c.key).report;c.attempt={key:uuid(),body:{message:text,language:lang,agent_id:c.key,report_id:currentReport?.report_id||null}};}
     const attempt=c.attempt;if(!attempt)return;
     c.sending=true;c.error=null;c.errorDetail=null;c.status="chatThinking";c.streamingText="";
     if(visibleChat(c))renderChat(c);
@@ -731,25 +731,25 @@
       const actions=el("div","memory-item-actions");
       if(item.status==="proposed")actions.append(button(T("memoryApprove"),"quiet-button",()=>updateMemory(item.memory_id,"approve")));
       actions.append(button(T(item.status==="approved"?"memoryForget":"memoryReject"),"quiet-button",()=>updateMemory(item.memory_id,"reject")));
-      for(const control of actions.childNodes)control.disabled=memoryState.saving;card.append(actions);target.append(card);
+      for(const control of actions.childNodes)control.disabled=memoryState.saving||memoryState.loading;card.append(actions);target.append(card);
     }
     showNotice($("memory-notice"),memoryState.error);$("memory-save").disabled=memoryState.saving||memoryState.loading;
   }
-  async function loadMemory(){
-    if(memoryState.loading)return;memoryState.loading=true;renderMemory();
+  async function loadMemory(afterSave=false){
+    if(memoryState.loading||(memoryState.saving&&!afterSave))return;memoryState.loading=true;renderMemory();
     try{const data=await request("/v1/public/workspace/memory");memoryState.items=Array.isArray(data.items)?data.items:[];memoryState.loaded=true;memoryState.error=null;}
     catch(error){memoryState.error=errorKey(error);}finally{memoryState.loading=false;renderMemory();}
   }
   async function updateMemory(id,action){
-    if(memoryState.saving||typeof id!=="string"||!/^[a-zA-Z0-9_-]+$/.test(id))return;
+    if(memoryState.saving||memoryState.loading||typeof id!=="string"||!/^[a-zA-Z0-9_-]+$/.test(id))return;
     memoryState.saving=true;renderMemory();
-    try{await request("/v1/public/workspace/memory/"+encodeURIComponent(id),{method:"PATCH",body:{action}});await loadMemory();}
+    try{await request("/v1/public/workspace/memory/"+encodeURIComponent(id),{method:"PATCH",body:{action}});await loadMemory(true);}
     catch(error){memoryState.error=errorKey(error);}finally{memoryState.saving=false;renderMemory();}
   }
   async function proposeMemory(){
-    const content=$("memory-input").value.trim(),kind=$("memory-kind").value;if(!content||memoryState.saving||!["preference","correction","knowledge"].includes(kind))return;
+    const content=$("memory-input").value.trim(),kind=$("memory-kind").value;if(!content||memoryState.saving||memoryState.loading||!["preference","correction","knowledge"].includes(kind))return;
     memoryState.saving=true;renderMemory();
-    try{await request("/v1/public/workspace/memory",{method:"POST",body:{kind,content}});$("memory-input").value="";await loadMemory();}
+    try{await request("/v1/public/workspace/memory",{method:"POST",body:{kind,content}});$("memory-input").value="";await loadMemory(true);}
     catch(error){memoryState.error=errorKey(error);}finally{memoryState.saving=false;renderMemory();}
   }
   $("brand-home").addEventListener("click",()=>setView("home"));$("nav-home").addEventListener("click",()=>setView("home"));$("back-home").addEventListener("click",()=>setView("home"));

@@ -755,11 +755,34 @@ test("inline chat automatically sends the active agent and report and renders th
   assert.equal(await input.emit("keydown", {key: "Enter"}), true); await ui.settle();
   assert.equal(ui.messages().length, 1);
   const message = ui.messages()[0], body = JSON.parse(message.options.body);
-  assert.equal(body.agent_id, A); assert.equal(body.report_id, saved.report_id); assert.equal(body.topic, saved.topic);
+  assert.equal(body.agent_id, A); assert.equal(body.report_id, saved.report_id); assert.equal(Object.hasOwn(body, "topic"), false);
   assert.equal(body.message, "Why does this finding matter?"); assert.equal(message.options.headers.Authorization, undefined);
   assert.match(ui.elements.get("discussion-panel").textContent, /Saved evidence answer/);
   assert.equal(byTag(ui.elements.get("discussion-panel"), "input").length, 0);
   assert.equal(ui.generations().length, 0);
+});
+
+test("chat questions do not inherit a saved report topic or the report generator's edited topic", async () => {
+  const ui = await start();
+  const saved = report(A, 1, {topic: "Canada education policy"});
+  ui.server.reports.set(saved.report_id, saved);
+  await ui.openSaved(saved.report_id, A); await ui.settle();
+  assert.equal(ui.elements.get("topic-input").value, saved.topic);
+  await typeChat(ui, "What changed in Finland education policy?");
+  await ui.sendChat(ui.chatState(A)); await ui.settle();
+  const topic = ui.elements.get("topic-input"); topic.value = "Japan education policy"; await topic.emit("input");
+  await typeChat(ui, "Which Finland sources support that answer?");
+  await ui.sendChat(ui.chatState(A)); await ui.settle();
+  assert.equal(ui.messages().length, 2);
+  for (const message of ui.messages()) {
+    const body = JSON.parse(message.options.body);
+    assert.equal(body.report_id, saved.report_id);
+    assert.equal(Object.hasOwn(body, "topic"), false, "Report context must not become an explicit new chat research topic.");
+    assert.match(body.message, /Finland/);
+  }
+  assert.equal(ui.generations().length, 0);
+  await ui.generateReport(A); await ui.settle();
+  assert.equal(JSON.parse(ui.generations()[0].options.body).topic, "Japan education policy");
 });
 
 test("fresh chat waits for the saved report then answers with the same request key", async () => {
@@ -1048,6 +1071,69 @@ test("shared user notes require explicit approval and remain separate from publi
   await byTag(ui.elements.get("memory-items"),"button").find(button=>button.textContent==="إزالة من المعرفة المشتركة").click();await ui.settle();
   assert.equal(ui.server.memory[0].status,"rejected");assert.doesNotMatch(ui.elements.get("memory-items").textContent,/Prefer concise/);
   assert.equal(ui.generations().length,0);assert.equal(ui.messages().length,0);
+});
+
+test("a saved-memory refresh blocks note mutations until its older read finishes", async () => {
+  let holdRead = false, finishRead;
+  const ui = await start({fetch: (url, request, respond, server) => {
+    if (holdRead && url === PREFIX + "/memory" && request.method === "GET") {
+      holdRead = false;
+      const snapshot = clone(server.memory);
+      return new Promise(resolve => { finishRead = () => resolve(respond({items: snapshot})); });
+    }
+  }});
+  await ui.openAgent(A); await ui.settle();
+  ui.server.memory.push({memory_id: "memory_1", kind: "preference", content: "Use concise summaries.", status: "proposed"});
+  await ui.loadMemory();
+  await typeChat(ui, "Summarize the saved context."); await ui.sendChat(ui.chatState(A)); await ui.settle();
+  holdRead = true;
+  const panel = ui.elements.get("shared-memory"); panel.open = true; await panel.emit("toggle"); await ui.settle();
+  assert.equal(typeof finishRead, "function");
+  const approve = byTag(ui.elements.get("memory-items"), "button").find(button => button.textContent === "Approve note");
+  assert.equal(approve.disabled, true);
+  await approve.click();
+  ui.elements.get("memory-kind").value = "knowledge"; ui.elements.get("memory-input").value = "Another saved note.";
+  await ui.elements.get("memory-form").requestSubmit(); await ui.settle();
+  assert.equal(ui.requests.filter(request => /\/memory(?:\/|$)/.test(request.url) && request.options.method !== "GET").length, 0);
+  finishRead(); await ui.settle();
+  await byTag(ui.elements.get("memory-items"), "button").find(button => button.textContent === "Approve note").click(); await ui.settle();
+  assert.equal(ui.server.memory[0].status, "approved");
+  assert.match(ui.elements.get("memory-items").textContent, /Approved by you/);
+  assert.equal(ui.server.memory.length, 1);
+});
+
+test("reopening shared memory during a note save waits for the mutation before reloading", async () => {
+  for (const method of ["PATCH", "POST"]) {
+    let finishSave;
+    const ui = await start({fetch: (url, request, respond, server) => {
+      if (/\/memory(?:\/|$)/.test(url) && request.method === method) {
+        const input = JSON.parse(request.body);
+        return new Promise(resolve => { finishSave = () => {
+          if (method === "PATCH") server.memory[0].status = "approved";
+          else server.memory.push({memory_id: "memory_2", ...input, status: "proposed"});
+          resolve(respond({}));
+        }; });
+      }
+    }});
+    await ui.openAgent(A); await ui.settle();
+    ui.server.memory.push({memory_id: "memory_1", kind: "preference", content: "Use concise summaries.", status: "proposed"});
+    const panel = ui.elements.get("shared-memory"); panel.open = true; await panel.emit("toggle"); await ui.settle();
+    await typeChat(ui, "Summarize the saved context."); await ui.sendChat(ui.chatState(A)); await ui.settle();
+    let saving;
+    if (method === "PATCH") saving = byTag(ui.elements.get("memory-items"), "button").find(button => button.textContent === "Approve note").click();
+    else {
+      ui.elements.get("memory-kind").value = "knowledge"; ui.elements.get("memory-input").value = "A second note.";
+      saving = ui.proposeMemory();
+    }
+    await ui.settle(); assert.equal(typeof finishSave, "function");
+    panel.open = false; await panel.emit("toggle"); panel.open = true; await panel.emit("toggle"); await ui.settle();
+    const reads = () => ui.requests.filter(request => request.url === PREFIX + "/memory" && request.options.method === "GET");
+    assert.equal(reads().length, 1, "Reopening the panel must not read a pre-mutation snapshot while a save is pending.");
+    finishSave(); await saving; await ui.settle();
+    assert.equal(reads().length, 2, "The completed mutation must be followed by a fresh saved-state read.");
+    assert.match(ui.elements.get("memory-items").textContent, method === "PATCH" ? /Approved by you/ : /A second note/);
+    assert.equal(ui.elements.get("memory-save").disabled, false);
+  }
 });
 
 test("owner workspace uses the same manual UI through protected APIs without reading or writing credentials", async () => {

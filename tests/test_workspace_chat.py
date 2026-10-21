@@ -221,6 +221,48 @@ def test_current_relevant_evidence_can_answer_without_duplicate_research(discuss
     assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
 
 
+@pytest.mark.parametrize("question", [
+    "What are Finland programme costs and employment effects?",
+    "What are Finland programme costs and their employment effects?",
+    "I am preparing a briefing: what are the latest Finland basic-income evaluation findings?",
+])
+def test_chat_payload_from_old_ui_cannot_reapply_archived_topic_to_new_subject(discussion, provider, question):
+    previous = save_report(discussion, "ubi-research", label="Canada-programme-costs-employment-effects",
+                           moment=NOW - timedelta(days=3))
+    # Older clients automatically sent both the displayed report and its form
+    # topic, even when the new chat question introduced another country.
+    response = send(discussion["client"], conversation(discussion["client"]), question,
+                    agent_id="ubi-research", report_id=previous["report_id"], topic=previous["topic"])
+    assert response.status_code == 202, response.text
+    assert response.json()["job"]["topic"] == question
+    assert "Canada" not in response.json()["job"]["topic"]
+    assert provider["calls"] == []
+
+
+def test_relevant_explicit_custom_topic_remains_part_of_new_research_request(discussion, provider):
+    previous = save_report(discussion, "ubi-research", label="Canada-programme-costs-employment-effects")
+    question = "Research Finland programme costs and employment effects."
+    topic = "Finland 2017–2018 basic-income trial, with original evaluation and fiscal accounts"
+    response = send(discussion["client"], conversation(discussion["client"]), question,
+                    agent_id="ubi-research", report_id=previous["report_id"], topic=topic)
+    assert response.status_code == 202, response.text
+    task = response.json()["job"]["topic"]
+    assert task.startswith(topic) and question in task and "Canada" not in task
+    assert provider["calls"] == []
+
+
+def test_pronoun_followup_can_discuss_relevant_dated_evidence_without_research(discussion, provider):
+    previous = save_report(discussion, "ubi-research", label="Canada-programme-costs-employment-effects",
+                           moment=NOW - timedelta(days=3))
+    response = send(discussion["client"], conversation(discussion["client"]),
+        "What were their programme costs and employment effects?", agent_id="ubi-research",
+        report_id=previous["report_id"], topic=previous["topic"])
+    assert response.status_code == 200, response.text
+    assert response.json()["context"]["fresh_research"] is False
+    assert evidence(provider["calls"][0])["report_ids"] == [previous["report_id"]]
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
+
+
 def test_explicit_dated_background_finds_relevant_older_owned_report(discussion, provider):
     background = save_report(discussion, "ubi-research",
         label="Finland-programme-costs-employment-effects-2017", moment=NOW - timedelta(days=3))
@@ -241,6 +283,7 @@ def test_explicit_dated_background_finds_relevant_older_owned_report(discussion,
     "Hello", "What did we discuss about research costs and employment effects?",
     "Summarize the saved report and explain its employment effects.",
     "Remember that I prefer clear comparisons of programme costs.",
+    "I am an adviser. What did we discuss about research costs?",
     "ما الذي ناقشنا بشأن الأبحاث وتكاليف البرامج؟",
 ])
 def test_old_report_does_not_turn_greetings_memory_or_snapshot_discussion_into_research(

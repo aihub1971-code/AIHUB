@@ -262,7 +262,8 @@ def test_owner_workspace_requires_auth_and_keeps_public_threads_separate(client,
 
 
 @pytest.mark.parametrize("message", ["Hello", "How should we work together?", "Remember that I prefer short paragraphs.",
-    "What did we discuss about employment programmes?", "What did we discuss about research costs?"])
+    "What did we discuss about employment programmes?", "What did we discuss about research costs?",
+    "I work on education policy.", "I am preparing a briefing."])
 def test_greeting_preference_and_memory_question_do_not_start_unrequested_research(message):
     assert workspace_chat.needs_fresh_research(message, "ubi-research", False) is False
 

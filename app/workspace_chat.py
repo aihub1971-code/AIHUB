@@ -53,7 +53,9 @@ _PLATFORM = re.compile(
     r"how (?:do|can) I (?:generate|create) (?:a |the )?(?:fresh |new )?report|"
     r"كيف (?:أستخدم|استخدم|أحمّل|احمل|أنزل|انزل|أفتح|افتح|أختار|اختار|أغير|اغير)|"
     r"كيف (?:أولد|اولد|أنشئ|انشئ|أصدر|اصدر) (?:تقرير|التقرير)|زر التحويل|تغيير اللغة|language (?:switch|button)", re.I)
-_MEMORY_DISCUSS = re.compile(r"\bremember\b|\bmy preference|\bour conversation|\bwe discuss(?:ed)?\b|\bI (?:prefer|work|am|told|mentioned|said)\b|\b(?:another|other) agent\b|تذكر|تذكّر|أفضل أن|افضل ان|ناقشنا|محادثتنا", re.I)
+_MEMORY_DISCUSS = re.compile(r"\bremember\b|\bmy preference|\bour conversation|\bwe discuss(?:ed)?\b|\bI (?:prefer|told|mentioned|said)\b|\b(?:another|other) agent\b|تذكر|تذكّر|أفضل أن|افضل ان|ناقشنا|محادثتنا", re.I)
+_SELF_DESCRIPTION = re.compile(r"\bI (?:am|work)\b|أنا أعمل|انا اعمل|أعمل في|اعمل في", re.I)
+_QUESTION_INTENT = re.compile(r"\b(?:what|which|how|why|when|where|compare|evaluate|assess|explain)\b|[?؟]|ما هي|ما الذي|كيف|قارن|قيّم", re.I)
 _EVIDENCE_QUERY = re.compile(
     r"\bevidence\b|\bresearch\b|\bstud(?:y|ies)\b|\bprogrammes?\b|\bprograms?\b|\bevaluat|"
     r"\bscholar|\bhistori|\bhistory\b|\babbasid\b|\bbooks?\b|\bauthors?\b|\binterpretation|"
@@ -66,17 +68,29 @@ _BACKGROUND_QUERY = re.compile(
     r"\b(?:background|older|historical|dated)\b|\bas of\b|\b(?:19|20)\d{2}\b|"
     r"خلفية|الخلفية|تاريخي|قديمة|القديم|المؤرخ|المؤرّخ", re.I)
 _CONTEXTUAL_FOLLOWUP = re.compile(
-    r"\b(?:its|their)\b|\b(?:this|that|these|those)\s+(?:evidence|findings?|conclusions?|results?|"
+    r"\b(?:this|that|these|those)\s+(?:evidence|findings?|conclusions?|results?|"
     r"stud(?:y|ies)|programmes?|programs?|trials?|pilots?|assessments?|reports?|interventions?)\b|"
     r"هذه (?:الأدلة|الادلة|الدراسة|النتائج|التجربة)|هذا (?:التقرير|التقييم|البرنامج)|آثارها|تكلفتها", re.I)
+_PRONOUN_FOLLOWUP = re.compile(r"\b(?:its|their)\b", re.I)
 _QUESTION_WORDS = set("""what which when where why how does did can could would should are was were has have
     the and for from with about into than that this these those their its them our your you they there
     please explain discuss describe compare summarize summarise evidence research scholarship analysis assessment finding findings
     result results implication implications limit limits limitation limitations report reports saved selected
     older historical dated background using based say says tell help understand show regarding respect
+    now today current currently latest fresh recent new updates updated update since
+    search lookup look refresh regenerate check investigate conduct perform create generate
     ما ماذا كيف متى أين اين لماذا هل الذي التي هذا هذه ذلك تلك عن على إلى الى من في مع بين
     اشرح شرح ناقش قارن لخص لخّص أدلة الادلة الأدلة تحليل التقييم تقرير التقرير المحفوظ
     خلفية الخلفية قديمة القديم المؤرخ المؤرخة النتائج وحدودها حدودها آثارها تكلفتها""".split())
+_TOPIC_FACETS = """programme programs trial trials pilot pilots study studies evaluation evaluations evaluated
+    funding funded cost costs employment unemployment effect effects impact impacts outcome outcomes finding findings
+    policy policies evidence research assessment analysis result results intervention interventions experiment experiments
+    change changed changes development developments compare comparison comparing difference differences benefit benefits
+    limitation limitations implication implications fiscal finance financial spending public service services
+    reading questions question framework lessons implementation design funding budget budgets summary brief briefing
+    preparing looking want interested issue issues detail details additional further publication published original
+    تكاليف تكلفة تكلفه تمويل توظيف آثار اثار أثر اثر نتائج برامج برنامج تجارب تجربة تجريبي تقييم
+    دراسة دراسات أدلة الادلة بحث أبحاث ابحاث سياسات سياسة تغير تغيرات تطورات آثارها تكلفتها"""
 _DOMAIN_TERMS = {
     "iran-news": ["iran", "iranian", "tehran", "hormuz", "irgc", "إيران", "ايران", "طهران", "هرمز", "إيراني", "ايراني"],
     "geopolitical-morning": ["geopolit", "global conflict", "global assessment", "world news", "international affairs", "جيوسياس", "جيو سياس", "الأخبار العالمية", "اخبار العالم", "التقييم العالمي"],
@@ -160,6 +174,9 @@ def needs_fresh_research(message: str, agent_id: str | None, has_report: bool) -
         return False
     if _MEMORY_DISCUSS.search(message) and not _EXPLICIT_RESEARCH.search(message):
         return False
+    if (_SELF_DESCRIPTION.search(message) and not _EXPLICIT_RESEARCH.search(message)
+            and not (_QUESTION_INTENT.search(message) and (_FRESH.search(message) or _EVIDENCE_QUERY.search(message)))):
+        return False
     if _SINCE.search(message):
         return True
     # "Summarize today's/latest report" discusses a saved snapshot; it does
@@ -197,17 +214,10 @@ def _report_covers_question(report: dict[str, Any] | None, message: str, agent_i
         return False
     # Explicit snapshot discussion and ordinary references to an earlier answer
     # can use a dated archive; they do not request another paid investigation.
-    if ((_REPORT_MENTION.search(message) and _DISCUSS_REPORT.search(message))
-            or _CONTEXTUAL_FOLLOWUP.search(message)):
+    if _REPORT_MENTION.search(message) and _DISCUSS_REPORT.search(message):
         return True
     value = report.get("result") or {}
     if not value.get("sources") or value.get("status") in {"no_evidence", "awaiting_input"}:
-        return False
-    cutoff = research._timestamp((report.get("research_window") or {}).get("end"))
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    age = (now - cutoff).total_seconds() if cutoff else None
-    if (age is None or age < -300 or age > 12 * 3600) and not _BACKGROUND_QUERY.search(message):
         return False
     domain = _concepts(" ".join(_DOMAIN_TERMS.get(agent_id, [])))
     requested = _concepts(message) - domain
@@ -219,7 +229,30 @@ def _report_covers_question(report: dict[str, Any] | None, message: str, agent_i
     observed = _concepts(" ".join(text))
     # Every specific concept must be represented. Broad words such as costs or
     # employment must not hide an absent named programme, country or year.
-    return requested.issubset(observed)
+    if not requested.issubset(observed):
+        return False
+    # A pronoun alone cannot turn a newly named country or programme into a
+    # reference to the old report. Check all specific concepts first.
+    if _CONTEXTUAL_FOLLOWUP.search(message) or _PRONOUN_FOLLOWUP.search(message):
+        return True
+    cutoff = research._timestamp((report.get("research_window") or {}).get("end"))
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    age = (now - cutoff).total_seconds() if cutoff else None
+    return bool(_BACKGROUND_QUERY.search(message) or age is not None and -300 <= age <= 12 * 3600)
+
+
+def _topic_fits_question(topic: str, message: str, agent_id: str) -> bool:
+    """Keep useful supplied scope, without overriding a new named subject.
+
+    Older clients send the report form's topic automatically. A question about
+    costs can use that scope; a question that introduces Finland cannot be
+    constrained to a previously displayed Canada topic merely because both
+    discuss costs and employment.
+    """
+    subjects = (_concepts(message) - _concepts(_TOPIC_FACETS)
+                - _concepts(" ".join(_DOMAIN_TERMS.get(agent_id, []))))
+    return subjects.issubset(_concepts(topic))
 
 
 def _previous(reports: ReportStore, owner_id: str, current: dict[str, Any]) -> dict[str, Any] | None:
@@ -296,12 +329,16 @@ def _make_plan(database: Store, reports: ReportStore, owner_id: str, conversatio
     if fresh:
         supplied_topic = body.topic.strip()
         default_topic = profile and supplied_topic in {profile["default_topic_en"], profile["default_topic_ar"]}
-        refers_to_snapshot = bool(_REPORT_MENTION.search(body.message) or _CONTEXTUAL_FOLLOWUP.search(body.message)
-                                 or _SINCE.search(body.message))
+        refers_to_snapshot = bool(_CONTEXTUAL_FOLLOWUP.search(body.message) or _PRONOUN_FOLLOWUP.search(body.message)
+            or _REPORT_MENTION.search(body.message) and (_DISCUSS_REPORT.search(body.message) or _SINCE.search(body.message)))
         # A newly named subject must not inherit an unrelated old report's
         # topic. The agent profile already supplies the domain instructions.
-        base = supplied_topic if supplied_topic and not default_topic else (
-            selected.get("topic", "") if selected and refers_to_snapshot else "")
+        candidates = ([supplied_topic] if supplied_topic and not default_topic else [])
+        if selected and selected.get("topic") and (refers_to_snapshot
+                or _topic_fits_question("", body.message, primary_agent)):
+            candidates.append(selected["topic"])
+        base = next((candidate for candidate in candidates
+            if _topic_fits_question(candidate, body.message, primary_agent)), "")
         topic = ((base[:5500] + "\nResearch question / سؤال البحث: " + body.message[:2400]).strip()
                  if base else body.message)
     return {"agent_ids": agents, "primary_agent_id": primary_agent, "report_ids": context_ids,
