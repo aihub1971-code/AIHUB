@@ -619,6 +619,13 @@ def test_full_pipeline_uses_native_evidence_publisher_timestamp_and_one_synthesi
     assert requests[0]["tools"][0]["external_web_access"] is True
     assert "filters" not in requests[0]["tools"][0]
     assert requests[1]["tools"] == [] and requests[1]["text"]["format"]["strict"] is True
+    synthesis = json.loads(requests[1]["input"][1]["content"])
+    assert synthesis["retrieval_provenance"] == {"application_web_search_requests": 1,
+        "application_web_search_calls": 1, "inspected_publisher_sources": 1, "metadata_only_sources": 0,
+        "analysis_stage": "synthesis_only_no_additional_retrieval"}
+    assert synthesis["window"]["start"] == WINDOW["start"]
+    assert synthesis["window_display"]["start"] == "20 Oct 2026, 04:00 (UTC+04)"
+    assert synthesis["sources"][0]["published_at_display"] == "20 Oct 2026, 14:00 (UTC+04)"
     assert result["schema_version"] == 2 and result["item_count"] == 1
     assert len(result["sections"]) == len(profile["sections"])
     assert result["items"][0]["url"] == URL and result["items"][0]["published_at"] == "2026-10-20T10:00:00+00:00"
@@ -778,7 +785,42 @@ def test_synthesis_context_is_bounded_before_call_and_untrusted_prior_report_is_
     assert research.runtime._json_bytes(payload) <= research.MAX_SYNTHESIS_INPUT_BYTES
     assert selected
     assert "never copy" not in json.dumps(payload)
+    assert json.loads(payload["input"][1]["content"])["retrieval_provenance"]["application_web_search_calls"] is None
     assert research._previous({**previous, "agent_id": "other"}, get_profile("iran-news")) is None
+
+
+@pytest.mark.parametrize("language,undated", [("en", "undated"), ("ar", "غير مؤرخ")])
+def test_synthesis_distinguishes_completed_retrieval_and_preserves_date_precision_in_dubai(language, undated):
+    source, _ = verify(page_record())
+    sources = [source,
+        {**source, "id": "dated-background", "published_at": "2018-05-15", "role": "background",
+            "publication_verification": {"verified": False, "value": "2018-05-15", "precision": "day"}},
+        {**source, "id": "undated-background", "published_at": None, "role": "background",
+            "publication_verification": {"verified": False, "method": "background_reference_no_verified_timestamp"}},
+        {**source, "id": "metadata-only", "publisher_text_verified": False,
+            "evidence_level": "newsdata_structured_metadata", "source_category": "provider_metadata"}]
+    window = research._window(WINDOW)
+    original_sources, original_window = deepcopy(sources), deepcopy(window)
+    payload, selected = research._synthesis_payload("gpt-6.1-sol", get_profile("iran-news"), "Iran", language,
+        window, sources, None, retrieval_stages=[("research", {"search_calls": 2}),
+                                                ("research", {"search_calls": 1})])
+    data = json.loads(payload["input"][1]["content"])
+    assert data["retrieval_provenance"] == {"application_web_search_requests": 2,
+        "application_web_search_calls": 3, "inspected_publisher_sources": 3, "metadata_only_sources": 1,
+        "analysis_stage": "synthesis_only_no_additional_retrieval"}
+    assert data["window_display"] == {"start": "20 Oct 2026, 04:00 (UTC+04)",
+        "end": "20 Oct 2026, 16:00 (UTC+04)", "timezone": "Asia/Dubai", "utc_offset": "+04:00"}
+    by_id = {value["id"]: value for value in data["sources"]}
+    assert by_id[source["id"]]["published_at"] == source["published_at"]
+    assert by_id[source["id"]]["published_at_display"] == "20 Oct 2026, 14:00 (UTC+04)"
+    assert by_id["dated-background"]["published_at_display"] == "2018-05-15"
+    assert by_id["undated-background"]["published_at_display"] == undated
+    instructions = payload["input"][0]["content"]
+    assert "blanket no-search or no-inspection disclaimer" in instructions
+    assert "server supplies the explicit no-fresh-development notice" in instructions
+    assert "For human-facing coverage times use window_display" in instructions
+    assert payload["tools"] == [] and payload["tool_choice"] == "none"
+    assert sources == original_sources and window == original_window and len(selected) == len(sources)
 
 
 def test_moodboard_requires_concrete_hex_palette_and_reference_citations():

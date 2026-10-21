@@ -642,7 +642,7 @@ test("saved report counts and provider limitations remain separate from the curr
   assert.doesNotMatch(ui.elements.get("report-content").textContent, /current access may have a 12-hour delay/);
   await ui.elements.get("tab-pack").click();
   const meta = ui.elements.get("report-meta");
-  assert.match(meta.textContent, /0 qualifying news items.*Target: up to 100 articles.*0 articles analyzed/);
+  assert.match(meta.textContent, /0 qualifying news items.*Target: up to 100 articles.*Sources included in analysis: 0/);
   assert.match(meta.textContent, /News snapshot used for this report.*latest available articles are outside/);
   assert.equal(ui.generations().length, 0);
 });

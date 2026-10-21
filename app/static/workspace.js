@@ -52,7 +52,7 @@
     loadingHistory:["جارٍ فتح الأرشيف…","Opening report history…"],savedVersion:["نسخة محفوظة","Saved snapshot"],latestVersion:["أحدث تقرير محفوظ","Latest saved report"],previousVersion:["التقرير الناجح السابق","Previous successful report"],
     viewLatest:["فتح أحدث تقرير","Open latest report"],reportLanguage:["لغة التقرير","Report language"],language_ar:["العربية","Arabic"],language_en:["الإنجليزية","English"],
     researchedAt:["وقت البحث","Research cutoff"],generatedAt:["وقت إنشاء التقرير","Generated"],reportIdentifier:["معرّف التقرير","Report ID"],coverage:["فترة التغطية","Coverage"],freshCount:["{n} خبرًا مستوفيًا للشروط","{n} qualifying news items"],
-    articleTarget:["الهدف: حتى {n} خبر","Target: up to {n} articles"],analyzedCount:["{n} خبرًا حُلّل في هذا التقرير","{n} articles analyzed in this report"],
+    articleTarget:["الهدف: حتى {n} خبر","Target: up to {n} articles"],analyzedCount:["المصادر التي شملها التحليل: {n}","Sources included in analysis: {n}"],
     reportFeedSnapshot:["وقت نسخة الأخبار المستخدمة في التقرير","News snapshot used for this report"],
     referenceNote:["مراجع تاريخية أو إبداعية؛ لا تُحسب أخبارًا حديثة.","Historical or creative references; not counted as fresh news."],
     queued:["بانتظار بدء البحث","Queued for research"],searching:["جارٍ البحث","Searching"],checking_sources:["التحقق من المصادر","Checking sources"],analyzing:["التحليل","Analyzing"],saving:["حفظ التقرير","Saving report"],preparing_pdf:["تجهيز PDF","Preparing PDF"],ready:["جاهز","Ready"],

@@ -82,8 +82,8 @@ def test_exactly_one_hundred_articles_and_sources_keep_links_counts_and_generati
     assert report["report_id"] in first_page
     assert "conflict_diplomacy" not in text
     if language == "en":
-        assert "Articles retrieved: 100 / 100" in first_page
-        assert "Articles included in analysis: 25" in first_page and "Generated" in first_page
+        assert "Fresh qualifying news items: 100 / 100" in first_page
+        assert "Sources analyzed: 25" in first_page and "Generated" in first_page
         assert "Conflict and diplomacy" in text and "Major consequences" in text
     assert reader.metadata.title == report["title"]
     assert len(reader.pages) == metadata["page_count"]
