@@ -23,6 +23,7 @@ class Server:
     def __init__(self, directory):
         self.directory, self.requests, self.jobs, self.reports, self.keys = directory, [], {}, {}, {}
         self.sessions, self.owner, self.lock, self.drop_duplicate = 0, None, threading.Lock(), False
+        self.config_changes = {}
 
     def __call__(self, request):
         with self.lock:
@@ -33,7 +34,7 @@ class Server:
         path, method = request.url.path, request.method
         cookie = request.headers.get("cookie", "")
         if path == "/health":
-            return httpx.Response(200, json={"status": "ok", "version": "2.0.0"})
+            return httpx.Response(200, json={"status": "ok", "version": "2.1.0"})
         if path == "/v1/public/bootstrap":
             assert request.headers["origin"] == BASE
             if cookie:
@@ -44,9 +45,12 @@ class Server:
                 self.owner = token
             return httpx.Response(200, json={}, headers={"Set-Cookie": f"{smoke.COOKIE}={token}; Secure; HttpOnly; Path=/; SameSite=strict"})
         if path == smoke.PREFIX + "/config":
-            return httpx.Response(200, json={"agents": [{key: profile[key] for key in
-                ("id", "enabled", "default_topic_ar", "default_topic_en")} for profile in list_profiles()],
-                "coverage_hours": 12, "maximum_news_items": 20})
+            agents = [{**{key: profile[key] for key in
+                ("id", "enabled", "default_topic_ar", "default_topic_en", "retrieval_options")},
+                "news_feed_enabled": True} for profile in list_profiles()]
+            return httpx.Response(200, json={"agents": agents, "agent_count": 7,
+                "coverage_hours": 12, "maximum_news_items": 50, "maximum_newsdata_articles_per_refresh": 50,
+                "refresh_mode": "manual", "display_timezone": "Asia/Dubai", **self.config_changes})
         if path == "/v1/usage":
             assert "authorization" not in request.headers
             return httpx.Response(401)
@@ -128,14 +132,38 @@ def test_live_runner_persists_keys_before_post_then_verifies_saved_with_gets_onl
     assert all(set(json.loads(line)) <= {"agent", "job", "report", "status", "count", "pages", "timing"} for line in output.splitlines())
 
 
-def test_basic_is_get_only_and_all_primary_submits_only_eight_same_session_jobs(runner):
+def test_basic_is_get_only_and_all_primary_submits_only_seven_same_session_jobs(runner):
     run, server, _ = runner
     assert run() == 0
     assert all(request.method == "GET" for request in server.requests)
     assert run("--live", "--all-primary") == 0
     posts = [request for request in server.requests if request.method == "POST"]
-    assert len(posts) == 16 and len(server.jobs) == 8
+    assert len(posts) == 14 and len(server.jobs) == 7
+    assert {value["job"]["agent_id"] for value in server.jobs.values()} == smoke.EXPECTED_AGENT_IDS
     assert len({request.headers["cookie"] for request in posts}) == 1
+
+
+@pytest.mark.parametrize("changes", [
+    {"agent_count": 9}, {"maximum_news_items": 20}, {"maximum_newsdata_articles_per_refresh": 100},
+    {"refresh_mode": "automatic"}, {"display_timezone": "UTC"},
+])
+def test_invalid_configuration_blocks_live_mode_before_any_paid_post(runner, capsys, changes):
+    run, server, _ = runner
+    server.config_changes = changes
+    assert run("--live", "--all-primary") == 1
+    assert all(request.method == "GET" for request in server.requests)
+    assert "invalid_workspace_configuration" in capsys.readouterr().out
+
+
+def test_both_retrieval_options_are_required_before_paid_submissions(runner, capsys):
+    run, server, _ = runner
+    agents = [{**{key: profile[key] for key in ("id", "enabled", "default_topic_ar", "default_topic_en")},
+        "news_feed_enabled": True, "retrieval_options": ["newsdata", "web_search"]} for profile in list_profiles()]
+    agents[-1]["retrieval_options"] = ["web_search"]
+    server.config_changes = {"agents": agents}
+    assert run("--live", "--all-primary") == 1
+    assert all(request.method == "GET" for request in server.requests)
+    assert "invalid_workspace_configuration" in capsys.readouterr().out
 
 
 def test_network_failure_after_first_post_keeps_job_available_for_get_only_recovery(runner, capsys):
@@ -174,7 +202,7 @@ def test_report_validation_rejects_invalid_source_and_window_claims(invalid):
     job = {"job_id": "job_" + "a" * 32, "report_id": "rpt_" + "b" * 32, "agent_id": AGENT, "language": "en"}
     record = Server.record(job)
     if invalid == "too_many":
-        record["result"]["items"] *= 21
+        record["result"]["items"] *= 51
     elif invalid == "outside_window":
         record["result"]["items"][0]["published_at"] = "2026-10-19T12:00:00Z"
     elif invalid == "unverified":
@@ -183,3 +211,32 @@ def test_report_validation_rejects_invalid_source_and_window_claims(invalid):
         record["result"]["sources"][0]["url"] = "http://publisher.fixture.test/synthetic"
     with pytest.raises(smoke.CheckError):
         smoke.validate_report(record, {**job, "research_window": deepcopy(WINDOW)})
+
+
+def test_report_validation_accepts_labelled_newsdata_metadata_without_claiming_publisher_verification():
+    job = {"job_id": "job_" + "a" * 32, "report_id": "rpt_" + "b" * 32, "agent_id": AGENT, "language": "en"}
+    record = Server.record(job)
+    source = record["result"]["sources"][0]
+    source.update(publisher_text_verified=False, evidence_level="newsdata_structured_metadata",
+        publication_verification={"verified": False, "method": "newsdata_pubDate_pubDateTZ",
+            "provider_metadata_validated": True, "timestamp": source["published_at"], "timezone": "UTC"})
+    entry = {**job, "research_window": deepcopy(WINDOW)}
+    assert smoke.validate_report(record, entry) == (1, 1)
+    source["publication_verification"]["provider_metadata_validated"] = False
+    with pytest.raises(smoke.CheckError):
+        smoke.validate_report(record, entry)
+
+
+def test_report_validation_accepts_up_to_fifty_distinct_current_articles():
+    job = {"job_id": "job_" + "a" * 32, "report_id": "rpt_" + "b" * 32, "agent_id": AGENT, "language": "en"}
+    record = Server.record(job)
+    result = record["result"]
+    template = deepcopy(result["sources"][0])
+    result.update(items=[], sources=[], citation_mappings={})
+    for number in range(50):
+        source = {**deepcopy(template), "id": f"source_{number}", "url": template["url"] + f"/{number}"}
+        result["sources"].append(source)
+        result["items"].append({"id": f"item_{number}", "headline": f"Synthetic distinct article {number}",
+            "published_at": source["published_at"], "url": source["url"], "source_ids": [source["id"]]})
+        result["citation_mappings"][source["id"]] = {"url": source["url"], "published_at": source["published_at"]}
+    assert smoke.validate_report(record, {**job, "research_window": deepcopy(WINDOW)}) == (50, 1)

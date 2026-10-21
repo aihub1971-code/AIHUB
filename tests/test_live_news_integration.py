@@ -15,11 +15,11 @@ from tests.test_workspace import PREFIX, complete, submit, workspace
 from tests.test_report_jobs import reports
 
 
-def test_workspace_exposes_all_seven_topic_feeds_and_the_100_item_target(workspace):
+def test_workspace_exposes_all_seven_topic_feeds_and_the_fifty_item_limit(workspace):
     config = workspace["client"].get(PREFIX + "/config").json()
-    assert config["agent_count"] == 9
+    assert config["agent_count"] == 7
     assert set(config["news_enabled_agents"]) == set(news_feed.QUERIES)
-    assert config["maximum_news_items"] == 100
+    assert config["maximum_news_items"] == 50
     assert config["news_refresh_interval_seconds"] == 900
     assert all(p["news_feed_enabled"] == (p["id"] in news_feed.QUERIES) for p in config["agents"])
 
@@ -71,7 +71,8 @@ def test_news_routes_validate_language_and_support_without_provider_access(works
     client = workspace["client"]
     assert client.get(PREFIX + "/agents/iran-news/news?language=xx").status_code == 422
     assert client.post(PREFIX + "/agents/iran-news/news/refresh", json={"language": "xx"}).status_code == 422
-    assert client.get(PREFIX + "/agents/historical-reading-companion/news").status_code == 404
+    assert client.get(PREFIX + "/agents/historical-reading-companion/news").status_code == 200
+    assert client.get(PREFIX + "/agents/story-moodboard/news").status_code == 404
 
 
 def test_dashboard_page_credit_blocks_an_over_budget_legacy_request(workspace):
@@ -90,17 +91,17 @@ def test_dashboard_page_credit_blocks_an_over_budget_legacy_request(workspace):
     assert usage["daily"]["attempts"] == 0
 
 
-def test_public_projection_keeps_100_articles_and_provider_metadata_without_internal_diagnostics():
+def test_public_projection_keeps_fifty_articles_and_provider_metadata_without_internal_diagnostics():
     value = {"items": [{"id": str(i), "headline": f"Fixture {i}", "published_at": NOW.isoformat(),
-                        "url": f"https://fixture.example/{i}", "private": "private-sentinel"} for i in range(100)],
-        "sources": [], "actual_article_count": 100, "analyzed_article_count": 100, "requested_article_target": 100,
-        "news_feed": {"status": "cached", "pagination": {"requests": 10, "raw_count": 100, "accepted_count": 100},
+                        "url": f"https://fixture.example/{i}", "private": "private-sentinel"} for i in range(50)],
+        "sources": [], "actual_article_count": 50, "analyzed_article_count": 50, "requested_article_target": 50,
+        "news_feed": {"status": "cached", "pagination": {"requests": 5, "raw_count": 50, "accepted_count": 50},
                       "provider_plan": {"configured_plan": "unknown", "plan_verified": False, "api_key": "private-sentinel"},
                       "private": "private-sentinel"}, "freshness": {"coverage_complete": False}}
     result = api.result_view(value)
-    assert len(result["items"]) == 100
-    assert result["actual_article_count"] == result["analyzed_article_count"] == 100
-    assert result["news_feed"]["pagination"]["raw_count"] == 100
+    assert len(result["items"]) == 50
+    assert result["actual_article_count"] == result["analyzed_article_count"] == 50
+    assert result["news_feed"]["pagination"]["raw_count"] == 50
     assert "private-sentinel" not in json.dumps(result)
 
 

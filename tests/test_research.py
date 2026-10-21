@@ -16,13 +16,23 @@ from fastapi import HTTPException
 from jsonschema import Draft202012Validator
 
 from app import research
-from app.agent_profiles import get_profile
+from app.agent_profiles import get_profile as active_profile, _PROFILES
 
 
 WINDOW = {"start": "2026-10-20T00:00:00+00:00", "end": "2026-10-20T12:00:00+00:00", "timezone": "UTC"}
 URL = "https://publisher.example/news/synthetic-iran-talks"
 TITLE = "Iran and US announce a new round of nuclear diplomacy"
 DOWNLOAD_PAGE = research._download_page
+
+
+def get_profile(agent_id):
+    # Archived report validators remain covered, but retired agents cannot run.
+    if agent_id != "story-moodboard":
+        return active_profile(agent_id)
+    profile = deepcopy(_PROFILES[agent_id])
+    profile.update(id=agent_id, name="Archived Story Moodboard", name_ar="أرشيف اللوحة", enabled=False)
+    profile["sections"] = [{"id": part[0], "title_en": part[1], "title_ar": part[2]} for part in profile["sections"]]
+    return profile
 
 
 @pytest.fixture(autouse=True)
@@ -929,23 +939,8 @@ def test_report_rejection_logs_only_whitelisted_reason_and_agent(malformed, capl
     assert private not in caplog.text and "DO_NOT_LOG" not in json.dumps(error.value.detail)
 
 
-def test_reference_empty_moodboard_still_produces_explicit_original_creative_pack(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-not-a-real-key")
-    requests = []
-    def handler(request):
-        payload = json.loads(request.content)
-        requests.append(payload)
-        if payload["tools"]:
-            return httpx.Response(200, json=provider_response("No factual inspiration reference was returned.", native=[native_call(sources=[])]))
-        pack = structured_pack(get_profile("story-moodboard"), [], items=False)
-        for section in pack["sections"]:
-            section["body"] = "Original creative interpretation: an imagined archivist follows a tide of memories."
-        return httpx.Response(200, json=provider_response(json.dumps(pack)))
-    install_transport(monkeypatch, handler)
-    result = research.generate_report("story-moodboard", language="en", research_window=WINDOW)
-    assert len(requests) == 2 and result["status"] == "complete"
-    assert result["sources"] == result["items"] == []
-    assert result["factual_basis"] == "creative_original"
-    assert all(section["attribution"] == "original_creative" for section in result["sections"])
-    assert len(result["visuals"]["palette"]) == 3
-    assert any("no factual inspiration references" in item.lower() for item in result["limitations"])
+@pytest.mark.parametrize("agent_id", ["story-moodboard", "decision-briefing"])
+def test_removed_agents_cannot_create_new_research(agent_id):
+    with pytest.raises(HTTPException) as error:
+        research.generate_report(agent_id, language="en", research_window=WINDOW)
+    assert error.value.status_code == 404

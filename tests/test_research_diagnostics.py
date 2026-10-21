@@ -286,12 +286,12 @@ def test_schema_limit_diagnostics_survive_internal_sanitization_only():
     assert not set(diagnostics) & set(public_error("openai_request_rejected", "job_fixture", "analyzing", diagnostics)) - {"stage"}
 
 
-@pytest.mark.parametrize("agent", ["historical-reading-companion", "story-moodboard"])
+@pytest.mark.parametrize("agent", ["historical-reading-companion", "uae-eu-trade-talks"])
 @pytest.mark.parametrize("source_count", [0, 1, 40])
 def test_native_profile_schemas_obey_strict_contract_with_full_source_bound(agent, source_count):
     sources = [{"id": f"src_{index:016x}", "title": (f"Synthetic title {index} " + "a" * 499)[:499],
         "excerpt": (f"Synthetic excerpt {index} " + "b" * 392)[:392],
-        "role": "reference" if agent == "story-moodboard" else "background"}
+        "role": "background"}
         for index in range(source_count)]
     schema = research._schema(get_profile(agent), sources)
     Draft202012Validator.check_schema(schema)

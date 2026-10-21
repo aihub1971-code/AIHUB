@@ -141,7 +141,7 @@ function item(overrides = {}) {
 function report(overrides = {}) {
   return {
     agent_id: "iran-news", report_id: "rpt_ui_fixture", items: [item()], background_items: [],
-    item_count: 1, target_count: null, shortfall: null, bounded_item_limit: 20,
+    item_count: 1, target_count: null, shortfall: null, bounded_item_limit: 50,
     generated_at: "2026-10-20T08:00:00+04:00",
     coverage_window: {start: "2026-10-20T00:00:00+04:00", end: "2026-10-20T23:59:59+04:00"},
     response: "## التقرير الأصلي\n\n[المصدر](https://www.aljazeera.net/news/2026/10/20/example-article)",
@@ -330,10 +330,10 @@ test("untrusted news text stays text and unsafe URLs never become clickable", ()
 
 test("large explicit requests keep their target and show the shortfall under the shared ceiling", () => {
   const ui = harness();
-  ui.displayResult(report({items: Array.from({length: 24}, (_, n) => item({headline: "خبر " + n})), background_items: [item()], target_count: 27, item_count: 24}));
+  ui.displayResult(report({items: Array.from({length: 54}, (_, n) => item({headline: "خبر " + n})), background_items: [item()], target_count: 57, item_count: 54}));
   const body = ui.elements.get("responseBody");
-  assert.equal(byClass(body, "news-item").length, 20);
-  assert.equal(byClass(body, "news-count")[0].textContent, "عدد الأخبار: 20 من 27 المطلوبة");
+  assert.equal(byClass(body, "news-item").length, 50);
+  assert.equal(byClass(body, "news-count")[0].textContent, "عدد الأخبار: 50 من 57 المطلوبة");
   assert.match(byClass(body, "news-coverage-note")[0].textContent, /7 خبرًا/);
   assert.equal(byClass(body, "news-background").length, 0);
 });
@@ -378,7 +378,7 @@ function dashboardFixture(url, respond) {
   assert.fail("Unexpected fixture request: "+url);
 }
 
-test("English translates every static chrome label and all 9 active assistants, with only language persisted", () => {
+test("English translates every static chrome label and all 7 active agents, with only language persisted", () => {
   const ui=harness(null,{language:"en"});
   assert.equal(ui.I18n.getLanguage(),"en");
   assert.equal(ui.document.documentElement.lang,"en");
@@ -391,7 +391,7 @@ test("English translates every static chrome label and all 9 active assistants, 
       if(attribute!=="data-i18n")assert.equal(element.getAttribute(attribute.slice(10)),ui.I18n.t(key));
     }
   }
-  assert.equal(fixtureAgents.length,9);
+  assert.equal(fixtureAgents.length,7);
   ui.setAgents(fixtureAgents);
   for(const agent of fixtureAgents){
     assert.ok(ui.I18n.has("agent."+agent.id+".name"));
@@ -430,7 +430,7 @@ test("switching UI language preserves an open Arabic report, its attachment iden
   await ui.elements.get("languageAR").click();
   assert.equal(byClass(body,"news-count")[0].textContent,"عدد الأخبار: 1");
   assert.equal(ui.requests.length,requestCount);
-  assert.equal(ui.chatCalls.language,2);
+  assert.equal(ui.chatCalls.language,0);
 });
 
 test("an incomplete follow-up and separate event dates are visible and localized", () => {
@@ -447,50 +447,52 @@ test("an incomplete follow-up and separate event dates are visible and localized
   assert.equal(body.dir,"ltr");
 });
 
-test("scripts initialize in order without chat requests before authentication; logout clears private state", async () => {
+test("maintenance console links the owner workspaces without a separate chat destination and logout clears private state", async () => {
   const sources=[...html.matchAll(/<script src="([^"]+)"/g)].map(match=>match[1]);
-  assert.deepEqual(sources,["/static/i18n.js?v=2.0.3","/static/chat.js?v=1.5.1","/static/app.js?v=2.0.4"]);
+  assert.deepEqual(sources,["/static/i18n.js?v=2.1.0","/static/app.js?v=2.1.0"]);
   const ui=harness(null,{language:"en",fetch:(url,_options,respond)=>dashboardFixture(url,respond)});
-  assert.equal(ui.chatCalls.create,1);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
-  assert.equal(ui.chatConfig.getCurrentReport(),null);
+  assert.equal(ui.chatCalls.create,0);assert.equal(ui.chatCalls.login,0);assert.equal(ui.requests.length,0);
+  assert.equal(ui.getCurrentReport(),null);
   ui.elements.get("username").value="fixture-user";ui.elements.get("password").value="fixture-password";
   await ui.login();
-  assert.equal(ui.chatCalls.login,1);
+  assert.equal(ui.chatCalls.login,0);
   assert.equal(ui.elements.get("password").value,"");
   assert.equal(ui.elements.get("workspaceTabs").classList.contains("hidden"),false);
   assert.equal(ui.elements.get("selectedName").textContent,"Global Geopolitical Briefing");
   assert.match(ui.elements.get("schedulerNotice").textContent,/scheduler is running/);
   ui.displayResult(report({language:"ar"}));ui.showWorkspace("chat");
-  assert.equal(ui.chatConfig.getCurrentReport().id,"rpt_ui_fixture");
-  assert.equal(ui.elements.get("chatView").classList.contains("hidden"),false);
+  assert.equal(ui.getCurrentReport().id,"rpt_ui_fixture");
+  assert.equal(ui.elements.get("chatView"),undefined);
+  assert.match(html,/href="\/admin\/agents"/);
+  assert.doesNotMatch(html,/id="chatTab"/);
   ui.elements.get("task").value="private draft";ui.elements.get("scheduleTask").value="private schedule";
   ui.logout();
-  assert.equal(ui.chatCalls.logout,1);assert.equal(ui.chatConfig.getCurrentReport(),null);
+  assert.equal(ui.chatCalls.logout,0);assert.equal(ui.getCurrentReport(),null);
   for(const id of ["responseBody","archiveList","scheduleList","selectedName","selectedDescription"])assert.equal(ui.elements.get(id).textContent,"");
   for(const id of ["username","password","task","scheduleTask"])assert.equal(ui.elements.get(id).value,"");
-  assert.equal(ui.elements.get("chatView").classList.contains("hidden"),true);
+  assert.equal(ui.elements.get("reportsView").classList.contains("hidden"),false);
   assert.equal(ui.elements.get("workspaceTabs").classList.contains("hidden"),true);
   assert.equal(ui.I18n.getLanguage(),"en");assert.deepEqual([...ui.storage],[['aihub.language','en']]);
   const count=ui.requests.length;
-  await assert.rejects(ui.chatConfig.request("/v1/chat/conversations"),error=>error.status===401);
+  await assert.rejects(ui.apiJson("/v1/chat/conversations"),error=>error.status===401);
   assert.equal(ui.requests.length,count);
   assert.equal(ui.context.window.authHeader,undefined);
 });
 
-test("the chat request closure prevents cross-origin auth, ignores auth overrides and rejects stale session responses", async () => {
+test("the maintenance request closure prevents cross-origin auth, ignores auth overrides and rejects stale session responses", async () => {
   let release;
   const ui=harness(null,{fetch:async(url,options,respond)=>{
     if(url==="/v1/chat/conversations/pending")return new Promise(resolve=>{release=()=>resolve(respond({messages:[{content:"private response"}]}));});
     return respond({conversations:[]});
   }});
   ui.setAuthenticated();
-  await assert.rejects(ui.chatConfig.request("https://unapproved.test/v1/chat/conversations"),error=>error.status===400);
+  await assert.rejects(ui.apiJson("https://unapproved.test/v1/chat/conversations"),error=>error.status===400);
   assert.equal(ui.requests.length,0);
-  await ui.chatConfig.request("/v1/chat/conversations","POST",{title:"Fixture"},{Authorization:"unsafe override","Idempotency-Key":"fixture-key"});
+  await ui.apiJson("/v1/chat/conversations","POST",{title:"Fixture"},{Authorization:"unsafe override","Idempotency-Key":"fixture-key"});
   assert.equal(ui.requests[0].options.headers.Authorization,"Basic fixture");
   assert.equal(ui.requests[0].options.headers["Idempotency-Key"],"fixture-key");
   assert.equal(ui.requests[0].url,"/v1/chat/conversations");
-  const pending=ui.chatConfig.request("/v1/chat/conversations/pending");
+  const pending=ui.apiJson("/v1/chat/conversations/pending");
   const signal=ui.requests.at(-1).options.signal;
   ui.logout();assert.equal(signal.aborted,true);release();
   await assert.rejects(pending,error=>error.code==="session_ended");
@@ -589,21 +591,21 @@ test("NewsData Arabic translation failures retain English and unsafe links never
   assert.equal(ui.requests.length,0);
 });
 
-test("NewsData keeps only the first 20 results even for a legacy larger provider page", () => {
+test("NewsData keeps only the first 50 results even for a legacy larger provider page", () => {
   const ui=harness(null,{language:"en"}),data=newsdataReport({freshness:{plan:"paid"}});
-  data.items=Array.from({length:25},(_,i)=>({...data.items[0],article_id:"fixture-"+i,headline_en:"Article "+i}));
-  data.item_count=25;data.pagination.page_size=25;ui.displayResult(data);
-  assert.equal(byClass(ui.elements.get("responseBody"),"news-item").length,20);
-  assert.match(byClass(ui.elements.get("responseBody"),"news-count")[0].textContent,/20 articles/);
+  data.items=Array.from({length:55},(_,i)=>({...data.items[0],article_id:"fixture-"+i,headline_en:"Article "+i}));
+  data.item_count=55;data.pagination.page_size=55;ui.displayResult(data);
+  assert.equal(byClass(ui.elements.get("responseBody"),"news-item").length,50);
+  assert.match(byClass(ui.elements.get("responseBody"),"news-count")[0].textContent,/50 articles/);
   assert.equal(byClass(ui.elements.get("responseBody"),"news-page-next")[0].disabled,true);
-  assert.match(ui.elements.get("responseBody").textContent,/first 20 results/);
+  assert.match(ui.elements.get("responseBody").textContent,/first 50 results/);
   assert.doesNotMatch(ui.elements.get("responseBody").textContent,/12-hour|of 6/);
 });
 
 test("the result limit blocks stale Next links and stays active after changing language", async () => {
   const ui=harness(null,{language:"en"});ui.setAuthenticated();ui.chooseAgent("iran-news");
-  const data=newsdataReport({pagination:{has_more:true,page_index:2,page_size:10,results_before_page:10,
-    results_consumed:20,result_limit:20,limit_reached:true,parent_report_id:"rpt_parent",next_report_id:"rpt_stale_third"}});
+  const data=newsdataReport({pagination:{has_more:true,page_index:5,page_size:10,results_before_page:40,
+    results_consumed:50,result_limit:50,limit_reached:true,parent_report_id:"rpt_parent",next_report_id:"rpt_stale_third"}});
   ui.displayResult(data);let body=ui.elements.get("responseBody");
   assert.equal(byClass(body,"news-page-next")[0].disabled,true);
   await byClass(body,"news-page-next")[0].click();
@@ -611,7 +613,7 @@ test("the result limit blocks stale Next links and stays active after changing l
   ui.I18n.setLanguage("ar");
   assert.equal(byClass(body,"news-page-next")[0].disabled,true);
   assert.equal(byClass(body,"news-page-previous")[0].disabled,false);
-  assert.match(body.textContent,/أول 20 نتيجة/);
+  assert.match(body.textContent,/50 نتيجة/);
 });
 
 test("Next and Previous show saved report pages and preserve the original request language", async () => {

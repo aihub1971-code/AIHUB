@@ -12,6 +12,7 @@ PERMISSIONS_PATH = PROJECT_ROOT / "config" / "permissions.json"
 # assistant, a profile, a skill, or any capability in the active registry.
 RETIRED_AGENT_IDS = frozenset({
     "mom-agent", "whatsapp-briefing", "literary-translation", "pre-meeting-briefing",
+    "story-moodboard", "decision-briefing",
 })
 
 def _load_json(path: Path) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "default_policy": "deny",
-  "note": "Deny by default. Seven news briefings use the shared NewsData feed with a 12-hour filter, up to 100 unique relevant articles, and provider-credit accounting; their analysis is tool-free and cost-reserved. Historical and creative research retain bounded OpenAI web_search with quota and cost reservation. Retired assistants have no active capabilities. External actions are denied.",
+  "note": "Deny by default. Every active agent may use NewsData and bounded OpenAI web search. Each intentional NewsData refresh fetches at most 50 raw records before deduplication and a strict 12-hour news filter. Web fallback and report research reserve application budget before calls. Retired agents have no active capabilities. External actions are denied.",
   "agents": {
     "ubi-research": {
       "actions": [
@@ -10,8 +10,8 @@
         "submit_task"
       ],
       "tools": [
-        "web_search",
-        "newsdata"
+        "newsdata",
+        "web_search"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
@@ -25,8 +25,8 @@
         "submit_task"
       ],
       "tools": [
-        "web_search",
-        "newsdata"
+        "newsdata",
+        "web_search"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
@@ -40,8 +40,8 @@
         "submit_task"
       ],
       "tools": [
-        "web_search",
-        "newsdata"
+        "newsdata",
+        "web_search"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
@@ -55,8 +55,8 @@
         "submit_task"
       ],
       "tools": [
-        "web_search",
-        "newsdata"
+        "newsdata",
+        "web_search"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
@@ -70,8 +70,8 @@
         "submit_task"
       ],
       "tools": [
-        "web_search",
-        "newsdata"
+        "newsdata",
+        "web_search"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
@@ -85,25 +85,12 @@
         "submit_task"
       ],
       "tools": [
+        "newsdata",
         "web_search"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
         "historical-reading-companion"
-      ]
-    },
-    "story-moodboard": {
-      "actions": [
-        "inspect",
-        "read_skill",
-        "submit_task"
-      ],
-      "tools": [
-        "web_search"
-      ],
-      "external_actions": [],
-      "allowed_skill_ids": [
-        "story-moodboard"
       ]
     },
     "economic-cultural-briefing": {
@@ -113,28 +100,14 @@
         "submit_task"
       ],
       "tools": [
-        "web_search",
-        "newsdata"
+        "newsdata",
+        "web_search"
       ],
       "external_actions": [],
       "allowed_skill_ids": [
         "economic-cultural-briefing"
       ]
-    },
-    "decision-briefing": {
-      "actions": [
-        "inspect",
-        "read_skill",
-        "submit_task"
-      ],
-      "tools": [
-        "web_search",
-        "newsdata"
-      ],
-      "external_actions": [],
-      "allowed_skill_ids": [
-        "decision-briefing"
-      ]
     }
-  }
+  },
+  "description": "Seven active agents can use NewsData and bounded OpenAI web search on explicit user requests. Retired agents have no active capabilities. External actions remain denied."
 }

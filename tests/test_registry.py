@@ -7,17 +7,16 @@ from app.registry import AGENTS_PATH, RETIRED_AGENT_IDS, get_agents, get_agent, 
 
 ACTIVE_AGENT_IDS = [
     "ubi-research", "iran-news", "uae-eu-trade-talks", "geopolitical-morning",
-    "education-observatory", "historical-reading-companion", "story-moodboard",
-    "economic-cultural-briefing", "decision-briefing",
+    "education-observatory", "historical-reading-companion", "economic-cultural-briefing",
 ]
 
 
-def test_registry_has_nine_active_agents_in_original_order():
+def test_registry_has_seven_active_agents_in_original_order():
     agents = get_agents()
     assert [agent["id"] for agent in agents] == ACTIVE_AGENT_IDS
-    assert [agent["number"] for agent in agents] == [f"{number:02}" for number in range(1, 10)]
+    assert [agent["number"] for agent in agents] == [f"{number:02}" for number in range(1, 8)]
     assert all(agent["enabled"] is True for agent in agents)
-    assert json.loads(AGENTS_PATH.read_text(encoding="utf-8"))["agent_count"] == len(agents) == 9
+    assert json.loads(AGENTS_PATH.read_text(encoding="utf-8"))["agent_count"] == len(agents) == 7
 
 
 @pytest.mark.parametrize(("agent_id", "skill_id"), [
@@ -26,6 +25,8 @@ def test_registry_has_nine_active_agents_in_original_order():
     ("whatsapp-briefing", "whatsapp-briefing"),
     ("literary-translation", "literary-translation"),
     ("pre-meeting-briefing", "pre-meeting-briefing"),
+    ("story-moodboard", "story-moodboard"),
+    ("decision-briefing", "decision-briefing"),
 ])
 def test_retired_assistants_are_unregistered_and_their_skills_unavailable(agent_id, skill_id):
     assert get_agent(agent_id) is None
@@ -35,6 +36,7 @@ def test_retired_assistants_are_unregistered_and_their_skills_unavailable(agent_
 def test_archive_identities_do_not_reenable_retired_assistants():
     assert RETIRED_AGENT_IDS == {
         "mom-agent", "whatsapp-briefing", "literary-translation", "pre-meeting-briefing",
+        "story-moodboard", "decision-briefing",
     }
     assert RETIRED_AGENT_IDS.isdisjoint(agent["id"] for agent in get_agents())
 

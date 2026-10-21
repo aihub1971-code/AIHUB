@@ -39,6 +39,9 @@ import httpx
 
 PREFIX = "/v1/public/workspace"
 COOKIE = "aihub_public_session"
+EXPECTED_AGENT_IDS = {"iran-news", "geopolitical-morning", "ubi-research", "uae-eu-trade-talks",
+    "education-observatory", "economic-cultural-briefing", "historical-reading-companion"}
+MAX_NEWS_ITEMS = 50
 MAX_JSON_BYTES, MAX_PDF_BYTES = 5_000_000, 50_000_000
 ID = re.compile(r"^(?:job|rpt)_[a-f0-9]{32}$")
 PRIVATE = {"api_key", "owner_id", "usage", "usage_stages", "accounting", "model", "pricing_snapshot",
@@ -140,7 +143,8 @@ def validate_report(record: dict, entry: dict) -> tuple[int, int | None]:
             "research_window_changed")
     require(timestamp(record.get("research_cutoff")) == end, "report_cutoff_changed")
     items, sources = result.get("items"), result.get("sources")
-    require(isinstance(items, list) and len(items) <= 20 and isinstance(sources, list), "invalid_item_or_source_count")
+    require(isinstance(items, list) and len(items) <= MAX_NEWS_ITEMS and isinstance(sources, list)
+            and len(sources) <= 100, "invalid_item_or_source_count")
     source_map = {}
     for source in sources:
         require(isinstance(source, dict) and isinstance(source.get("id"), str) and source["id"] not in source_map, "duplicate_source_id")
@@ -150,8 +154,13 @@ def validate_report(record: dict, entry: dict) -> tuple[int, int | None]:
             published = timestamp(source.get("published_at"))
             require(start <= published <= end, "source_outside_window")
             proof = source.get("publication_verification")
-            require(isinstance(proof, dict) and proof.get("verified") is True and str(proof.get("method", "")).startswith("publisher_"),
-                    "missing_publisher_publication_proof")
+            publisher_proof = (isinstance(proof, dict) and proof.get("verified") is True
+                and str(proof.get("method", "")).startswith("publisher_"))
+            provider_metadata = (isinstance(proof, dict) and proof.get("method") == "newsdata_pubDate_pubDateTZ"
+                and proof.get("provider_metadata_validated") is True and proof.get("verified") is False
+                and source.get("publisher_text_verified") is False
+                and source.get("evidence_level") == "newsdata_structured_metadata")
+            require(publisher_proof or provider_metadata, "missing_publication_evidence")
             require(timestamp(proof.get("value") or proof.get("timestamp") or proof.get("published_at")) == published,
                     "publication_proof_mismatch")
     urls, headlines = set(), set()
@@ -257,8 +266,16 @@ class Validator:
             self.save_state()
             config = self.json(client, PREFIX + "/config")
             self.agents = config.get("agents", [])
-            require(isinstance(self.agents, list) and len(self.agents) >= 8 and config.get("coverage_hours") == 12
-                    and config.get("maximum_news_items") == 20, "invalid_workspace_configuration")
+            require(isinstance(self.agents, list) and len(self.agents) == len(EXPECTED_AGENT_IDS)
+                    and all(isinstance(agent, dict) and agent.get("enabled") is True
+                        and agent.get("retrieval_options") == ["newsdata", "web_search"]
+                        and agent.get("news_feed_enabled") is True for agent in self.agents)
+                    and {agent.get("id") for agent in self.agents} == EXPECTED_AGENT_IDS
+                    and config.get("agent_count") == len(EXPECTED_AGENT_IDS)
+                    and config.get("coverage_hours") == 12 and config.get("maximum_news_items") == MAX_NEWS_ITEMS
+                    and config.get("maximum_newsdata_articles_per_refresh") == MAX_NEWS_ITEMS
+                    and config.get("refresh_mode") == "manual" and config.get("display_timezone") == "Asia/Dubai",
+                    "invalid_workspace_configuration")
             require(client.get("/v1/usage").status_code == 401, "unauthenticated_admin_not_rejected")
             write_private(self.directory / "public_config.json", encoded(config))
         existing = next((entry for entry in self.state["runs"].values() if entry.get("report_id")), None)
@@ -276,7 +293,7 @@ class Validator:
 
     def selected(self) -> list[dict]:
         if self.args.all_primary:
-            selected = self.agents[:8]
+            selected = list(self.agents)
         elif self.args.agent:
             by_id = {agent["id"]: agent for agent in self.agents}
             require(all(identifier in by_id for identifier in self.args.agent), "unknown_agent_selection")
@@ -406,8 +423,8 @@ def main(argv=None, *, transport=None) -> int:
     mode.add_argument("--live", action="store_true", help="Explicitly authorize potentially billable report submissions.")
     mode.add_argument("--verify-saved", action="store_true", help="GET-only verification of this directory's saved jobs/reports/PDFs.")
     selection = parser.add_mutually_exclusive_group()
-    selection.add_argument("--all-primary", action="store_true", help="Select the first eight configured assistants.")
-    selection.add_argument("--agent", action="append", help="Select an agent ID; repeat for multiple agents. Defaults to the first assistant.")
+    selection.add_argument("--all-primary", action="store_true", help="Select all seven configured active agents.")
+    selection.add_argument("--agent", action="append", help="Select an agent ID; repeat for multiple agents. Defaults to the first agent.")
     parser.add_argument("--language", choices=("ar", "en"), default="ar")
     parser.add_argument("--session-file", help="Private Mozilla cookie jar; defaults to OUTPUT/session.cookies.")
     parser.add_argument("--output-dir", default="./data/workspace-validation", help="Private artifact/state directory; reuse to resume the same batch.")

@@ -41,7 +41,7 @@ def snapshot(count=1, *, language="en", **overrides):
         "requested_research_window": WINDOW, "provider_plan": {"configured_plan": "unknown", "plan_verified": False},
         "freshness": {"window_start": WINDOW["start"], "window_end": WINDOW["end"], "snapshot_window": WINDOW,
             "coverage_complete": False, "publisher_text_verified": False},
-        "pagination": {"requests": 10 if count == 100 else 1, "stop_reason": "article_limit" if count == 100 else "provider_end"},
+        "pagination": {"requests": 5 if count == 50 else 1, "stop_reason": "article_limit" if count == 50 else "provider_end"},
         "excluded": {}, "limitation_codes": ["provider_metadata_only"], **overrides}
 
 
@@ -76,12 +76,12 @@ def mock_feed(monkeypatch, value):
     return calls
 
 
-def test_estimate_reserves_analysis_and_twenty_translation_batches_with_zero_search(configured):
+def test_estimate_reserves_analysis_and_ten_translation_batches_with_zero_search(configured):
     estimate = news_report.estimate_reservation("iran-news", language="ar", cutoff=NOW)
-    assert estimate["max_model_calls"] == 21
-    assert estimate["translation"]["max_model_calls"] == 20
+    assert estimate["max_model_calls"] == 11
+    assert estimate["translation"]["max_model_calls"] == 10
     assert estimate["max_web_search_calls"] == estimate["max_native_actions"] == estimate["max_publisher_pages"] == 0
-    assert estimate["max_feed_page_requests"] == 20
+    assert estimate["max_feed_page_requests"] == news_feed.MAX_PAGES
     assert estimate["newsdata_credit_accounting"] == "shared_feed_page_ledger"
     translation = estimate["translation"]
     expected = (Decimal(news_report.MAX_ANALYSIS_INPUT_BYTES + runtime.PROVIDER_INPUT_OVERHEAD_TOKENS) * Decimal("2.5")
@@ -90,8 +90,8 @@ def test_estimate_reserves_analysis_and_twenty_translation_batches_with_zero_sea
     assert estimate["research_window"] == WINDOW
 
 
-def test_positive_one_hundred_inventory_and_sources_survive_analysis(configured, monkeypatch):
-    value = snapshot(100)
+def test_positive_fifty_article_inventory_and_sources_survive_analysis(configured, monkeypatch):
+    value = snapshot(50)
     feed_calls = mock_feed(monkeypatch, value)
     model_calls = []
     def call(key, payload):
@@ -101,7 +101,7 @@ def test_positive_one_hundred_inventory_and_sources_survive_analysis(configured,
         data = json.loads(payload["input"][1]["content"][0]["text"])
         assert data["factual_basis"] == "newsdata_structured_metadata"
         assert data["publisher_text_verified"] is False
-        assert len(data["sources"]) == 100 and data["article_inventory_count"] == 100
+        assert len(data["sources"]) == 50 and data["article_inventory_count"] == 50
         assert value["sources"][0]["url"] not in json.dumps(payload)
         return model_response(analysis_response(get_profile("iran-news"), [item["id"] for item in data["sources"]]))
     monkeypatch.setattr(runtime, "_call_model", call)
@@ -109,9 +109,9 @@ def test_positive_one_hundred_inventory_and_sources_survive_analysis(configured,
     report = news_report.generate_report("iran-news", language="en", cutoff=NOW, progress=stages.append)
     assert len(feed_calls) == len(model_calls) == 1
     assert stages == ["searching", "checking_sources", "analyzing"]
-    assert report["status"] == "complete" and report["actual_article_count"] == report["analyzed_article_count"] == 100
-    assert report["requested_article_target"] == 100
-    assert len(report["items"]) == len(report["sources"]) == len(report["citation_mappings"]) == 100
+    assert report["status"] == "complete" and report["actual_article_count"] == report["analyzed_article_count"] == 50
+    assert report["requested_article_target"] == 50
+    assert len(report["items"]) == len(report["sources"]) == len(report["citation_mappings"]) == 50
     assert {item["url"] for item in report["items"]} == {item["url"] for item in value["items"]}
     assert report["factual_basis"] == "newsdata_structured_metadata" and not report["publisher_text_verified"]
     assert report["source_coverage"]["verified_source_count"] == 0
@@ -227,24 +227,24 @@ def test_empty_feed_without_analysis_configuration_still_produces_truthful_zero_
 
 
 def test_large_arabic_metadata_is_compressed_under_input_bound_without_dropping_inventory(configured):
-    value = snapshot(100, language="ar")
+    value = snapshot(50, language="ar")
     for item in value["sources"]:
         item["title"] = "عنوان اصطناعي عن إيران " * 23
         item["excerpt"] = "وصف اصطناعي مطول يوضح حدود المعلومات " * 60
     payload, context = news_report._analysis_payload(runtime.DEFAULT_OPENAI_MODEL, get_profile("iran-news"),
         "موضوع اختبار", "ar", value["sources"], WINDOW, None)
     assert runtime._json_bytes(payload) <= news_report.MAX_ANALYSIS_INPUT_BYTES
-    assert context["analyzed_article_count"] == 100
+    assert context["analyzed_article_count"] == 50
     assert context["metadata_compressed"]
-    assert len(value["sources"]) == len(value["items"]) == 100
+    assert len(value["sources"]) == len(value["items"]) == 50
 
 
 @pytest.mark.parametrize("padding", ["عنوان اصطناعي عن إيران ", "😀"], ids=["long_arabic", "four_byte_utf8"])
-def test_maximum_length_hundred_article_report_fits_saved_and_pdf_input_bounds(configured, monkeypatch, padding):
+def test_maximum_length_fifty_article_report_fits_saved_and_pdf_input_bounds(configured, monkeypatch, padding):
     from app import report_pdf
     from app.report_store import MAX_REPORT_BYTES, ReportStore
 
-    value = snapshot(100, language="ar")
+    value = snapshot(50, language="ar")
     for index, (item, source) in enumerate(zip(value["items"], value["sources"])):
         title, description, publisher = (padding * 500)[:500], (padding * 2000)[:2000], (padding * 200)[:200]
         url = "https://fixture.example/" + str(index) + "/" + "a" * 1500
@@ -263,11 +263,11 @@ def test_maximum_length_hundred_article_report_fits_saved_and_pdf_input_bounds(c
     saved_bytes = len(json.dumps(prepared, ensure_ascii=False, separators=(",", ":")).encode())
     pdf_input_bytes = len(json.dumps(prepared, ensure_ascii=False).encode())
     assert saved_bytes <= MAX_REPORT_BYTES and pdf_input_bytes <= report_pdf.MAX_REPORT_BYTES
-    assert len(prepared["items"]) == len(prepared["sources"]) == len(prepared["citation_mappings"]) == 100
+    assert len(prepared["items"]) == len(prepared["sources"]) == len(prepared["citation_mappings"]) == 50
     assert {item["url"] for item in prepared["items"]} == {item["url"] for item in value["items"]}
     assert all("original_summary" not in item and "summary_ar" not in item and "headline_en" not in item for item in prepared["items"])
     assert all("description" not in source and len(source["excerpt"]) == 2000 for source in prepared["sources"])
-    assert "fixture.example/99/" in prepared["response"]
+    assert "fixture.example/49/" in prepared["response"]
 
 
 @pytest.mark.parametrize("invalid", ["unknown_source", "missing_section", "duplicate_section", "url", "extra_root"])
@@ -289,11 +289,13 @@ def test_analysis_contract_rejects_unsourced_or_invalid_prose(invalid):
     assert error.value.detail["code"] == "invalid_news_analysis"
 
 
-def test_native_and_newsdata_entry_points_dispatch_by_profile(configured, monkeypatch):
-    called = []
-    monkeypatch.setattr(news_report, "estimate_reservation", lambda *args, **kwargs: called.append(("news", args[0])) or {"branch": "news"})
-    monkeypatch.setattr(research, "_estimate_native_reservation", lambda *args, **kwargs: called.append(("native", args[0])) or {"branch": "native"})
-    assert research.estimate_reservation("iran-news")["branch"] == "news"
-    assert research.estimate_reservation("geopolitical-morning")["branch"] == "news"
-    assert research.estimate_reservation("historical-reading-companion")["branch"] == "native"
-    assert called == [("news", "iran-news"), ("news", "geopolitical-morning"), ("native", "historical-reading-companion")]
+def test_hybrid_reservation_covers_both_paths_before_any_fetch(configured):
+    for agent in ("iran-news", "geopolitical-morning", "uae-eu-trade-talks"):
+        native = research._estimate_native_reservation(agent, language="en", cutoff=NOW)
+        metadata = news_report.estimate_reservation(agent, language="en", cutoff=NOW)
+        combined = research.estimate_reservation(agent, language="en", cutoff=NOW)
+        assert combined["max_model_calls"] == native["max_model_calls"] + metadata["max_model_calls"]
+        assert combined["max_web_search_calls"] == native["max_web_search_calls"]
+        assert combined["estimated_cost_usd"] >= native["estimated_cost_usd"] + metadata["estimated_cost_usd"] - .000001
+        assert combined["retrieval_options"] == ["newsdata", "web_search"]
+    assert research.estimate_reservation("historical-reading-companion", cutoff=NOW) == research._estimate_native_reservation("historical-reading-companion", cutoff=NOW)

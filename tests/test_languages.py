@@ -1,6 +1,6 @@
 """Bilingual output and persistence checks; all news and provider data are synthetic."""
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -111,13 +111,13 @@ def test_language_persists_and_is_part_of_report_idempotency(client, monkeypatch
     monkeypatch.setattr(runtime, "run_agent", provider)
     headers = {"Idempotency-Key": "bilingual-report-fixture"}
     body = {"task": "Synthetic task", "language": "en"}
-    first = client.post("/v1/agents/decision-briefing/run", json=body, headers=headers)
+    first = client.post("/v1/agents/historical-reading-companion/run", json=body, headers=headers)
     assert first.status_code == 200, first.text
     report_id = first.json()["report_id"]
     assert first.json()["language"] == "en"
-    replay = client.post("/v1/agents/decision-briefing/run", json=body, headers=headers)
+    replay = client.post("/v1/agents/historical-reading-companion/run", json=body, headers=headers)
     assert replay.json()["idempotency_replayed"] is True
-    conflict = client.post("/v1/agents/decision-briefing/run", json={**body, "language": "ar"}, headers=headers)
+    conflict = client.post("/v1/agents/historical-reading-companion/run", json={**body, "language": "ar"}, headers=headers)
     assert conflict.status_code == 409
     assert calls == ["en"]
     record = client.get(f"/v1/reports/{report_id}").json()
@@ -131,15 +131,20 @@ def test_invalid_language_rejected_before_report_attempt(client):
     assert client.get("/v1/usage").json()["daily"]["attempts"] == 0
 
 
-def test_schedule_preserves_selected_language_through_execution(client):
+def test_schedule_preserves_selected_language_through_execution(client, monkeypatch):
+    moment = datetime(2026, 10, 21, 5, 0, tzinfo=timezone.utc)
+    database = get_store()
+    # Definitions run only occurrences at or after their creation. Freeze the
+    # API's storage clock too, so a later CI wall clock cannot skip this slot.
+    monkeypatch.setattr(database, "clock", lambda: moment - timedelta(minutes=1))
     reply = client.post("/v1/schedules", json={"agent_id": "iran-news", "task": "Synthetic task",
                         "times": ["09:00"], "enabled": True, "language": "en"})
     assert reply.status_code == 201, reply.text
     assert reply.json()["language"] == "en"
     assert client.get("/v1/schedules").json()["schedules"][0]["language"] == "en"
     calls = []
-    moment = datetime(2026, 10, 21, 5, 0, tzinfo=timezone.utc)
-    scheduler = Scheduler(store=get_store(), clock=lambda: moment,
+    monkeypatch.setattr(database, "clock", lambda: moment)
+    scheduler = Scheduler(store=database, clock=lambda: moment,
                           execute_fn=lambda *args, **kwargs: calls.append(kwargs) or {"report_id": "rpt_fixture"})
     assert scheduler.tick(moment) == 1
     assert calls[0]["language"] == "en"

@@ -100,18 +100,27 @@ def second_visitor():
         yield client
 
 
-def test_configuration_and_default_selection_queue_one_job_with_frozen_window(workspace):
+def test_passive_configuration_and_selection_require_explicit_generation(workspace):
     client = workspace["client"]
     config = client.get(PREFIX + "/config")
     assert config.status_code == 200
     data = config.json()
-    assert data["agent_count"] == len(data["agents"]) == 9
-    assert data["coverage_hours"] == 12 and data["maximum_news_items"] == 100
-    assert len({profile["id"] for profile in data["agents"]}) == 9
+    assert data["agent_count"] == len(data["agents"]) == 7
+    assert data["coverage_hours"] == 12 and data["maximum_news_items"] == 50
+    assert data["maximum_newsdata_articles_per_refresh"] == 50
+    assert data["display_timezone"] == "Asia/Dubai"
+    assert data["refresh_mode"] == "manual"
+    assert len({profile["id"] for profile in data["agents"]}) == 7
+    assert all(profile["retrieval_options"] == ["newsdata", "web_search"] for profile in data["agents"])
+    assert all(profile["news_feed_enabled"] for profile in data["agents"])
     assert_workspace_public(data)
 
     selected = client.get(f"{PREFIX}/agents/{AGENT}")
     assert selected.json()["last_successful_report"] is None and selected.json()["active_job"] is None
+    assert not workspace["store"].list_jobs("owner", active_only=False)
+    with workspace["store"].base_store._connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM research_jobs").fetchone()[0] == 0
+    assert not workspace["estimate"] and not workspace["generate"]
     queued = submit(workspace, topic="   ")
     assert queued.status_code == 202, queued.text
     value = queued.json()

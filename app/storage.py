@@ -202,6 +202,7 @@ CREATE INDEX IF NOT EXISTS occurrences_schedule_idx ON schedule_occurrences(sche
 CREATE TABLE IF NOT EXISTS chat_conversations (
     conversation_id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,
+    agent_id TEXT,
     title TEXT NOT NULL,
     language TEXT NOT NULL CHECK(language IN ('ar','en')),
     report_id TEXT REFERENCES runs(report_id),
@@ -249,6 +250,17 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     UNIQUE(turn_id,role)
 );
 CREATE INDEX IF NOT EXISTS chat_messages_conversation_idx ON chat_messages(conversation_id,sequence DESC);
+CREATE TABLE IF NOT EXISTS workspace_memory (
+    memory_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('preference','correction','knowledge')),
+    content TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('proposed','approved','rejected')),
+    source_urls_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS workspace_memory_owner_idx ON workspace_memory(owner_id,status,updated_at DESC);
 """
 
 
@@ -301,6 +313,11 @@ class Store:
                 columns = {row["name"] for row in connection.execute("PRAGMA table_info(schedules)")}
                 if "language" not in columns:
                     connection.execute("ALTER TABLE schedules ADD COLUMN language TEXT NOT NULL DEFAULT 'ar'")
+                chat_columns = {row["name"] for row in connection.execute("PRAGMA table_info(chat_conversations)")}
+                if "agent_id" not in chat_columns:
+                    connection.execute("ALTER TABLE chat_conversations ADD COLUMN agent_id TEXT")
+                connection.execute("""CREATE UNIQUE INDEX IF NOT EXISTS chat_owner_agent_idx
+                    ON chat_conversations(owner_id,agent_id) WHERE agent_id IS NOT NULL""")
                 run_columns = {row["name"] for row in connection.execute("PRAGMA table_info(runs)")}
                 for name, declaration in (
                     ("reserved_newsdata_credits", "INTEGER NOT NULL DEFAULT 0 CHECK(reserved_newsdata_credits >= 0)"),
@@ -345,7 +362,7 @@ class Store:
             start = _aware(datetime.fromisoformat(context["window_start"].replace("Z", "+00:00")))
             end = _aware(datetime.fromisoformat(context["window_end"].replace("Z", "+00:00")))
             size, index = context["page_size"], context["page_index"]
-            if (end - start != timedelta(hours=48) or type(size) is not int or not 1 <= size <= 50
+            if (end - start not in {timedelta(hours=12), timedelta(hours=48)} or type(size) is not int or not 1 <= size <= 50
                     or type(index) is not int or not 1 <= index <= 2147483647):
                 raise ValueError
             parent, root = context.get("parent_report_id"), context.get("root_report_id")
@@ -430,7 +447,7 @@ class Store:
 
     @classmethod
     def _continuation(cls, connection: sqlite3.Connection, parent_report_id: str,
-                      agent_id: str, task: str, language: str) -> dict[str, Any]:
+                      agent_id: str, task: str, language: str, *, now: datetime | None = None) -> dict[str, Any]:
         row = connection.execute(
             "SELECT p.*,r.agent_id,r.task,r.status FROM newsdata_pages p JOIN runs r USING(report_id) WHERE p.report_id=?",
             (parent_report_id,),
@@ -441,9 +458,13 @@ class Store:
             raise StoreError("invalid_newsdata_continuation", "Only a successful saved NewsData page can be continued.", 409)
         if row["task"] != task or row["language"] != language:
             raise StoreError("continuation_request_mismatch", "Continue with the saved task and language.", 409)
+        start = _aware(datetime.fromisoformat(row["window_start"].replace("Z", "+00:00")))
+        end = _aware(datetime.fromisoformat(row["window_end"].replace("Z", "+00:00")))
+        if end - start != timedelta(hours=12) or (now is not None and _aware(now) > end + timedelta(minutes=15)):
+            raise StoreError("newsdata_refresh_required", "This saved news window is no longer current. Start a new manual refresh.", 409)
         consumed = cls._results_consumed(connection, row)
         if consumed >= MAX_NEWSDATA_RESULTS:
-            raise StoreError("newsdata_result_limit", "This report has already consumed its first 20 provider results.", 409)
+            raise StoreError("newsdata_result_limit", "This refresh has already consumed its first 50 provider results.", 409)
         cursor = cls._cursor(row["next_cursor"])
         if cursor is None:
             raise StoreError("newsdata_no_more_pages", "The saved report has no further page.", 409)
@@ -456,7 +477,7 @@ class Store:
         if not isinstance(parent_report_id, str) or not parent_report_id or len(parent_report_id) > 100:
             raise StoreError("invalid_newsdata_continuation", "Invalid parent report ID.", 422)
         with self._connect() as connection:
-            return self._continuation(connection, parent_report_id, agent_id, task, language)
+            return self._continuation(connection, parent_report_id, agent_id, task, language, now=self._now())
 
     @staticmethod
     def _validate_language(language: str) -> None:
@@ -530,7 +551,7 @@ class Store:
                               language: str = "ar", *, idempotency_key: str | None = None) -> dict[str, Any] | None:
         self._validate_key(idempotency_key)
         with self._transaction() as connection:
-            context = self._continuation(connection, parent_report_id, agent_id, task, language)
+            context = self._continuation(connection, parent_report_id, agent_id, task, language, now=self._now())
             row = connection.execute("""SELECT r.* FROM newsdata_pages p JOIN runs r USING(report_id)
                 WHERE p.parent_report_id=?""", (parent_report_id,)).fetchone()
             if row is None:
@@ -575,6 +596,11 @@ class Store:
         daily_budget = _micros(limits.daily_budget_usd)
         monthly_budget = _micros(limits.monthly_budget_usd)
         moment = self._now(now)
+        if context is not None:
+            window_start = _aware(datetime.fromisoformat(context["window_start"].replace("Z", "+00:00")))
+            window_end = _aware(datetime.fromisoformat(context["window_end"].replace("Z", "+00:00")))
+            if window_end - window_start != timedelta(hours=12) or moment > window_end + timedelta(minutes=15):
+                raise StoreError("newsdata_refresh_required", "Start a new manual refresh for the current 12-hour window.", 409)
         timestamp = _stamp(moment)
         local_date = moment.astimezone(DUBAI).date().isoformat()
         local_month = local_date[:7]
@@ -589,7 +615,7 @@ class Store:
                         raise StoreError("idempotency_conflict", "This Idempotency-Key belongs to a different task.", 409)
                     return Reservation(False, self._public_report(connection, row))
             if context and context["parent_report_id"] is not None:
-                saved = self._continuation(connection, context["parent_report_id"], agent_id, task, language)
+                saved = self._continuation(connection, context["parent_report_id"], agent_id, task, language, now=moment)
                 if saved != context:
                     raise StoreError("invalid_newsdata_context", "Pagination must use the exact saved context.", 409)
                 existing = connection.execute("""SELECT r.* FROM newsdata_pages p JOIN runs r USING(report_id)
@@ -845,7 +871,7 @@ class Store:
 
     @staticmethod
     def _chat_conversation(row: sqlite3.Row) -> dict[str, Any]:
-        return {key: row[key] for key in ("conversation_id", "title", "language", "report_id", "created_at",
+        return {key: row[key] for key in ("conversation_id", "agent_id", "title", "language", "report_id", "created_at",
                                           "updated_at", "message_count", "pending_turn_id")}
 
     @staticmethod
@@ -891,6 +917,118 @@ class Store:
                 (conversation_id, owner_id, title.strip(), language, timestamp, timestamp),
             )
             return self._chat_conversation(self._chat_conversation_row(connection, conversation_id, owner_id))
+
+    def agent_conversation(self, owner_id: str, agent_id: str, *, language: str = "ar",
+                           title: str = "") -> dict[str, Any]:
+        """Restore a durable agent thread atomically, without invoking a provider.
+
+        Existing unbound legacy conversations remain readable. An agent binding
+        cannot be reassigned, and a racing tab cannot create a duplicate thread.
+        """
+        self._validate_language(language)
+        if not re.fullmatch(r"[a-z0-9-]{1,100}", agent_id or ""):
+            raise StoreError("agent_not_found", "Agent not found.", 404)
+        timestamp = _stamp(self._now())
+        with self._transaction() as connection:
+            row = connection.execute("SELECT conversation_id FROM chat_conversations WHERE owner_id=? AND agent_id=?",
+                                     (owner_id, agent_id)).fetchone()
+            if row:
+                conversation_id = row["conversation_id"]
+            else:
+                conversation_id = "conv_" + uuid4().hex
+                connection.execute("""INSERT INTO chat_conversations
+                    (conversation_id,owner_id,agent_id,title,language,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?,?)""", (conversation_id, owner_id, agent_id, title[:120], language, timestamp, timestamp))
+        return self.get_chat_conversation(conversation_id, owner_id)
+
+    @staticmethod
+    def _memory_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {**{key: row[key] for key in ("memory_id", "kind", "content", "status", "created_at", "updated_at")},
+                "source_urls": json.loads(row["source_urls_json"]),
+                "evidence_status": "visitor_approved" if row["status"] == "approved" else "unreviewed"}
+
+    def list_workspace_memory(self, owner_id: str, *, approved_only: bool = False) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM workspace_memory WHERE owner_id=?" +
+                (" AND status='approved'" if approved_only else " AND status!='rejected'") +
+                " ORDER BY updated_at DESC,memory_id DESC LIMIT 100", (owner_id,)).fetchall()
+            return [self._memory_row(row) for row in rows]
+
+    def propose_workspace_memory(self, owner_id: str, *, kind: str, content: str,
+                                 source_urls: list[str] | None = None) -> dict[str, Any]:
+        if kind not in {"preference", "correction", "knowledge"} or not isinstance(content, str) or not 1 <= len(content.strip()) <= 2000:
+            raise StoreError("invalid_memory", "Use a preference, correction or knowledge note of 1–2000 characters.", 422)
+        # URL attestation belongs at the owner-scoped report boundary. The store
+        # never treats a human-approved note as independently verified fact.
+        if not isinstance(source_urls or [], list) or len(source_urls or []) > 10:
+            raise StoreError("invalid_memory_sources", "A memory note may cite at most ten saved evidence sources.", 422)
+        memory_id, timestamp = "mem_" + uuid4().hex, _stamp(self._now())
+        with self._transaction() as connection:
+            count = connection.execute("SELECT COUNT(*) FROM workspace_memory WHERE owner_id=? AND status!='rejected'", (owner_id,)).fetchone()[0]
+            if count >= 100:
+                raise StoreError("memory_limit", "Review or remove a saved note before adding another.", 409)
+            connection.execute("""INSERT INTO workspace_memory
+                (memory_id,owner_id,kind,content,status,source_urls_json,created_at,updated_at)
+                VALUES (?,?,?,?,'proposed',?,?,?)""", (memory_id, owner_id, kind, content.strip(),
+                    _json(source_urls or []), timestamp, timestamp))
+            return self._memory_row(connection.execute("SELECT * FROM workspace_memory WHERE memory_id=? AND owner_id=?",
+                                                       (memory_id, owner_id)).fetchone())
+
+    def review_workspace_memory(self, owner_id: str, memory_id: str, action: str) -> dict[str, Any]:
+        if action not in {"approve", "reject"}:
+            raise StoreError("invalid_memory_review", "Choose approve or reject.", 422)
+        with self._transaction() as connection:
+            row = connection.execute("SELECT * FROM workspace_memory WHERE memory_id=? AND owner_id=?",
+                                     (memory_id, owner_id)).fetchone()
+            if row is None:
+                raise StoreError("memory_not_found", "Memory note not found.", 404)
+            connection.execute("UPDATE workspace_memory SET status=?,updated_at=? WHERE memory_id=? AND owner_id=?",
+                               ("approved" if action == "approve" else "rejected", _stamp(self._now()), memory_id, owner_id))
+            return self._memory_row(connection.execute("SELECT * FROM workspace_memory WHERE memory_id=? AND owner_id=?",
+                                                       (memory_id, owner_id)).fetchone())
+
+    def shared_workspace_context(self, owner_id: str, conversation_id: str, message: str) -> dict[str, Any]:
+        """Select bounded relevant memory across this owner's completed chats.
+
+        Explicitly reviewed notes persist beyond recent chat excerpts. We never
+        include a foreign thread, a failed draft, or unreviewed knowledge notes.
+        """
+        terms = {word.casefold() for word in re.findall(r"[\w\u0600-\u06ff]+", message) if len(word) > 2}
+        def score(value: str) -> int:
+            return len(terms & {word.casefold() for word in re.findall(r"[\w\u0600-\u06ff]+", value) if len(word) > 2})
+        with self._connect() as connection:
+            self._chat_conversation_row(connection, conversation_id, owner_id)
+            rows = connection.execute("""SELECT t.turn_id,t.report_id,t.created_at,c.agent_id,c.conversation_id,
+                u.content AS question,a.content AS answer
+                FROM chat_turns t JOIN chat_conversations c ON c.conversation_id=t.conversation_id
+                JOIN chat_messages u ON u.turn_id=t.turn_id AND u.role='user'
+                JOIN chat_messages a ON a.turn_id=t.turn_id AND a.role='assistant'
+                WHERE c.owner_id=? AND c.conversation_id!=? AND t.status='succeeded'
+                ORDER BY t.created_at DESC,t.turn_id DESC LIMIT 100""", (owner_id, conversation_id)).fetchall()
+        memories = self.list_workspace_memory(owner_id, approved_only=True)
+        memories.sort(key=lambda value: (value["kind"] not in {"preference", "correction"}, -score(value["content"])))
+        notes, note_bytes = [], 0
+        for memory in memories[:20]:
+            size = len(_json(memory).encode("utf-8"))
+            if note_bytes + size > 10000:
+                continue
+            notes.append(memory)
+            note_bytes += size
+        candidates = list(rows)
+        candidates.sort(key=lambda value: -score((value["agent_id"] or "") + " " + value["question"] + " " + value["answer"]))
+        conversations, excerpt_bytes = [], 0
+        for row in candidates[:6]:
+            value = {"agent_id": row["agent_id"], "created_at": row["created_at"], "report_id": row["report_id"],
+                     "question": row["question"][:1800], "answer": row["answer"][:2200]}
+            size = len(_json(value).encode("utf-8"))
+            if excerpt_bytes + size > 12000:
+                continue
+            conversations.append(value)
+            excerpt_bytes += size
+        return {"notes": notes, "conversations": conversations,
+                "truncated": len(memories) > len(notes) or len(rows) > len(conversations),
+                "scope": "this visitor only",
+                "evidence_note": "Visitor-approved notes and prior conversation excerpts are context, not independent verification. Use the dated cited reports for factual evidence. Proposed and rejected notes are excluded."}
 
     def list_chat_conversations(self, owner_id: str, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         self.recover_stale_runs()

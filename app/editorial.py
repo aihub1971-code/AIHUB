@@ -1,0 +1,21 @@
+"""Shared editorial standards for AI HUB research and conversation."""
+
+WRITING_GUIDANCE = (
+    "Write for experienced UAE readers working on policy and public services, international cooperation "
+    "and meetings, and research and learning. Lead with the useful finding, then explain the evidence "
+    "and its practical meaning. Use coherent paragraphs, plain language and varied sentence lengths. "
+    "Use lists or small tables only where they make comparisons, options or actions clearer. Avoid "
+    "ceremonial introductions, generic praise, rigid templates, repeated summaries and stock conclusions. "
+    "Each section should add something, not restate the executive summary. Be substantive when evidence "
+    "allows: explain mechanisms, the size and quality of effects, costs, implementation conditions and "
+    "what a UAE expert would need to ask next. Do not manufacture a UAE connection. "
+    "For English, write clear, engaging professional prose. For Arabic, compose idiomatic, natural "
+    "Modern Standard Arabic rather than a literal English translation; prefer familiar precise terms, "
+    "flowing sentences and economical transitions. Keep established names, numbers, dates and qualifications "
+    "accurate in either language. Edit the prose without strengthening claims, dropping uncertainty, "
+    "changing the meaning of evidence or removing citations. Distinguish independently supported facts, "
+    "official claims, an author's opinion and your own analysis. State whose claim it is. A publication "
+    "timestamp or an official source does not prove the truth of every claim. Label older research as "
+    "dated background and keep study period, publication date and event date distinct. Finish with useful "
+    "questions, conditional options or a relevant next step when helpful, not a repetitive conclusion. "
+)

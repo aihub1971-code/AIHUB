@@ -245,14 +245,14 @@ def test_platform_help_distinguishes_newsdata_policy_and_instant_saved_languages
     monkeypatch.setenv("NEWSDATA_API_KEY", "private-newsdata-context-sentinel")
     monkeypatch.setenv("OPENAI_API_KEY", "private-openai-context-sentinel")
     context = chat._platform_context(store)
-    assert context["agent_count"] == len(context["agents"]) == 9
+    assert context["agent_count"] == len(context["agents"]) == 7
     assert "Legacy administration API" in context["news_policy"]["scope"]
     iran = context["news_policy"]["iran_news"]
     assert iran["agent_id"] == "iran-news" and iran["provider"] == "newsdata"
     assert iran["query"] == "iran war" and iran["query_semantics"] == "iran AND war"
-    assert iran["coverage_window_hours"] == 48 and iran["source_language"] == "en"
-    assert iran["fixed_item_count"] is None and iran["total_item_cap"] == 20
-    assert iran["default_page_size"] == 10 and iran["maximum_page_size"] == 20
+    assert iran["coverage_window_hours"] == 12 and iran["source_language"] == "en"
+    assert iran["fixed_item_count"] is None and iran["total_item_cap"] == 50
+    assert iran["default_page_size"] == 10 and iran["maximum_page_size"] == 50
     assert "One page is one saved report" in iran["pagination"]
     assert "Previous page" in iran["pagination"] and "server-held cursor" in iran["pagination"]
     assert "OpenAI" in iran["translation"] and "even when the interface is English" in iran["translation"]
@@ -274,11 +274,11 @@ def test_platform_help_reports_current_workspace_cap_separately_from_legacy_limi
     monkeypatch.setattr(chat.research, "MAX_NEWS_ITEMS", 100)
     context = chat._platform_context(store)
     workspace = context["research_workspace"]
-    assert workspace["provider"] == "openai"
+    assert workspace["provider"] == "newsdata_and_openai"
     assert workspace["coverage_window_hours"] == 12
     assert workspace["maximum_news_items_after_validation_and_dedup"] == 100
-    assert context["news_policy"]["iran_news"]["total_item_cap"] == 20
-    assert "retired assistants" in workspace["archives"]
+    assert context["news_policy"]["iran_news"]["total_item_cap"] == 50
+    assert "retired agents" in workspace["archives"]
 
 
 def test_newsdata_attachment_uses_saved_translation_and_public_publisher_link_per_chat_language(client, store, mock_openai):

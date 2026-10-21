@@ -24,7 +24,7 @@ from .newsdata_translation import translate_items, translation_plan
 NEWSDATA_LATEST_URL = "https://newsdata.io/api/1/latest"
 NEWSDATA_QUERY = "iran war"
 MAX_NEWSDATA_PAGE_SIZE = 50
-MAX_NEWSDATA_RESULTS = 20
+MAX_NEWSDATA_RESULTS = 50
 DEFAULT_NEWSDATA_PAGE_SIZE = 10
 MAX_NEWSDATA_RESPONSE_BYTES = 2000000
 MAX_CURSOR_CHARS = 2048
@@ -45,23 +45,30 @@ def is_ready() -> bool:
     return bool(get_setting("NEWSDATA_API_KEY", ""))
 
 
+def configured_plan() -> str:
+    """Operator configuration only; never infer entitlement from an API key."""
+    plan = (get_setting("NEWSDATA_PLAN", "unknown") or "unknown").strip().lower()
+    return "paid" if plan in {"paid", "basic", "professional", "corporate"} else "free" if plan == "free" else "unknown"
+
+
 def page_size_setting() -> int:
+    maximum = MAX_NEWSDATA_PAGE_SIZE if configured_plan() == "paid" else DEFAULT_NEWSDATA_PAGE_SIZE
     try:
-        size = int(get_setting("NEWSDATA_PAGE_SIZE", str(DEFAULT_NEWSDATA_PAGE_SIZE)) or DEFAULT_NEWSDATA_PAGE_SIZE)
+        size = int(get_setting("NEWSDATA_PAGE_SIZE", str(maximum)) or maximum)
     except (TypeError, ValueError):
         raise _fail("newsdata_page_size_invalid", "Set NEWSDATA_PAGE_SIZE to an integer from 1 to 50.", 503) from None
     if not 1 <= size <= MAX_NEWSDATA_PAGE_SIZE:
         raise _fail("newsdata_page_size_invalid", "Set NEWSDATA_PAGE_SIZE to an integer from 1 to 50.", 503)
-    return min(size, MAX_NEWSDATA_RESULTS)
+    return min(size, maximum, MAX_NEWSDATA_RESULTS)
 
 
 def initial_context(now: datetime | None = None) -> dict[str, object]:
-    """Freeze latest-48-hour coverage; task prose cannot change provider filters."""
+    """Freeze a new 12-hour search; task prose cannot change provider filters."""
     moment = now or datetime.now(_UTC)
     if moment.tzinfo is None or moment.utcoffset() is None:
         raise _fail("newsdata_context_invalid", "The news request time must include a timezone.", 422)
     moment = moment.astimezone(_UTC)
-    return {"cursor": None, "window_start": (moment - timedelta(hours=48)).isoformat(),
+    return {"cursor": None, "window_start": (moment - timedelta(hours=12)).isoformat(),
             "window_end": moment.isoformat(), "page_size": page_size_setting(), "page_index": 1,
             "parent_report_id": None, "root_report_id": None, "results_consumed": 0}
 
@@ -88,7 +95,9 @@ def _validated_context(context: dict[str, object] | None) -> dict[str, object]:
             raise ValueError("invalid_context")
         start, end = _moment(context.get("window_start")), _moment(context.get("window_end"))
         size, index = context.get("page_size"), context.get("page_index")
-        if (end - start != timedelta(hours=48) or type(size) is not int
+        if end - start == timedelta(hours=48) or end < datetime.now(_UTC) - timedelta(minutes=15):
+            raise _fail("newsdata_refresh_required", "Start a new refresh to retrieve news from the current 12-hour window.", 409)
+        if (end - start != timedelta(hours=12) or type(size) is not int
                 or not 1 <= size <= MAX_NEWSDATA_PAGE_SIZE or type(index) is not int
                 or not 1 <= index <= 1000000 or not _cursor(context.get("cursor"))):
             raise ValueError("invalid_context")
@@ -98,7 +107,7 @@ def _validated_context(context: dict[str, object] | None) -> dict[str, object]:
         if index == 1:
             if consumed != 0:
                 raise ValueError("invalid_initial_result_count")
-            size = min(size, MAX_NEWSDATA_RESULTS)
+            size = min(size, page_size_setting(), MAX_NEWSDATA_RESULTS)
         for field in ("parent_report_id", "root_report_id"):
             identifier = context.get(field)
             if identifier is not None and (not isinstance(identifier, str)
@@ -121,7 +130,7 @@ def estimate_reservation(*, language: str = "ar",
     context = _validated_context(newsdata_context)
     remaining = MAX_NEWSDATA_RESULTS - int(context["results_consumed"])
     if remaining <= 0:
-        raise _fail("newsdata_result_limit", "This report has already consumed its first 20 provider results.", 409)
+        raise _fail("newsdata_result_limit", "This search has already consumed its first 50 provider results.", 409)
     translation = translation_plan(min(int(context["page_size"]), remaining))
     count = int(translation["max_model_calls"])
     return {"provider": "newsdata", "model": translation["model"], "language": language,
@@ -146,8 +155,10 @@ def _provider_error(status: int, data: object) -> HTTPException:
         error = _fail("newsdata_auth_failed", "NewsData rejected its API credential.", 503)
     elif status == 403 or code == "AccessDenied":
         error = _fail("newsdata_access_denied", "The NewsData plan does not permit this request.", 503)
-    elif status == 429 or code in {"RateLimitExceeded", "ApiLimitExceeded"}:
-        error = _fail("newsdata_rate_limited", "The NewsData rate or credit allowance was reached.", 429)
+    elif code in {"ApiLimitExceeded", "ApiKeyLimitExceeded"}:
+        error = _fail("newsdata_provider_credit_limit", "NewsData reports that the account's provider credit allowance is exhausted.", 429)
+    elif status == 429 or code == "RateLimitExceeded":
+        error = _fail("newsdata_rate_limited", "NewsData has limited request frequency; wait for its rate window to reset.", 429)
     elif code == "MaxPageLimitExceeded":
         error = _fail("newsdata_page_unavailable", "NewsData cannot continue this saved result page.", 409)
     elif status in {500, 503} or code == "ServiceUnavailable":
@@ -156,6 +167,11 @@ def _provider_error(status: int, data: object) -> HTTPException:
         error = _fail("newsdata_request_failed", "NewsData rejected the request; no retry was made.")
     if 400 <= status <= 599:
         error.detail["provider_status"] = status
+    if code and re.fullmatch(r"[A-Za-z0-9_]{1,80}", code):
+        error.detail["provider_code"] = code
+    error.detail["scope"] = "provider"
+    error.detail["limit_kind"] = {"newsdata_provider_credit_limit": "provider_credit",
+        "newsdata_rate_limited": "provider_rate"}.get(error.detail["code"])
     return error
 
 
@@ -168,8 +184,14 @@ def _fetch_page(context: dict[str, object]) -> tuple[dict[str, object], dict[str
     key = get_setting("NEWSDATA_API_KEY", "") or ""
     if not key:
         raise _fail("newsdata_not_configured", "Configure NEWSDATA_API_KEY to retrieve Iran-war news.", 503)
+    remaining = MAX_NEWSDATA_RESULTS - int(context["results_consumed"])
+    if remaining <= 0:
+        raise _fail("newsdata_result_limit", "This search has already consumed its first 50 provider results.", 409)
+    size = min(int(context["page_size"]), page_size_setting(), remaining)
     params: dict[str, object] = {"q": NEWSDATA_QUERY, "language": "en",
-        "size": context["page_size"], "removeduplicate": 1, "timezone": "UTC", "sort": "pubdatedesc"}
+        "size": size, "removeduplicate": 1, "timezone": "UTC", "sort": "pubdatedesc"}
+    if configured_plan() == "paid":
+        params["timeframe"] = 12
     if context["cursor"] is not None:
         params["page"] = context["cursor"]
     try:
@@ -193,7 +215,7 @@ def _fetch_page(context: dict[str, object]) -> tuple[dict[str, object], dict[str
                 if response.is_error or not isinstance(data, dict) or data.get("status") != "success":
                     raise _provider_error(response.status_code, data)
                 if (not isinstance(data.get("results"), list)
-                        or len(data["results"]) > int(context["page_size"])
+                        or len(data["results"]) > size
                         or type(data.get("totalResults")) is not int or data["totalResults"] < 0
                         or not _cursor(data.get("nextPage"))):
                     raise _fail("newsdata_invalid_response", "NewsData returned an invalid result page.")
@@ -253,7 +275,7 @@ def _publication(raw: object, zone_value: object) -> tuple[datetime, str] | None
 def _items(results: list[object], context: dict[str, object]) -> tuple[list[dict[str, object]], dict[str, int]]:
     from . import runtime
 
-    start, end = _moment(context["window_start"]), _moment(context["window_end"])
+    start, end = max(_moment(context["window_start"]), datetime.now(_UTC) - timedelta(hours=12)), _moment(context["window_end"])
     excluded = {"invalid_article": 0, "missing_title": 0, "invalid_link": 0,
                 "invalid_publication": 0, "outside_window": 0, "future_publication": 0,
                 "duplicate": 0, "wrong_language": 0}
@@ -313,6 +335,7 @@ def _items(results: list[object], context: dict[str, object]) -> tuple[list[dict
             "original_language": "en", "summary_available": bool(description),
             "pubDate": source["pubDate"], "pubDateTZ": original_zone,
             "published_date": published.isoformat(),
+            "published_at_dubai": published.astimezone(runtime.DUBAI).isoformat(),
             "published_day_dubai": published.astimezone(runtime.DUBAI).date().isoformat(),
             "classification": "within_window", "source_kind": runtime._news_source_kind(title, url),
             "event_date": None, "event_date_note": None, "event_timing_relative_to_window": "unknown",
@@ -322,15 +345,13 @@ def _items(results: list[object], context: dict[str, object]) -> tuple[list[dict
 
 
 def _freshness(context: dict[str, object]) -> dict[str, object]:
-    plan = (get_setting("NEWSDATA_PLAN", "unknown") or "unknown").lower()
-    if plan not in {"free", "paid", "unknown"}:
-        plan = "unknown"
-    return {"mode": "latest_48_hours", "window_start": context["window_start"],
+    plan = configured_plan()
+    return {"mode": "latest_12_hours", "window_start": context["window_start"],
             "window_end": context["window_end"], "timezone": "UTC",
             "plan": plan, "configured_delivery_delay_hours": 12 if plan == "free" else None,
             "free_plan_delay_hours": 12, "coverage_complete": False,
-            "note_ar": "تغطي النتائج أحدث 48 ساعة المتاحة لدى NewsData.io. تتأخر الخطة المجانية 12 ساعة؛ لا تمثل الصفحة حصرًا شاملًا للأخبار.",
-            "note_en": "Results cover NewsData.io's available latest 48 hours. The free plan has a 12-hour delay; this page is not comprehensive coverage."}
+            "note_ar": "تعرض النتائج الأخبار المنشورة خلال آخر 12 ساعة فقط وفق تواريخ NewsData.io. تتأخر الخطة المجانية 12 ساعة وقد لا توفر أخبارًا مؤهلة؛ التغطية غير شاملة.",
+            "note_en": "Only articles published in the last 12 hours according to NewsData.io metadata are shown. The free plan has a 12-hour delay and may provide no qualifying articles; coverage is not comprehensive."}
 
 
 def _render_report(report: dict[str, object], language: str) -> str:
@@ -355,7 +376,7 @@ def _render_report(report: dict[str, object], language: str) -> str:
         else:
             lines += ["لم يوفّر المزود وصفًا لهذا الخبر." if arabic else "The provider supplied no description for this article.", ""]
         lines += [("الناشر: " if arabic else "Publisher: ") + runtime._md_safe(str(item["publisher"])),
-                  ("تاريخ النشر وفق المزود: " if arabic else "Publication reported by the provider: ") + str(item["published_date"]),
+                  ("تاريخ النشر وفق المزود (دبي): " if arabic else "Publication reported by the provider (Dubai): ") + str(item["published_at_dubai"]),
                   (f"[فتح المقال الأصلي](<{item['url']}>)." if arabic else f"[Open the original article](<{item['url']}>)."), ""]
         if arabic and item["translation_status"] != "translated":
             lines += ["الترجمة العربية غير متاحة لهذا الخبر؛ يعرض النص الإنجليزي الأصلي.", ""]
@@ -366,8 +387,8 @@ def _render_report(report: dict[str, object], language: str) -> str:
         lines += ["توجد صفحة تالية؛ جلبها طلب مستقل إلى مزود الأخبار." if arabic else
                   "Another page is available; fetching it makes a separate provider request.", ""]
     if pagination.get("limit_reached"):
-        lines += ["وصل التقرير إلى حد أول 20 نتيجة من المزود؛ قد تقل الأخبار المعروضة بسبب التحقق من الحقول والوقت." if arabic else
-                  "The report reached its first-20-provider-results limit; validation may leave fewer displayed articles.", ""]
+        lines += ["وصل البحث إلى حد أول 50 نتيجة من المزود؛ قد تقل الأخبار المعروضة بسبب التحقق من الحقول والوقت." if arabic else
+                  "The search reached its first-50-provider-results limit; validation may leave fewer displayed articles.", ""]
     lines += ["العناوين والأوصاف والروابط والتواريخ من بيانات NewsData.io؛ الترجمة العربية آلية. لم يجلب الخادم نصوص الناشرين الكاملة للتحقق المستقل." if arabic else
               "Titles, descriptions, links and dates come from NewsData.io metadata; Arabic text is machine translated. This server has not independently fetched the publishers' complete articles."]
     return "\n".join(lines).strip()
@@ -380,8 +401,8 @@ def run_report(*, language: str = "ar",
     context = estimate["newsdata_context"]
     data, quota = _fetch_page(context)
     before = int(context["results_consumed"])
-    # Cursor requests retain their original size. Only the remaining prefix is
-    # eligible for parsing or translation, including positions later excluded.
+    # The request itself is limited to the remaining raw allowance. Filtering
+    # and deduplication never authorize extra provider results.
     prefix = data["results"][:MAX_NEWSDATA_RESULTS - before]
     consumed = before + len(prefix)
     limit_reached = consumed >= MAX_NEWSDATA_RESULTS

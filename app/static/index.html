@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">
-<title>AI HUB | منصة المساعدين الذكيين</title>
+<title>AI HUB | منصة الوكلاء الذكيين</title>
 <link rel="stylesheet" href="/static/style.css?v=1.5.1">
 <link rel="stylesheet" href="/static/chat.css?v=1.5.1">
 </head>
@@ -10,6 +10,7 @@
 <header class="topbar">
   <div class="brand"><div class="logo" aria-hidden="true">AI</div><div><div class="eyebrow" data-i18n="brand.eyebrow">AI HUB</div><h1>AI HUB</h1><p data-i18n="brand.subtitle"></p></div></div>
   <div class="topbar-controls">
+    <a href="/admin/agents" class="primary" data-i18n="admin.agentWorkspaces">مساحات الوكلاء</a>
     <div class="language-switch" role="group" data-i18n-aria-label="language.label" aria-label="لغة الواجهة">
       <button id="languageAR" type="button" lang="ar" dir="rtl" aria-pressed="true" class="active">العربية</button>
       <button id="languageEN" type="button" lang="en" dir="ltr" aria-pressed="false">English</button>
@@ -20,7 +21,7 @@
 </header>
 <section class="hero">
   <div class="hero-main"><div class="eyebrow" data-i18n="hero.eyebrow"></div><h2 data-i18n="hero.title"></h2><p data-i18n="hero.description"></p></div>
-  <div class="hero-metric"><div class="metric-number" id="agentCount">9</div><div class="metric-label" data-i18n="hero.metric"></div><div class="metric-foot" id="runtimeLabel" data-i18n="health.modelChecking"></div></div>
+  <div class="hero-metric"><div class="metric-number" id="agentCount">0</div><div class="metric-label" data-i18n="hero.metric"></div><div class="metric-foot" id="runtimeLabel" data-i18n="health.modelChecking"></div></div>
 </section>
 <section class="capability-strip" data-i18n-aria-label="capabilities.label">
   <article class="capability-card"><span class="capability-icon" aria-hidden="true">01</span><div><strong data-i18n="capabilities.assistants"></strong><p data-i18n="capabilities.assistantsNote"></p></div></article>
@@ -37,7 +38,6 @@
 </section>
 <nav id="workspaceTabs" class="workspace-tabs hidden" role="tablist" data-i18n-aria-label="tabs.label">
   <button id="reportsTab" type="button" role="tab" aria-controls="reportsView" aria-selected="true" data-i18n="tabs.reports"></button>
-  <button id="chatTab" type="button" role="tab" aria-controls="chatView" aria-selected="false" tabindex="-1" data-i18n="tabs.chat"></button>
 </nav>
 <div id="reportsView" role="tabpanel" aria-labelledby="reportsTab">
 <main class="layout">
@@ -53,7 +53,7 @@
   <div id="sessionBox" class="hidden"><div class="notice good" data-i18n="login.verified"></div><button id="logoutBtn" class="secondary full session-logout" type="button" data-i18n="logout"></button></div>
   <div id="loginNotice" class="notice" role="status" data-i18n="login.prompt"></div>
   <div id="agentSection" class="hidden">
-    <div class="section-head"><h3 data-i18n="agents.title"></h3><span class="hint" id="listCount">0 / 13</span></div>
+    <div class="section-head"><h3 data-i18n="agents.title"></h3><span class="hint" id="listCount">0 / 0</span></div>
     <input id="search" class="search" type="search" data-i18n-placeholder="agents.search" data-i18n-aria-label="agents.searchLabel">
     <div id="agentList" class="agent-list"></div>
   </div>
@@ -106,11 +106,9 @@
   </div>
 </section>
 </div>
-<section id="chatView" class="hidden" role="tabpanel" aria-labelledby="chatTab"><div id="chatRoot"></div></section>
 <footer class="footer"><span data-i18n="footer.brand"></span><span data-i18n="footer.note"></span></footer>
 </div>
-<script src="/static/i18n.js?v=2.0.3" defer></script>
-<script src="/static/chat.js?v=1.5.1" defer></script>
-<script src="/static/app.js?v=2.0.4" defer></script>
+<script src="/static/i18n.js?v=2.1.0" defer></script>
+<script src="/static/app.js?v=2.1.0" defer></script>
 </body>
 </html>

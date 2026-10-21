@@ -208,7 +208,7 @@
     }catch(_){return null;}
   }
   const isNewsDataReport=data=>data?.provider==="newsdata" && data.agent_id==="iran-news";
-  const NEWSDATA_RESULT_LIMIT=20;
+  const NEWSDATA_RESULT_LIMIT=50;
   function newsDataResultsBefore(data){
     const p=data?.pagination || {};
     if(Number.isSafeInteger(p.results_before_page) && p.results_before_page>=0)return p.results_before_page;
@@ -264,6 +264,7 @@
     intro.append(newsElement("div","news-provider-badge","NewsData · iran war"),
       newsElement("h2","news-report-title",t("agent.iran-news.name")),
       newsElement("p","news-coverage",t("newsdata.window")));
+    if(data.coverage_window?.start&&data.coverage_window?.end)intro.append(newsElement("p","news-coverage",t("news.coverage",{range:localDate(data.coverage_window.start)+" – "+localDate(data.coverage_window.end)})));
     if(data.generated_at && Number.isFinite(Date.parse(data.generated_at)))intro.append(newsElement("p","news-prepared",t("news.prepared",{date:localDate(data.generated_at)})));
     intro.append(newsElement("p","news-count",t("newsdata.pageCount",{page:n(pagination.page_index || 1),count:n(items.length)})));
     intro.append(newsElement("p","news-result-limit",t("newsdata.limitNote")));
@@ -303,11 +304,11 @@
   function renderPublisherCoverage(coverage){
     const families=[...new Set(newsPublishers.map(([,publisher])=>publisher || "Al Jazeera"))];
     if(!Array.isArray(coverage) || coverage.length!==families.length) return null;
-    const count=value=>Number.isSafeInteger(value) && value>=0 && value<=20;
+    const count=value=>Number.isSafeInteger(value) && value>=0 && value<=50;
     if(coverage.some(row=>!row || typeof row!=="object" || Array.isArray(row)
       || !families.includes(row.publisher) || !count(row.item_count) || !count(row.background_count))
       || new Set(coverage.map(row=>row.publisher)).size!==families.length
-      || coverage.reduce((total,row)=>total+row.item_count+row.background_count,0)>20) return null;
+      || coverage.reduce((total,row)=>total+row.item_count+row.background_count,0)>50) return null;
     const details=newsElement("details","news-source-coverage");
     details.dir=I18n.getDirection();details.lang=I18n.getLanguage();
     details.append(newsElement("summary","",t("news.publisherCoverage")),
@@ -330,7 +331,7 @@
   function renderNewsReport(target,data){
     if(isNewsDataReport(data)){renderNewsDataReport(target,data);return;}
     const valid=item=>item && typeof item==="object" && !Array.isArray(item);
-    const items=data.items.filter(valid).slice(0,20), background=data.background_items.filter(valid).slice(0,20-items.length);
+    const items=data.items.filter(valid).slice(0,50), background=data.background_items.filter(valid).slice(0,50-items.length);
     target.replaceChildren();target.classList.add("news-reading");
     target.dir=data.language==="en" ? "ltr" : "rtl";target.lang=data.language==="en" ? "en" : "ar";
     const intro=newsElement("header","news-report-intro");intro.dir=I18n.getDirection();intro.lang=I18n.getLanguage();
@@ -346,7 +347,7 @@
       const warning=newsElement("p","news-coverage-note news-research-warning",t("news.researchIncomplete",{count:Number.isInteger(data.web_search.failed_request_count) ? n(data.web_search.failed_request_count) : "—"}));warning.dir=I18n.getDirection();target.append(warning);
     }
     if(requested!==null && items.length<requested){
-      const note=newsElement("p","news-coverage-note",t("news.shortfall",{count:n(requested-items.length)})+" "+t(requested>20 ? "news.ceiling" : "news.evidenceOnly"));note.dir=I18n.getDirection();target.append(note);
+      const note=newsElement("p","news-coverage-note",t("news.shortfall",{count:n(requested-items.length)})+" "+t(requested>50 ? "news.ceiling" : "news.evidenceOnly"));note.dir=I18n.getDirection();target.append(note);
     }
     if(items.length){const list=newsElement("div","news-list");items.forEach(item=>list.append(renderNewsItem(item,false)));target.append(list);}
     else{
@@ -422,12 +423,9 @@
     agents.forEach(agent=>{const option=newsElement("option","",agentName(agent.id));option.value=agent.id;$("scheduleAgent").append(option);});
     $("scheduleAgent").value=agents.some(agent=>agent.id===value) ? value : agents.some(agent=>agent.id==="geopolitical-morning") ? "geopolitical-morning" : agents[0]?.id || "";
   }
-  function showWorkspace(name){
-    if(name==="chat" && !authHeader)return;
-    activeWorkspace=name==="chat" ? "chat" : "reports";
-    $("reportsView").classList.toggle("hidden",activeWorkspace!=="reports");$("chatView").classList.toggle("hidden",activeWorkspace!=="chat");
-    for(const workspace of ["reports","chat"]){const tab=$(workspace+"Tab");tab.setAttribute("aria-selected",String(activeWorkspace===workspace));tab.tabIndex=activeWorkspace===workspace ? 0 : -1;}
-    if(activeWorkspace==="chat")chat?.refreshReportContext();
+  function showWorkspace(){
+    activeWorkspace="reports";$("reportsView").classList.remove("hidden");
+    $("reportsTab").setAttribute("aria-selected","true");$("reportsTab").tabIndex=0;
   }
   function refreshButtons(){
     $("loginBtn").textContent=t(loginBusy ? "login.checking" : "login.button");$("loginBtn").disabled=loginBusy;
@@ -670,7 +668,7 @@
     if(!authHeader || !latestReportId || !lastResult || $("responsePanel").classList.contains("hidden"))return null;
     return {id:latestReportId,title:agentName(lastResult.agent_id || selectedAgent?.id)};
   }
-  if(window.AIHubChat?.create)chat=window.AIHubChat.create({
+  if($("chatRoot")&&window.AIHubChat?.create)chat=window.AIHubChat.create({
     root:$("chatRoot"),request:apiJson,renderMarkdown,getLanguage:()=>I18n.getLanguage(),getCurrentReport,
     getSelectedAgent:()=>selectedAgent ? {id:selectedAgent.id,name:agentName(selectedAgent.id)} : null
   });
@@ -698,15 +696,7 @@
   $("languageEN").addEventListener("click",()=>I18n.setLanguage("en"));
   window.addEventListener("aihub:languagechange",refreshLanguage);
   window.addEventListener("aihub:chatupdated",()=>{if(authHeader)syncDashboard();});
-  for(const name of ["reports","chat"]){
-    const tab=$(name+"Tab");tab.addEventListener("click",()=>showWorkspace(name));
-    tab.addEventListener("keydown",event=>{
-      if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)){
-        event.preventDefault();const target=event.key==="Home" ? "reports" : event.key==="End" ? "chat" : activeWorkspace==="reports" ? "chat" : "reports";
-        showWorkspace(target);$(target+"Tab").focus();
-      }
-    });
-  }
+  $("reportsTab").addEventListener("click",showWorkspace);
   I18n.apply();refreshButtons();setNotice("loginNotice","login.prompt");
   fetchHealth();
 })();
