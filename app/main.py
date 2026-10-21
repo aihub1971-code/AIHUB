@@ -30,7 +30,7 @@ from app.service import execute_report
 from app.storage import StoreError, get_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-APP_VERSION = "2.1.4"
+APP_VERSION = "2.1.5"
 
 
 def runtime_is_ready() -> bool:

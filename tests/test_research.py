@@ -699,6 +699,77 @@ def test_failed_focused_stage_is_never_retried_or_sent_to_synthesis(monkeypatch)
     assert len(requests) == 2 and error.value.detail["code"] == "openai_rate_limited"
 
 
+@pytest.mark.parametrize("language", ["en", "ar"])
+@pytest.mark.parametrize("published", ["2025-06-30", None])
+def test_specific_factual_task_uses_official_background_without_a_fresh_only_followup(
+        monkeypatch, language, published):
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-test-key")
+    agent = "economic-cultural-briefing"
+    profile = get_profile(agent)
+    question = ("What is the European Central Bank's inflation target? Please answer briefly."
+                if language == "en" else "ما هدف التضخم لدى البنك المركزي الأوروبي؟ أجب باختصار.")
+    url = "https://www.ecb.europa.eu/test-fixture/monetary-policy-strategy"
+    title = "European Central Bank inflation target: synthetic policy fixture"
+    page = page_record(url=url, title=title, published=published, article_type="Report",
+        body="This synthetic official policy fixture explains the inflation target and its measurement. "
+             "It is established reference material, not a new development inside the news window.")
+    monkeypatch.setattr(research, "_download_page", lambda *a: page)
+    requests = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if payload["tools"]:
+            assert len(requests) == 1, "Useful task evidence must not trigger another fresh-news discovery."
+            prompt = payload["input"][0]["content"]
+            assert "SPECIFIC TASK DISCOVERY" in prompt and "CURRENT-NEWS DISCOVERY" not in prompt
+            assert json.loads(payload["input"][1]["content"])["topic"] == question
+            return httpx.Response(200, json=provider_response("Observed official policy background.",
+                native=[native_call(url=url)], annotations=[{"type": "url_citation", "url": url,
+                    "title": title, "start_index": 0, "end_index": 8}]))
+        supplied = json.loads(payload["input"][1]["content"])["sources"]
+        assert len(supplied) == 1 and supplied[0]["role"] == "background"
+        assert supplied[0]["published_at"] == published
+        assert supplied[0]["source_category"] == "official_statement"
+        assert "SPECIFIC TASK:" in payload["input"][0]["content"]
+        pack = structured_pack(profile, supplied, items=False)
+        for section in pack["sections"]:
+            section["body"] = ("تشرح الوثيقة الرسمية الخلفية هدف التضخم وقياسه. هذا دليل مرجعي ولا يمثل إعلاناً جديداً."
+                if language == "ar" else "The official background document explains the inflation target and its measurement. "
+                "This is reference evidence, not a new announcement.")
+        return httpx.Response(200, json=provider_response(json.dumps(pack, ensure_ascii=False)))
+
+    install_transport(monkeypatch, handler)
+    estimate = research._estimate_native_reservation(agent, question, language, research_window=WINDOW)
+    report = research._generate_native_report(agent, question, language, research_window=WINDOW)
+    assert len(requests) == 2 and estimate["max_model_calls"] == 3
+    assert sum(payload.get("max_tool_calls", 0) for payload in requests) <= estimate["max_native_actions"]
+    assert report["cost_tracking_complete"] is True
+    assert report["estimated_cost_usd"] <= estimate["estimated_cost_usd"]
+    assert report["status"] == "background_only" and report["items"] == []
+    assert report["sources"][0]["url"] == url and report["sources"][0]["published_at"] == published
+    assert report["sources"][0]["publisher_text_verified"] is True
+    assert all(section["source_ids"] == [report["sources"][0]["id"]] for section in report["sections"])
+    assert report["research_window"] == research._window(WINDOW)
+    assert not profile.get("allow_background") and not get_profile(agent).get("allow_background")
+
+
+@pytest.mark.parametrize("agent", ["iran-news", "geopolitical-morning", "economic-cultural-briefing"])
+def test_specific_task_background_policy_does_not_change_default_news_profiles(agent):
+    profile = get_profile(agent)
+    for language in ("en", "ar"):
+        default = profile["default_topic_" + language]
+        assert research._task_profile(profile, default) is profile
+    specific = research._task_profile(profile, "An independently requested factual question")
+    assert specific is not profile and specific["allow_background"] is True and specific["specific_task"] is True
+    assert not profile.get("allow_background") and not profile.get("specific_task")
+    payload = research._research_payload("gpt-6.1-sol", specific, "An independently requested factual question",
+        "en", research._window(WINDOW), 3, fresh_only=True)
+    prompt = payload["input"][0]["content"]
+    assert "FRESH FEED DISCOVERY" in prompt
+    assert "SPECIFIC TASK DISCOVERY" not in prompt and "BACKGROUND EVIDENCE" not in prompt
+
+
 def test_focused_feedback_trims_to_reserved_payload_without_changing_window():
     feedback = {"excluded_source_counts": {"outside_window": 24}, "previous_queries": ["q" * 400] * 6,
         "inspected_urls": ["https://publisher.example/" + "x" * 1400 + str(index) for index in range(8)]}

@@ -34,6 +34,28 @@ def reserve_report(store, amount=".1", **kwargs):
     return store.reserve_run("iran-news", "Synthetic report task", amount, **kwargs)
 
 
+def test_internal_evidence_notice_is_zero_cost_without_relaxing_paid_reservations(store):
+    cid = conversation(store)
+    with pytest.raises(StoreError, match="positive upfront"):
+        reserve_chat(store, cid, amount="0")
+    for provider, model, amount in [("openai", "evidence_notice", "0"), ("local", "paid_model", "0"),
+                                    ("local", "evidence_notice", ".1")]:
+        with pytest.raises(StoreError) as error:
+            store.reserve_chat_turn(cid, "owner", "Synthetic question", "en", amount,
+                idempotency_key="local-notice", expected_sequence=0,
+                provider=provider, model=model, local_response=True)
+        assert error.value.code == "invalid_cost_configuration"
+    reservation = store.reserve_chat_turn(cid, "owner", "Synthetic question", "en", "0",
+        idempotency_key="local-notice", expected_sequence=0,
+        provider="local", model="evidence_notice", local_response=True)
+    record = store.finish_chat_turn(reservation.turn["turn_id"], "No supported answer was retrieved.",
+        estimated_cost_usd="0", cost_tracking_complete=True,
+        usage={"input_tokens": 0, "output_tokens": 0, "usage_reported": True})
+    assert record["status"] == "succeeded" and record["estimated_cost_usd"] == 0
+    assert store.usage_summary()["daily"]["chat_estimated_cost_usd"] == 0
+    assert len(store.get_chat_conversation(cid, "owner")["messages"]) == 2
+
+
 def test_fifty_reports_does_not_prevent_chat_or_add_to_report_archive(store):
     for _ in range(50):
         report = reserve_report(store, ".001")

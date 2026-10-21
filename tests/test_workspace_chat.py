@@ -51,7 +51,7 @@ def send(client, conversation_id, message="Explain the assessment", *, key="ques
                        json={"message": message, "language": "en", **body})
 
 
-def complete_job(state, job_id, *, label="saved", pdf_failed=False):
+def complete_job(state, job_id, *, label="saved", pdf_failed=False, no_evidence=False):
     reports = state["reports"]
     job = reports.claim("fixture-worker", concurrency=2)
     assert job is not None and job["job_id"] == job_id
@@ -61,6 +61,13 @@ def complete_job(state, job_id, *, label="saved", pdf_failed=False):
     result["sections"][0].update(id="executive_summary", body=f"Synthetic {label} finding; not live research.")
     result["sources"][0].update(url=f"https://fixture.example/{label}", excerpt=f"Synthetic {label} source evidence.")
     result["citation_mappings"]["s1"]["url"] = f"https://fixture.example/{label}"
+    if no_evidence:
+        # Mirror a completed empty result that still has an unused bibliography
+        # entry. A source list alone must not authorize a researched answer.
+        result["status"] = "no_evidence"
+        result["items"] = []
+        result["sections"] = [{"id": "executive_summary", "title": "Executive summary",
+                               "body": "No relevant evidence was retrieved.", "source_ids": []}]
     result.update(api_key="private-result-sentinel", _research_provenance={"text": "private-research-sentinel"})
     reports.base_store.finish_run(report_id, result, estimated_cost_usd=".01", cost_tracking_complete=True)
     saved = reports.save_report(job_id, job["lease_token"], report_id, result)
@@ -513,6 +520,50 @@ def test_unavailable_current_report_enqueues_main_domain_research_without_paid_a
     assert response.json()["agent_id"] == "education-observatory"
     assert response.json()["job"]["agent_id"] == "education-observatory"
     assert not provider["calls"]
+
+
+@pytest.mark.parametrize("language", ["en", "ar"])
+def test_fresh_empty_research_returns_persisted_free_notice_without_a_provider_call(
+        discussion, provider, monkeypatch, language):
+    client, cid = discussion["client"], conversation(discussion["client"])
+    question = "What is the European Central Bank's inflation target?"
+    first = send(client, cid, question, agent_id="economic-cultural-briefing", language=language)
+    assert first.status_code == 202
+    job = first.json()["job"]
+    saved = complete_job(discussion, job["job_id"], label="unrelated-metadata", no_evidence=True)
+    monkeypatch.delenv("OPENAI_API_KEY")
+    response = send(client, cid, question, agent_id="economic-cultural-briefing", language=language,
+                    fresh_job_id=job["job_id"])
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["context"]["fresh_research"] is True
+    assert body["context"]["report_id"] == saved["report_id"]
+    assert ("couldn't verify" if language == "en" else "لم أتمكن من التحقق") in body["message"]["content"]
+    assert "2%" not in body["message"]["content"] and "fixture.example" not in body["message"]["content"]
+    replay = send(client, cid, question, agent_id="economic-cultural-briefing", language=language,
+                  fresh_job_id=job["job_id"])
+    assert replay.status_code == 200 and replay.json()["idempotency_replayed"] is True
+    assert replay.json()["message"] == body["message"]
+    assert provider["calls"] == []
+    assert discussion["database"].usage_summary()["daily"]["chat_estimated_cost_usd"] == 0
+    assert len(discussion["database"].get_chat_conversation(cid, discussion["owner"])["messages"]) == 2
+    assert_workspace_public(body)
+
+
+@pytest.mark.parametrize("cited", [False, True])
+def test_fresh_answer_needs_a_citation_to_supported_retrieved_evidence(discussion, provider, cited):
+    client, cid = discussion["client"], conversation(discussion["client"])
+    question = "What is happening in Iran now?"
+    first = send(client, cid, question, agent_id=IRAN)
+    job = first.json()["job"]
+    complete_job(discussion, job["job_id"], label="fresh-support")
+    provider["answer"] = "A synthetic factual finding." + (
+        " [Source](https://fixture.example/fresh-support)" if cited else "")
+    response = send(client, cid, question, agent_id=IRAN, fresh_job_id=job["job_id"])
+    assert response.status_code == 200, response.text
+    content = response.json()["message"]["content"]
+    assert content == provider["answer"] if cited else "couldn't verify" in content
+    assert len(provider["calls"]) == 1
 
 
 def test_failed_fresh_job_keeps_previous_report_and_never_retries_research_or_answer(discussion, provider):

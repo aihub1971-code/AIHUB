@@ -286,6 +286,9 @@ def _build_chat_payload(model: str, message: str, language: str, snapshot: dict[
             "and research cutoff. Newer reports do not overwrite older ones. If fresh_research is true, the server "
             "has just completed a separate live research job; explain its NEW cutoff and compare it with the older "
             "snapshot where supplied. A saved report alone is not evidence of what happened after its cutoff. "
+            "When fresh_research is true, ground the answer in the newly retrieved evidence and include at least one "
+            "supporting source URL listed in fresh_evidence_source_urls. An unrelated bibliography entry is not evidence "
+            "for the question. Do not fill missing fresh evidence with remembered facts, even if they seem familiar. "
             "You have no callable tools in this answer step: never invent a search, a PDF, an external action or "
             "an available report. Missing evidence or zero accepted items means limited verification, not proof "
             "that nothing happened. Separate reported facts, attributed claims, analysis and conditional scenarios. "
@@ -388,6 +391,60 @@ def _chat_replay(record: dict[str, Any], database: Store, owner_id: str) -> dict
     })
 
 
+def evidence_limitation_message(language: str) -> str:
+    return ("لم أتمكن من التحقق من إجابة هذا السؤال من المصادر التي جرى العثور عليها. "
+            "لذلك لا يمكنني تأكيد الإجابة استنادًا إلى محاولة البحث هذه." if language == "ar" else
+            "I couldn't verify an answer to this question from the retrieved sources. "
+            "This research attempt does not establish the answer.")
+
+
+def execute_evidence_notice(conversation_id: str, message: str, language: str, *,
+                            owner_id: str, idempotency_key: str, report_id: str | None,
+                            store: Store, workspace_context: dict[str, Any]) -> dict[str, Any]:
+    """Persist an honest, free server reply when research supplied no evidence."""
+    database = store
+    turn_id = None
+    try:
+        database.recover_stale_runs()
+        previous = database.lookup_chat_idempotency(conversation_id, owner_id, idempotency_key,
+                                                    message, language, report_id, True)
+        if previous:
+            return _chat_replay(previous, database, owner_id)
+        snapshot = database.chat_snapshot(conversation_id, owner_id, history_messages=0)
+        context = {"report_id": report_id, "history_messages_included": 0, "history_truncated": False,
+                   "report_truncated": bool(workspace_context.get("truncated"))}
+        context.update({key: workspace_context.get(key) for key in
+                        ("report_ids", "agent_ids", "research_cutoffs", "fresh_research")})
+        reservation = database.reserve_chat_turn(conversation_id, owner_id, message, language, "0",
+            idempotency_key=idempotency_key, expected_sequence=snapshot["history_version"],
+            report_id=report_id, report_selected=True, provider="local", model="evidence_notice",
+            pricing_snapshot={"max_model_calls": 0, "max_web_search_calls": 0,
+                              "pricing_basis": "server_generated_evidence_notice"},
+            context=context, local_response=True)
+        if not reservation.created:
+            return _chat_replay(reservation.turn, database, owner_id)
+        turn_id = reservation.turn["turn_id"]
+        record = database.finish_chat_turn(turn_id, evidence_limitation_message(language),
+            estimated_cost_usd="0", cost_tracking_complete=True,
+            usage={"input_tokens": 0, "output_tokens": 0, "usage_reported": True})
+        return _chat_response(record, database, owner_id)
+    except StoreError as error:
+        if turn_id:
+            database.fail_chat_turn(turn_id, error.code)
+        raise _http_store_error(error) from None
+
+
+def _grounded_workspace_answer(content: str, language: str, context: dict[str, Any]) -> str:
+    from app.workspace_chat import validate_answer_links
+    try:
+        validate_answer_links(content, context)
+    except HTTPException as error:
+        if isinstance(error.detail, dict) and error.detail.get("code") == "chat_evidence_missing":
+            return evidence_limitation_message(language)
+        raise
+    return content
+
+
 def execute_chat_message(conversation_id: str, message: str, language: str = "ar", *,
                          owner_id: str = "owner", idempotency_key: str,
                          report_id: str | None = None, report_selected: bool = False,
@@ -430,8 +487,7 @@ def execute_chat_message(conversation_id: str, message: str, language: str = "ar
         if workspace_context is not None:
             # The trusted caller has resolved every report through owner-scoped
             # reads. Validate source links before saving the completed answer.
-            from app.workspace_chat import validate_answer_links
-            validate_answer_links(response["content"], workspace_context)
+            response["content"] = _grounded_workspace_answer(response["content"], language, workspace_context)
         usage = response["usage"]
         complete = bool(usage.get("usage_reported") and response["tier_matches"] and response["usage_bound_matches"])
         actual = None
@@ -587,8 +643,7 @@ def stream_chat_message(conversation_id: str, message: str, language: str = "ar"
         if response is None:
             raise HTTPException(502, detail={"code": "stream_interrupted"})
         if workspace_context is not None:
-            from app.workspace_chat import validate_answer_links
-            validate_answer_links(response["content"], workspace_context)
+            response["content"] = _grounded_workspace_answer(response["content"], language, workspace_context)
         usage = response["usage"]
         complete = bool(usage.get("usage_reported") and response["tier_matches"] and response["usage_bound_matches"])
         actual = None

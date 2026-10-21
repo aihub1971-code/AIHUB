@@ -437,7 +437,7 @@ def _scoped_report(record: dict[str, Any], message: str) -> dict[str, Any]:
     value = record["result"]
     query = _tokens(message)
     context = {key: record.get(key) for key in ("report_id", "agent_id", "topic", "language", "created_at", "generation_seq")}
-    context.update(title=value.get("title"), kind=value.get("kind"), research_window=value.get("research_window"),
+    context.update(title=value.get("title"), kind=value.get("kind"), status=value.get("status"), research_window=value.get("research_window"),
                    limitations=value.get("limitations", [])[:8], sections=[], items=[], sources=[], truncated=False)
     sections = [section for section in value.get("sections", []) if isinstance(section, dict)]
     sections.sort(key=lambda section: -_section_score(section, query, message))
@@ -508,6 +508,9 @@ def build_context(reports: ReportStore, owner_id: str, plan: dict[str, Any], mes
         "fresh_research": bool(plan["fresh"]), "reports": snapshots,
         "truncated": any(value["truncated"] for value in snapshots),
         "evidence_note": "Only this visitor's selected dated reports. Older references are not fresh developments."}
+    if context["fresh_research"]:
+        context["fresh_evidence_source_urls"] = sorted(_fresh_supporting_sources(context))
+        context["fresh_evidence_available"] = bool(context["fresh_evidence_source_urls"])
     if shared:
         context["shared_memory"] = shared
         # The evidence budget already bounds each report. Prefer the current
@@ -523,8 +526,21 @@ def build_context(reports: ReportStore, owner_id: str, plan: dict[str, Any], mes
     return context
 
 
+def _fresh_supporting_sources(context: dict[str, Any]) -> set[str]:
+    """A bibliography alone cannot support an answer to the fresh question."""
+    report = next((item for item in context.get("reports", [])
+                   if item.get("report_id") == context.get("report_id")), None)
+    if not report or report.get("status") in {"no_evidence", "awaiting_input"}:
+        return set()
+    cited_ids = {source_id for block in report.get("sections", []) + report.get("items", [])
+                 for source_id in block.get("source_ids", [])}
+    return {url for source in report.get("sources", []) if source.get("id") in cited_ids
+            if (url := runtime._safe_source_url(source.get("url")))}
+
+
 def validate_answer_links(answer: str, context: dict[str, Any]) -> None:
     allowed = {source["url"] for report in context.get("reports", []) for source in report.get("sources", []) if source.get("url")}
+    cited_urls = set()
     for destination in _MARKDOWN_DESTINATION.findall(answer):
         if not destination.lower().startswith(("https://", "http://")):
             raise HTTPException(502, detail={"code": "chat_source_mismatch", "message": "The answer contained an unverified source link."})
@@ -537,8 +553,13 @@ def validate_answer_links(answer: str, context: dict[str, Any]) -> None:
             if not candidates[-1] or candidates[-1][-1] not in ".,;:!?،؛)]}":
                 break
             candidates.append(candidates[-1][:-1])
-        if not any(runtime._safe_source_url(candidate) in allowed for candidate in candidates):
+        matched = next((url for candidate in candidates if (url := runtime._safe_source_url(candidate)) in allowed), None)
+        if not matched:
             raise HTTPException(502, detail={"code": "chat_source_mismatch", "message": "The answer contained an unverified source link."})
+        cited_urls.add(matched)
+    if context.get("fresh_research") and not (cited_urls & _fresh_supporting_sources(context)):
+        raise HTTPException(502, detail={"code": "chat_evidence_missing",
+            "message": "The fresh answer did not cite evidence supporting this research question."})
 
 
 def platform_context() -> dict[str, Any]:
@@ -676,6 +697,15 @@ def _answer(conversation_id: str, body: WorkspaceMessage, request: Request, key:
             report_id=answer_report_id, report_selected=True,
             store=public._SessionStore(database, session_id) if session_id else database,
             platform_context=platform_context(), workspace_context=context)
+        if context.get("fresh_research") and not context.get("fresh_evidence_available"):
+            result = response_view(chat.execute_evidence_notice(conversation_id, body.message, body.language,
+                owner_id=owner_id, idempotency_key=kwargs["idempotency_key"],
+                report_id=answer_report_id, store=kwargs["store"], workspace_context=context))
+            if not stream:
+                return result
+            return StreamingResponse(iter(["event: complete\ndata: " + _dump(result) + "\n\n"]),
+                media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no",
+                                                        "X-Content-Type-Options": "nosniff"})
         if not stream:
             return response_view(chat.execute_chat_message(conversation_id, body.message, body.language, **kwargs))
         def events():
