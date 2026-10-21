@@ -23,3 +23,11 @@ Live acceptance of an ordinary factual question exposed two report-processing fa
 The follow-up correction aligns the generation schema and writing instructions with the existing citation validator. When retrieved sources exist, required sourced sections must identify their supporting evidence. Empty-source and original-creative cases retain their own rules; unsupported factual claims remain unacceptable.
 
 The fallback reuses the NewsData inventory already fetched and keeps progress at analysis once analysis has begun. The durable job's stage guards remain intact. The original web-research failure remains visible in retrieval diagnostics, and uncertain provider charges retain their conservative reservation. This change introduces no automatic provider retry.
+
+## 2.1.5 — task evidence and honest chat answers
+
+The next live acceptance completed its job and PDF, but the answer was unsupported by the retrieved report. An ordinary European Central Bank question had inherited a news-only profile: older and undated official documents were excluded, while generic request words let an unrelated NewsData article match the task. The answer step then returned a correct remembered fact without a citation. That completed request was not accepted as a successful sourced answer.
+
+Specific research tasks now admit inspected background references with explicit dates or an undated label, while default news discovery keeps its original twelve-hour policy. Reservation estimates and execution use the same effective task profile. Task discovery prioritizes evidence answering the question; useful background can avoid an unnecessary second discovery stage. Fresh-news timestamp rules and provider action ceilings remain unchanged.
+
+NewsData task matching ignores common instructions such as “answer briefly” and preserves meaningful subject acronyms. Fresh-research chat uses sources supporting the report content and requires citations. If the report has no supported content, the chat gives a clear bilingual retrieval-limitation response instead of filling the gap from model memory. These changes retain the established conversation ownership, streaming, idempotency and cost controls.

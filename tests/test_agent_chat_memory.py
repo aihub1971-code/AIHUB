@@ -249,6 +249,44 @@ def test_current_question_queues_research_then_streams_same_owned_snapshot(discu
     assert len(discussion["reports"].list_jobs(discussion["owner"])) == 1
 
 
+@pytest.mark.parametrize("language", ["en", "ar"])
+def test_empty_fresh_research_streams_persisted_notice_without_model_deltas(
+        discussion, streaming_provider, monkeypatch, language):
+    client = discussion["client"]
+    thread = agent_thread(client, "iran-news", language=language)
+    question = "What is happening in Iran now?"
+    first = send_stream(client, thread["conversation_id"], question, agent_id="iran-news", language=language)
+    assert first.status_code == 202
+    job = first.json()["job"]
+    complete_job(discussion, job["job_id"], label="unused-feed-source", no_evidence=True)
+    monkeypatch.delenv("OPENAI_API_KEY")
+    response = send_stream(client, thread["conversation_id"], question, agent_id="iran-news", language=language,
+                           fresh_job_id=job["job_id"])
+    received = events(response)
+    assert [event for event, _ in received] == ["complete"]
+    content = received[0][1]["message"]["content"]
+    assert ("couldn't verify" if language == "en" else "لم أتمكن من التحقق") in content
+    replay = send_stream(client, thread["conversation_id"], question, agent_id="iran-news", language=language,
+                         fresh_job_id=job["job_id"])
+    assert events(replay)[-1][1]["idempotency_replayed"] is True
+    assert streaming_provider["requests"] == []
+    assert discussion["database"].usage_summary()["daily"]["chat_estimated_cost_usd"] == 0
+
+
+def test_uncited_fresh_stream_is_saved_as_a_limitation_not_as_a_researched_fact(discussion, streaming_provider):
+    client = discussion["client"]
+    thread = agent_thread(client, "iran-news")
+    question = "What is happening in Iran now?"
+    first = send_stream(client, thread["conversation_id"], question, agent_id="iran-news")
+    job = first.json()["job"]
+    complete_job(discussion, job["job_id"], label="fresh-evidence")
+    response = send_stream(client, thread["conversation_id"], question, agent_id="iran-news", fresh_job_id=job["job_id"])
+    final = events(response)[-1]
+    assert final[0] == "complete" and "couldn't verify" in final[1]["message"]["content"]
+    saved = discussion["database"].get_chat_conversation(thread["conversation_id"], discussion["owner"])
+    assert saved["messages"][-1]["content"] == final[1]["message"]["content"]
+
+
 def test_owner_workspace_requires_auth_and_keeps_public_threads_separate(client, streaming_provider):
     assert client.get("/v1/workspace/agents/ubi-research/conversation", auth=None).status_code == 401
     owner = client.get("/v1/workspace/agents/ubi-research/conversation?language=en").json()

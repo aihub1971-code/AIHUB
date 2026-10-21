@@ -888,6 +888,31 @@ def test_report_custom_topic_filters_do_not_pollute_or_publish_shared_query(monk
     assert public["actual_count"] == 2 and "private-company-secret" not in json.dumps(public)
 
 
+@pytest.mark.parametrize("topic,headline,summary", [
+    ("What is the European Central Bank's inflation target? Please answer briefly.",
+     "Clairol marks an anniversary with a documentary film",
+     "Longtime users answer the question asked by the brand."),
+    ("Tell me about ECB. Please answer briefly.",
+     "A documentary celebrates a film anniversary", "Creators explain their answer to a question."),
+    ("ما هو هدف التضخم لدى البنك المركزي الأوروبي؟ أجب باختصار.",
+     "فيلم وثائقي عن علامة تجارية", "تقدم الشركة الإجابة عن السؤال باختصار."),
+])
+def test_task_instructions_do_not_qualify_unrelated_news(topic, headline, summary):
+    item = {"original_headline": headline, "original_summary": summary}
+    assert not news_feed._topic_matches(item, topic, "economic-cultural-briefing")
+
+
+@pytest.mark.parametrize("topic,headline", [
+    ("What is the European Central Bank's inflation target? Please answer briefly.", "European Central Bank inflation strategy"),
+    ("Tell me about ECB. Please answer briefly.", "ECB monetary policy strategy"),
+    ("Explain EU trade policy", "EU publishes trade policy document"),
+    ("ما هو هدف التضخم لدى البنك المركزي الأوروبي؟ أجب باختصار.", "البنك المركزي الأوروبي يشرح هدف التضخم"),
+])
+def test_task_filter_preserves_subjects_and_short_acronyms(topic, headline):
+    item = {"original_headline": headline, "original_summary": ""}
+    assert news_feed._topic_matches(item, topic, "economic-cultural-briefing")
+
+
 def test_budgeted_report_translations_cache_only_known_safe_prose(monkeypatch, database):
     mock_http(monkeypatch, lambda request: httpx.Response(200, json=page([article(1), article(2, description="")])) )
     before = refresh(database)

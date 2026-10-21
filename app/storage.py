@@ -1095,7 +1095,7 @@ class Store:
                           reservation_usd: Any, *, idempotency_key: str, expected_sequence: int,
                           report_id: str | None = None, report_selected: bool = False,
                           provider: str = "", model: str = "", pricing_snapshot: dict[str, Any] | None = None,
-                          context: dict[str, Any] | None = None) -> ChatReservation:
+                          context: dict[str, Any] | None = None, local_response: bool = False) -> ChatReservation:
         self._validate_key(idempotency_key)
         if idempotency_key is None:
             raise StoreError("invalid_idempotency_key", "Idempotency-Key is required for chat messages.", 422)
@@ -1103,7 +1103,10 @@ class Store:
             raise StoreError("invalid_chat_message", "Message must contain 1 to 8000 characters.", 422)
         fingerprint = self._chat_fingerprint(message, language, report_id, report_selected)
         reservation = _micros(reservation_usd)
-        if reservation <= 0:
+        local_notice = local_response is True and provider == "local" and model == "evidence_notice"
+        if local_response and (not local_notice or reservation != 0):
+            raise StoreError("invalid_cost_configuration", "A local evidence notice must have zero provider cost.", 503)
+        if reservation <= 0 and not local_notice:
             raise StoreError("invalid_cost_configuration", "A positive upfront cost reservation is required.", 503)
         limits, moment = self.limits, self._now()
         timestamp, local_date = _stamp(moment), moment.astimezone(DUBAI).date().isoformat()

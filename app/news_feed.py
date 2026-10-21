@@ -1288,9 +1288,19 @@ def _topic_matches(item: dict[str, Any], topic: str, agent_id: str) -> bool:
     profile = get_profile(agent_id)
     if not topic.strip() or topic.strip() in {profile["default_topic_ar"], profile["default_topic_en"]}:
         return True
+    # Task wording is not subject evidence: an article saying "answer the
+    # question" must not match a request to answer a central-bank question.
     ignored = {"about", "latest", "news", "with", "from", "this", "that", "what", "please", "report", "briefing",
-               "give", "today", "analysis", "أخبار", "اخبار", "تقرير", "اليوم", "أحدث", "احدث", "حول", "تحليل"}
-    terms = [term for term in re.findall(r"[\w\u0600-\u06ff]+", topic.casefold()) if len(term) >= 4 and term not in ignored]
+               "give", "today", "analysis", "answer", "answers", "question", "questions", "briefly", "brief",
+               "explain", "explanation", "tell", "describe", "summarize", "summary", "details", "detail",
+               "could", "would", "should", "does", "have", "your", "which", "where", "when", "research",
+               "the", "and", "for", "how", "why", "can", "you", "are", "was", "has", "its",
+               "أخبار", "اخبار", "تقرير", "اليوم", "أحدث", "احدث", "حول", "تحليل", "أجب", "اجب",
+               "الإجابة", "الاجابة", "السؤال", "بإيجاز", "باختصار", "اشرح", "وضح", "يرجى", "أخبرني", "اخبرني",
+               "فضلا", "فضلاً", "رجاء", "رجاءً", "كيف", "ماذا", "لماذا", "التي", "الذي", "لدى", "هذا", "هذه"}
+    short_subjects = {value.casefold() for value in re.findall(r"\b[A-Z]{2}\b", topic)}
+    terms = [term for term in re.findall(r"[^\W_]+", topic.casefold())
+             if (len(term) >= 3 or term in short_subjects) and term not in ignored]
     if not terms:
         return True
     return _contains(item["original_headline"] + " " + item["original_summary"], terms[:30])
