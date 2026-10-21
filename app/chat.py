@@ -262,7 +262,7 @@ def _build_chat_payload(model: str, message: str, language: str, snapshot: dict[
         "it instead of pretending to remember. "
         + ("Explain only the public interface; no administration or private operational information is available.\n"
            if platform.get("audience") == "public" else
-           "USD figures are app estimates shared by reports and chat, not provider invoices; chat does not consume the daily report-attempt quota.\n")
+           "USD figures are app estimates shared by reports and chat, not provider invoices. Ordinary local conversation does not consume the daily research-attempt allowance; a new web-research chat turn consumes one shared research attempt.\n")
         +
         "PLATFORM_FACTS_JSON:\n" + _json(platform)
     )
