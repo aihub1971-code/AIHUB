@@ -30,7 +30,7 @@ def test_failed_attempts_count_toward_fifty_report_limit(store):
     for _ in range(50):
         attempt = reserve(store)
         store.fail_run(attempt.report["report_id"], "provider_timeout")
-    with pytest.raises(StoreError, match="daily report attempt") as error:
+    with pytest.raises(StoreError, match="daily research attempt") as error:
         reserve(store)
     assert error.value.code == "daily_report_limit"
     summary = store.usage_summary()

@@ -116,14 +116,36 @@ def test_references_keep_publication_precision_without_fresh_news_label(monkeypa
     assert result["web_search"]["request_count"] == 1
 
 
-def test_chat_reference_mode_does_not_relax_report_relevance_or_timestamp_guards():
+def test_chat_reference_mode_does_not_relax_report_article_page_guard():
     page = page_record(URL, TITLE, published="2010-03-04T10:30:00Z")
     common = (source_record(URL, TITLE), page, get_profile("iran-news"), QUESTION, research._window(cutoff=NOW))
+    # The shared reference URL deliberately has an /archive/ path, which is
+    # unsuitable for a news article even when the page carries article markup.
+    assert research._verify_page(*common)[1] == "non_article_page"
+    assert research._verify_page(*common, reference_mode=True)[0]["role"] == "reference"
+
+
+def test_chat_reference_mode_does_not_relax_report_relevance_or_timestamp_guards():
+    # Use an eligible article path so the news checks reach relevance and time.
+    url = "https://original-study.example/articles/lunar-geology"
+    profile, window = get_profile("iran-news"), research._window(cutoff=NOW)
+    page = page_record(url, TITLE, published="2010-03-04T10:30:00Z")
+    common = (source_record(url, TITLE), page, profile, QUESTION, window)
     assert research._verify_page(*common)[1] == "irrelevant"
     assert research._verify_page(*common, reference_mode=True)[0]["role"] == "reference"
-    future = page_record(URL, TITLE, published="2026-10-22T10:00:00Z")
-    assert research._verify_page(source_record(URL, TITLE), future, get_profile("iran-news"),
-        QUESTION, research._window(cutoff=NOW), reference_mode=True)[1] == "future_publication"
+
+    title = "Iran and US announce a new round of nuclear diplomacy"
+    page = page_record(url, title, published="2010-03-04T10:30:00Z")
+    common = (source_record(url, title), page, profile, "Iran US conflict", window)
+    assert research._verify_page(*common)[1] == "outside_window"
+    reference, rejected = research._verify_page(*common, reference_mode=True)
+    assert rejected is None and reference["role"] == "reference"
+    assert reference["published_at"] == "2010-03-04T10:30:00+00:00"
+
+    future = page_record(url, title, published="2026-10-22T10:00:00Z")
+    for reference_mode in (False, True):
+        assert research._verify_page(source_record(url, title), future, profile,
+            "Iran US conflict", window, reference_mode=reference_mode)[1] == "future_publication"
 
 
 def test_date_only_conflicts_are_not_promoted_to_a_precise_reference_date():
