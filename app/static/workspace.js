@@ -8,7 +8,10 @@
     coverageNote:["تُحدّث الأخبار عند طلبك، وتُعد التقارير عند الطلب. يُعرض حتى 50 خبر منشور خلال آخر 12 ساعة بعد التحقق وإزالة التكرار؛ وقد تقلّ النتائج بحسب المصادر المتاحة.","News refreshes when you request it; analysis reports are generated on demand. Up to 50 articles published within the last 12 hours appear after checks and deduplication; available sources may yield fewer."],
     liveNews:["الأخبار المباشرة","Live news"],newsTopic:["مجال الأخبار","News topic"],refreshNews:["تحديث الأخبار","Refresh news"],
     newsFresh:["محدّثة","Fresh"],newsCached:["نسخة محفوظة","Cached"],newsLoading:["جارٍ تحديث الأخبار","Refreshing news"],newsReading:["جارٍ تحميل الأخبار المحفوظة","Loading saved news"],newsEmpty:["لا أخبار مستوفية للشروط","No qualifying articles"],newsProviderError:["تعذر تحديث الأخبار","News refresh failed"],
-    newsLastSuccess:["آخر تحديث ناجح","Last successful refresh"],newsNeverUpdated:["لم يكتمل تحديث ناجح بعد","No successful refresh yet"],newsManual:["تحديث يدوي · اضغط تحديث الأخبار لجلب أخبار جديدة. فتح الصفحة يعرض الأخبار المحفوظة.","Manual refresh · Select Refresh news to fetch new articles. Opening this page displays saved news."],
+    newsSubmitting:["جارٍ إرسال طلب التحديث","Submitting news refresh"],newsSubmittingNote:["يجري إرسال طلبك. تبقى الأخبار المحفوظة متاحة أثناء انتظار تأكيده.","Sending your request. Saved articles remain available while its acceptance is confirmed."],
+    newsQueued:["قُبل التحديث · بانتظار البدء","Refresh accepted · queued"],newsQueuedNote:["طلب التحديث محفوظ وينتظر بدء التنفيذ. تُعرض حالته هنا دون إرسال طلب تحديث آخر.","Your refresh request is saved and waiting to start. Its status is checked here without submitting another refresh."],newsJoined:["تتابع طلب التحديث الجاري لهذا الوكيل.","You are following this agent's existing refresh request."],requestAcceptedAt:["وقت قبول الطلب","Request accepted"],queuePosition:["الترتيب في قائمة الانتظار: {n}","Queue position: {n}"],
+    newsDataCooling:["طلبات NewsData متوقفة حتى انتهاء مهلة المزود؛ لا يزال بإمكانك تحديث الأخبار يدويًا عبر بحث الويب.","NewsData requests are paused for the provider's cooldown; you can still refresh manually through web search."],newsDataRetryAfter:["يمكن طلب NewsData مجددًا بعد {n} ثانية.","NewsData can be requested again in {n} seconds."],newsQueuedWebNote:["قُبل طلبك لاستخدام بحث الويب، وهو ينتظر بدء التنفيذ. لا يُرسل طلب جديد إلى NewsData أثناء مهلته.","Your web-search refresh is accepted and waiting to start. No new NewsData request is sent during its cooldown."],newsWebLoading:["جارٍ تحديث الأخبار عبر بحث الويب","Refreshing news with web search"],newsWebLoadingNote:["يجري بحث الويب وفحص صفحات الناشرين وأوقات النشر. تبقى الأخبار المحفوظة متاحة حتى اكتمال التحديث.","Searching the web and checking publisher pages and publication times. Saved articles remain available until the refresh completes."],
+    newsLastSuccess:["آخر تحديث ناجح","Last successful refresh"],newsLastCheck:["بدأ آخر تحقق","Last check started"],newsNeverUpdated:["لم يكتمل تحديث ناجح بعد","No successful refresh yet"],newsManual:["تحديث يدوي · اضغط تحديث الأخبار لجلب أخبار جديدة. فتح الصفحة يعرض الأخبار المحفوظة.","Manual refresh · Select Refresh news to fetch new articles. Opening this page displays saved news."],
     newsShowing:["{n} خبرًا من آخر 12 ساعة","{n} articles from the last 12 hours"],newsFetched:["{n} سجلًا جُلب من المصدر","{n} provider records fetched"],newsPublishers:["{n} جهة نشر","{n} publishers"],
     newsAll:["عرض جميع الأخبار ({n})","View all articles ({n})"],newsOriginal:["افتح المصدر الأصلي","Open original source"],newsPublished:["نُشر","Published"],
     newsLoadingNote:["يجري جلب الأخبار والتحقق من وقت نشرها. تبقى النسخة السابقة ظاهرة إن توفرت.","Fetching articles and checking publication times. The previous cache remains visible when available."],
@@ -17,7 +20,8 @@
     newsEmptyNote:["اكتمل فحص المصدر، ولم توجد أخبار بوقت نشر موثق داخل آخر 12 ساعة. لم تُضف مواد أقدم لاستكمال العدد.","The source check completed without articles with a verified publication time inside the last 12 hours. Older material was not added to fill the list."],
     newsStale:["آخر تحديث محفوظ قديم. لا نعرضه كتحديث مباشر، وتُستبعد المقالات التي تجاوز نشرها 12 ساعة.","The last successful refresh is stale. It is labelled as cached, and articles older than 12 hours are excluded."],
     newsPartial:["التغطية جزئية؛ تعرض القائمة الأخبار التي أمكن جلبها والتحقق منها.","Coverage is partial; the list contains the articles that could be retrieved and checked."],
-    newsPending:["يستغرق التحديث وقتًا أطول. يمكنك التحقق من حالته دون بدء طلب جديد.","The refresh is taking longer. Check its status without starting another request."],checkNews:["التحقق من التحديث","Check refresh status"],
+    newsPending:["يستغرق التحديث وقتًا أطول. يمكنك التحقق من حالته دون بدء طلب جديد.","The refresh is taking longer. Check its status without starting another request."],checkNews:["التحقق من التحديث","Check refresh status"],resumeQueuedNews:["متابعة التحديث المنتظر","Resume queued refresh"],
+    newsQueueFull:["قائمة انتظار تحديث الأخبار ممتلئة حاليًا. لم يُقبل هذا الطلب؛ اضغط تحديث الأخبار مجددًا بعد قليل.","The news refresh queue is currently full. This request was not accepted; select Refresh news again shortly."],newsQueueTimeout:["انتهت مهلة انتظار طلب التحديث قبل بدء التنفيذ. اضغط تحديث الأخبار لإرسال طلب جديد.","The refresh request exceeded its waiting time before work could start. Select Refresh news to submit a new request."],newsInterrupted:["توقفت محاولة تحديث الأخبار قبل اكتمالها. لم تبدأ إعادة محاولة تلقائية؛ اضغط تحديث الأخبار للمحاولة مجددًا.","The news refresh stopped before completion. No automatic retry was started; select Refresh news to try again."],
     newsSnapshotNote:["ملف الإحاطة وPDF يخصّان التقرير المحفوظ ووقت بحثه، وقد يختلفان عن تحديث الأخبار المباشرة.","The Briefing Pack and PDF reflect the saved report's research time, which may differ from the live feed's refresh time."],
     newsTranslationMissing:["يعرض النص بلغة المصدر؛ الترجمة إلى لغة الواجهة غير متاحة لهذا الخبر.","Shown in the source language; translation into the selected language is unavailable for this article."],
     newsNotConfigured:["مصدر الأخبار غير مهيأ حاليًا. يلزم أن يراجع المشرف إعداد الخدمة.","The news source is not configured. The service administrator needs to check its configuration."],
@@ -40,7 +44,7 @@
     retryAfter:["يمكن إعادة المحاولة بعد {n} ثانية","Retry after {n} seconds"],errorReference:["مرجع الخطأ","Error reference"],
     allAgents:["جميع الوكلاء","All agents"],chooseAgent:["اختر الوكيل","Choose an agent"],history:["التقارير المحفوظة","Saved reports"],
     discuss:["ناقش التقرير","Discuss report"],backToReading:["العودة للقراءة","Back to report"],
-    topicLabel:["تحديد الموضوع · اختياري","Refine the topic · optional"],generate:["إنشاء تقرير حديث","Generate fresh report"],
+    topicLabel:["تحديد الموضوع · اختياري","Refine the topic · optional"],generate:["إنشاء تقرير حديث","Generate fresh report"],viewProgress:["متابعة تقدم التقرير","View report progress"],requestTopic:["موضوع الطلب","Requested topic"],
     downloadPdf:["تنزيل PDF","Download PDF"],retryPdf:["إعادة تجهيز PDF","Retry PDF"],
     enterHint:["Enter للبدء · Shift + Enter لسطر جديد","Enter to start · Shift + Enter for a new line"],
     footer:["راجع المصادر الأصلية للمعلومات المهمة. الأخبار والتحليلات الآلية قد تكون غير مكتملة.","Review original sources for important information. Automated reporting and analysis can be incomplete."],
@@ -56,6 +60,7 @@
     reportFeedSnapshot:["وقت نسخة الأخبار المستخدمة في التقرير","News snapshot used for this report"],
     referenceNote:["مراجع تاريخية أو إبداعية؛ لا تُحسب أخبارًا حديثة.","Historical or creative references; not counted as fresh news."],
     queued:["بانتظار بدء البحث","Queued for research"],searching:["جارٍ البحث","Searching"],checking_sources:["التحقق من المصادر","Checking sources"],analyzing:["التحليل","Analyzing"],saving:["حفظ التقرير","Saving report"],preparing_pdf:["تجهيز PDF","Preparing PDF"],ready:["جاهز","Ready"],
+    reportQueued:["قُبل طلب التقرير · بانتظار البدء","Report request accepted · queued"],pdfQueued:["قُبل طلب تجهيز PDF · بانتظار البدء","PDF request accepted · queued"],queueWaiting:["طلبك محفوظ وينتظر بدء التنفيذ. يمكنك العودة لاحقًا لمتابعة تقدمه.","Your request is saved and waiting to start. You can return later to follow its progress."],reportJoined:["هذا الطلب قيد التنفيذ بالفعل؛ تتابع المهمة نفسها دون إنشاء تقرير مكرر.","This request is already in progress. You are following the same job without creating a duplicate report."],
     backgroundProgress:["يستمر إعداد التقرير حتى عند إغلاق الصفحة. يبقى التقرير السابق متاحًا بوقت إعداده الأصلي.","The report continues even if you close this page. Your previous report remains available with its original timestamp."],
     frozenCutoff:["حدّ التغطية المثبّت","Frozen research cutoff"],
     reportStarting:["مساحتك البحثية جاهزة","Your research workspace is open"],
@@ -87,12 +92,13 @@
     providerUnavailable:["مزود البحث غير متاح مؤقتًا. أعد المحاولة لاحقًا؛ تبقى التقارير المحفوظة متاحة.","The research provider is temporarily unavailable. Retry later; saved reports remain accessible."],
     progressFailure:["توقفت الخدمة أثناء تحديث حالة التقرير. لم تبدأ إعادة بحث تلقائية؛ بقي التقرير السابق محفوظًا إن وجد.","The service stopped while updating report progress. No automatic research retry was started; any previous report remains saved."],
     interrupted:["توقفت المهمة أثناء إعادة تشغيل الخدمة. لم يُعد البحث المدفوع تلقائيًا. ابدأ تقريرًا جديدًا للمتابعة.","The job was interrupted by a service restart. Research was not retried automatically. Start a new report to continue."],
+    reportRecoveryFailed:["تعذّر حفظ التقرير بعد محاولات الاستعادة. لم يُعَد البحث تلقائيًا. يمكنك إرسال طلب تقرير جديد للمحاولة مجددًا.","The report could not be saved after recovery attempts. Research was not repeated automatically. You can submit a new report request to try again."],
     pdfFailed:["التقرير محفوظ ويمكن قراءته. تعذر تجهيز PDF؛ أعد تجهيز الملف دون إعادة البحث.","Your report is saved and readable. PDF creation failed; retry the PDF without researching again."],
     dailyReportLimit:["تم بلوغ حدّ التقارير لهذا اليوم. يتجدد الحد عند منتصف الليل التالي، الساعة 00:00 بتوقيت دبي (UTC+04:00). تبقى التقارير المحفوظة وملفات PDF متاحة؛ إعادة المحاولة قبل ذلك لن تبدأ بحثًا جديدًا.","Today's report limit has been reached. It resets at the next midnight, 00:00 Dubai time (UTC+04:00). Saved reports and PDFs remain available; retrying before then will not start new research."],
     dailyUsageLimit:["بلغت الخدمة حدّ الاستخدام اليومي المتاح لهذا الطلب. يتجدد الحد عند منتصف الليل التالي، الساعة 00:00 بتوقيت دبي (UTC+04:00). تبقى التقارير المحفوظة وملفات PDF متاحة.","The service's daily allowance cannot cover this request. The daily allowance resets at the next midnight, 00:00 Dubai time (UTC+04:00). Saved reports and PDFs remain available."],
     monthlyUsageLimit:["بلغت الخدمة حدّ الاستخدام الشهري المتاح لهذا الطلب. يتجدد الحد في بداية الشهر التالي بتوقيت دبي. تبقى التقارير المحفوظة وملفات PDF متاحة.","The service's monthly allowance cannot cover this request. The monthly allowance resets at the start of the next month, Dubai time. Saved reports and PDFs remain available."],
     busy:["الخدمة مشغولة أو وصلت إلى حدّ الاستخدام الحالي. جرّب لاحقًا؛ تقاريرك المحفوظة متاحة.","The service is busy or has reached its current usage limit. Try later; saved reports remain available."],
-    queueFull:["لديك مهام قيد الإعداد. انتظر اكتمال إحداها قبل بدء موضوع آخر.","You have reports in progress. Wait for one to finish before starting another topic."],
+    queueFull:["قائمة انتظار الخدمة ممتلئة حاليًا. لم يُقبل هذا الطلب؛ أعد إرساله بعد قليل.","The service's queue is currently full. This request was not accepted; try submitting it again shortly."],queueSessionFull:["وصلت مساحة عملك إلى الحدّ المسموح للطلبات الجارية والمنتظرة. لم يُقبل هذا الطلب؛ انتظر اكتمال أحد طلباتك ثم أعد إرساله.","Your workspace has reached its limit for active and queued requests. This request was not accepted; wait for one of your requests to finish, then submit it again."],
     unavailable:["الخدمة غير متاحة مؤقتًا. جرّب مجددًا بعد قليل.","The service is temporarily unavailable. Try again shortly."],
     network:["تعذر تأكيد حالة الطلب. أعد الاتصال بالمحاولة نفسها لمتابعتها.","The request status could not be confirmed. Reconnect to the same attempt to continue."],
     reconnect:["متابعة المهمة","Reconnect to job"],expired:["انتهت الجلسة أو لم يعد هذا التقرير متاحًا لها. حدّث الصفحة.","This session has expired or cannot access that report. Refresh the page."],
@@ -108,6 +114,7 @@
     chatPlaceholder:["اسأل وكيلك أو تابع المحادثة…","Ask your agent or continue the conversation…"],
     chatInput:["رسالتك إلى AI HUB","Your message to AI HUB"],send:["إرسال","Send"],you:["أنت","You"],
     chatThinking:["يجري إعداد إجابتك…","Preparing your answer…"],chatWriting:["جارٍ كتابة الإجابة…","Writing your answer…"],chatPartial:["إجابة غير مكتملة","Incomplete response"],
+    chatSending:["جارٍ إرسال سؤالك…","Sending your question…"],chatResearchQueued:["قُبل سؤالك؛ البحث اللازم للإجابة ينتظر بدء التنفيذ.","Your question is accepted. Its research is queued."],chatReportQueued:["قُبل سؤالك؛ تقريره ينتظر استكمال الحفظ وتجهيز الملف.","Your question is accepted. Its report is queued for completion."],chatReportFinishing:["يجري حفظ التقرير وتجهيز ملفه قبل إكمال إجابتك…","Saving the report and preparing its file before completing your answer…"],
     chatResearch:["يجري بحث جديد للإجابة عن المستجدات…","Researching fresh evidence for your question…"],
     chatKeyboard:["Enter للإرسال · Shift + Enter لسطر جديد","Enter to send · Shift + Enter for a new line"],
     chatBusy:["تُجهّز إجابة لهذه المحادثة الآن. استعد حالتها المحفوظة قبل إرسال رسالة أخرى.", "An answer is already in progress in this conversation. Restore its saved status before sending another message."],
@@ -153,7 +160,7 @@
   const uuid=()=>global.crypto?.randomUUID?.()||String(Date.now())+"-"+Math.random().toString(16).slice(2);
   const kindKey=a=>a?.kind==="reading"?"kindReading":a?.kind==="moodboard"?"kindMoodboard":a?.kind==="workspace"?"kindWorkspace":"kindBriefing";
   function moment(value){if(!value)return "";const date=new Date(value);if(!Number.isFinite(date.getTime()))return "";const dateOnly=typeof value==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(value);return date.toLocaleString(lang==="ar"?"ar-AE":"en-GB",{timeZone:"Asia/Dubai",dateStyle:"medium",...(dateOnly?{}:{timeStyle:"short"})});}
-  function state(id){if(!states.has(id))states.set(id,{topic:"",report:null,latest:null,job:null,tab:"evidence",pinned:false,submitting:false,loadingWorkspace:false,attempt:null,notice:null,error:null,errorScope:null,retryAt:0,retryTimer:null,lastCheckedAt:null,history:[],loadEpoch:0});return states.get(id);}
+  function state(id){if(!states.has(id))states.set(id,{topic:"",report:null,latest:null,job:null,joinedJobId:null,tab:"evidence",pinned:false,submitting:false,loadingWorkspace:false,attempt:null,notice:null,error:null,errorScope:null,retryAt:0,retryTimer:null,lastCheckedAt:null,history:[],loadEpoch:0});return states.get(id);}
   function profile(id){return agents.find(agent=>agent.id===id);}
   function current(){return selectedId?state(selectedId):null;}
   function defaultTopic(id){return profile(id)?.["default_topic_"+lang]||"";}
@@ -163,6 +170,8 @@
     if(error?.code==="daily_report_limit")return "dailyReportLimit";
     if(error?.code==="daily_budget_limit")return "dailyUsageLimit";
     if(error?.code==="monthly_budget_limit")return "monthlyUsageLimit";
+    if(error?.code==="report_recovery_failed")return "reportRecoveryFailed";
+    if(error?.code==="execution_interrupted")return "interrupted";
     if(error?.jobStatus==="interrupted")return "interrupted";
     if(error?.jobStatus==="pdf_failed")return "pdfFailed";
     if(error?.code==="invalid_report_stage")return "progressFailure";
@@ -183,7 +192,8 @@
     if(error?.code==="public_daily_chat_limit")return "chatDailyLimit";
     if(error?.code==="memory_limit")return "memoryLimit";
     if(error?.status===401||error?.status===404)return "expired";
-    if(["report_queue_full","report_queue_session_limit","owner_job_limit","report_job_limit","owner_queue_full"].includes(error?.code))return "queueFull";
+    if(["report_queue_session_limit","owner_job_limit","report_job_limit"].includes(error?.code))return "queueSessionFull";
+    if(["report_queue_full","owner_queue_full"].includes(error?.code))return "queueFull";
     if(error?.status===429)return "busy";if(error?.status===503)return "unavailable";
     return error?.network?"network":"reportError";
   }
@@ -193,6 +203,7 @@
     const delay=Math.max(0,Number(error?.retry_after_seconds)||0)*1000;s.retryAt=Date.now()+delay;
     s.retryTimer=delay?setTimeout(()=>{s.retryTimer=null;if(current()===s)renderWorkspace();},delay):null;
   }
+  function clearReportFailure(s){s.notice=null;s.error=null;s.errorScope=null;s.retryAt=0;clearTimeout(s.retryTimer);s.retryTimer=null;}
   async function request(path,{method="GET",body,key}={}){
     path=apiPath(path);
     const headers={};if(body!==undefined)headers["Content-Type"]="application/json";if(key)headers["Idempotency-Key"]=key;
@@ -240,7 +251,7 @@
   function button(text,cls,handler){const node=el("button",cls,text);node.type="button";node.addEventListener("click",handler);return node;}
   function link(text,url,cls){const href=markdown.safeLink(url);if(!href)return el("span",cls,text);const node=el("a",cls,text);node.href=href;node.target="_blank";node.rel="noopener noreferrer";return node;}
   function newsEnabled(id){return newsAgents.includes(id);}
-  function newsState(id,language=lang){const key=id+":"+language;if(!newsStates.has(key))newsStates.set(key,{key,id,language,data:null,loading:false,manualPending:false,pending:null,error:null,retryAt:0,retryTimer:null,pollCount:0,pollPaused:false});return newsStates.get(key);}
+  function newsState(id,language=lang){const key=id+":"+language;if(!newsStates.has(key))newsStates.set(key,{key,id,language,data:null,loading:false,manualPending:false,joined:false,pending:null,error:null,retryAt:0,retryTimer:null,pollCount:0,pollPaused:false});return newsStates.get(key);}
   function newsVisible(n){return feedsReady&&n.language===lang&&!document.hidden&&view==="workspace"&&selectedId===n.id&&current()?.tab==="evidence"&&$("research-tools").open;}
   function visibleNewsItems(data){
     const now=Date.now(),lower=now-12*60*60*1000,seen=new Set();
@@ -254,6 +265,9 @@
   function newsStaleAt(data){const last=Date.parse(data?.last_successful_refresh_at||"");return Number.isFinite(last)?last+(Number(data.refresh_interval_seconds)||900)*1000:NaN;}
   function newsErrorKey(error){
     const code=error?.code||"";
+    if(code==="newsdata_refresh_queue_full")return "newsQueueFull";
+    if(code==="newsdata_refresh_queue_timeout")return "newsQueueTimeout";
+    if(code==="newsdata_refresh_interrupted")return "newsInterrupted";
     if(code==="newsdata_not_configured")return "newsNotConfigured";
     if(["provider_delay","newsdata_plan_delay"].includes(code))return "newsProviderDelay";
     if(["newsdata_auth_failed","newsdata_access_denied"].includes(code))return "newsAuth";
@@ -274,6 +288,15 @@
     clearTimeout(n.retryTimer);const delay=Math.max(0,Number(seconds)||0)*1000;n.retryAt=Date.now()+delay;
     n.retryTimer=delay?setTimeout(()=>{n.retryTimer=null;if(n.language===lang)renderVisibleNews(n.id);},delay):null;
   }
+  function newsProviderWait(data){
+    if(data?.error?.scope==="application")return 0;
+    const until=Date.parse(data?.provider_retry_at||"");
+    return Math.max(0,Number(data?.error?.retry_after_seconds)||0,Number.isFinite(until)?(until-Date.now())/1000:0);
+  }
+  function newsQueued(data){return data?.status==="loading"&&(data.refresh_state==="queued"||data.refresh_queued===true);}
+  function newsWebFallbackAvailable(n){const data=n.data||{};return Array.isArray(data.retrieval_options)&&data.retrieval_options.includes("web_search")&&data.provider_cooldown_scope==="newsdata";}
+  function newsManualBlocked(n){return n.retryAt>Date.now()&&!newsWebFallbackAvailable(n);}
+  function queuePosition(job){return Number.isSafeInteger(job?.queue_position)&&job.queue_position>0?job.queue_position:null;}
   function scheduleNews(n){
     if(newsTimers.has(n.key)){clearTimeout(newsTimers.get(n.key));newsTimers.delete(n.key);}
     if(!newsVisible(n)||n.loading||n.pollPaused)return;
@@ -303,16 +326,18 @@
   function loadNews(id,manual=false,{poll=false}={}){
     if(!ready||!newsEnabled(id))return Promise.resolve(null);const n=newsState(id);
     if(n.loading)return n.pending||Promise.resolve(null);
-    if(manual&&n.retryAt>Date.now())return Promise.resolve(n.data);
+    if(manual&&newsManualBlocked(n)&&!newsQueued(n.data))return Promise.resolve(n.data);
     if(newsTimers.has(n.key)){clearTimeout(newsTimers.get(n.key));newsTimers.delete(n.key);}
-    n.loading=true;n.manualPending=manual;n.error=null;n.pollPaused=false;if(!poll)n.pollCount=0;renderVisibleNews(id);
+    n.loading=true;n.manualPending=manual;n.error=null;n.pollPaused=false;if(manual)n.joined=false;if(!poll)n.pollCount=0;renderVisibleNews(id);
     const pending=(async()=>{
       try{
         const path="/v1/public/workspace/agents/"+encodeURIComponent(id)+"/news";
         const data=await request(manual?path+"/refresh":path+"?language="+encodeURIComponent(n.language),manual?{method:"POST",body:{language:n.language}}:{});
         if(!data||typeof data!=="object"||!Array.isArray(data.items)||!["fresh","cached","empty","loading","provider_error"].includes(data.status))throw {status:502,code:"newsdata_invalid_response"};
-        n.data=data;newsRetryAfter(n,data.error?.scope==="application"?0:data.error?.retry_after_seconds);
-        if(data.status==="loading"){n.pollCount++;if(n.pollCount>=210)n.pollPaused=true;}else n.pollCount=0;
+        n.data=data;newsRetryAfter(n,newsProviderWait(data));
+        if(manual)n.joined=data.refresh_joined===true;
+        if(data.status==="loading"&&!newsQueued(data)){n.pollCount++;if(n.pollCount>=210)n.pollPaused=true;}else n.pollCount=0;
+        if(data.status!=="loading")n.joined=false;
         return data;
       }catch(error){n.error=error;newsRetryAfter(n,error?.scope==="application"?0:error?.retry_after_seconds);return null;}
       finally{n.loading=false;n.manualPending=false;n.pending=null;if(n.language===lang)renderVisibleNews(id);scheduleNews(n);}
@@ -323,22 +348,33 @@
     const n=newsState(id),data=n.data||{},items=visibleNewsItems(data),loading=n.loading||(!n.error&&(!n.data||data.status==="loading"));
     const stale=Boolean(data.stale)||newsStaleAt(data)<=Date.now();
     const error=n.error||(!loading?data.error:null),status=loading?"loading":error||data.status==="provider_error"?"provider_error":stale&&data.status==="fresh"?"cached":data.status||"cached";
-    const fetching=n.manualPending||data.status==="loading",neverFetched=!data.last_successful_refresh_at&&!data.snapshot_id;
-    const keys={fresh:"newsFresh",cached:"newsCached",empty:neverFetched?"newsNotLoaded":"newsEmpty",loading:fetching?"newsLoading":"newsReading",provider_error:"newsProviderError"};
+    const fetching=n.manualPending||data.status==="loading",queued=newsQueued(data),webOnly=data.refresh_method==="web_search",webDuringCooldown=n.retryAt>Date.now()&&newsWebFallbackAvailable(n),neverFetched=!data.last_successful_refresh_at&&!data.snapshot_id;
+    const keys={fresh:"newsFresh",cached:"newsCached",empty:neverFetched?"newsNotLoaded":"newsEmpty",loading:n.manualPending?"newsSubmitting":queued?"newsQueued":webOnly&&data.refresh_state==="running"?"newsWebLoading":fetching?"newsLoading":"newsReading",provider_error:"newsProviderError"};
     const header=el("div","news-feed-toolbar"),statusNode=el("span","news-feed-status "+status,T(keys[status]));statusNode.setAttribute("role","status");
-    const refresh=button(T(n.pollPaused?"checkNews":"refreshNews"),"secondary-button news-refresh",()=>loadNews(id,!n.pollPaused));refresh.disabled=n.loading||(loading&&!n.pollPaused)||n.retryAt>Date.now();
+    const refresh=button(T(n.pollPaused?"checkNews":queued?"resumeQueuedNews":"refreshNews"),"secondary-button news-refresh",()=>loadNews(id,!n.pollPaused));refresh.disabled=n.loading||(loading&&!queued&&!n.pollPaused)||(!queued&&newsManualBlocked(n));
     header.append(statusNode,refresh);target.append(header);
     const meta=el("div","news-feed-meta");
     if(data.last_successful_refresh_at)meta.append(el("p","",T("newsLastSuccess")+": "+moment(data.last_successful_refresh_at)+" · UTC+04:00"));else meta.append(el("p","",T("newsNeverUpdated")));
+    if(moment(data.checked_at))meta.append(el("p","",T("newsLastCheck")+": "+moment(data.checked_at)+" · UTC+04:00"));
     meta.append(el("p","news-auto-note",T("newsManual")),el("p","",T("newsLimit")));target.append(meta);
-    if(loading)target.append(el("p","news-feed-note",T(n.pollPaused?"newsPending":fetching?"newsLoadingNote":"newsReadingNote")));
-    if(error||status==="provider_error"){const alert=el("div","news-feed-error");alert.setAttribute("role","alert");alert.append(el("p","",T(newsErrorKey(error))));errorDetails(alert,{...error,retry_after_seconds:Math.max(0,(n.retryAt-Date.now())/1000)});target.append(alert);}
+    if(loading){
+      target.append(el("p","news-feed-note",T(n.manualPending?"newsSubmittingNote":n.pollPaused?"newsPending":queued?(webOnly?"newsQueuedWebNote":"newsQueuedNote"):webOnly&&data.refresh_state==="running"?"newsWebLoadingNote":fetching?"newsLoadingNote":"newsReadingNote")));
+      if(!n.manualPending&&fetching){
+        if(queued&&queuePosition(data))target.append(el("p","news-feed-note",T("queuePosition",{n:queuePosition(data)})));
+        if(moment(data.refresh_requested_at))target.append(el("p","news-feed-note",T("requestAcceptedAt")+": "+moment(data.refresh_requested_at)+" · UTC+04:00"));
+        if(n.joined)target.append(el("p","news-feed-note",T("newsJoined")));
+      }
+    }
+    if(error||status==="provider_error"){const alert=el("div","news-feed-error");alert.setAttribute("role","alert");alert.append(el("p","",T(webDuringCooldown&&newsErrorKey(error)==="newsRateLimited"?"newsDataCooling":newsErrorKey(error))));errorDetails(alert,{...error,retry_after_seconds:webDuringCooldown?0:Math.max(0,(n.retryAt-Date.now())/1000)});target.append(alert);}
+    if(webDuringCooldown){if(!error||newsErrorKey(error)!=="newsRateLimited")target.append(el("p","news-feed-note warning",T("newsDataCooling")));target.append(el("p","news-feed-note",T("newsDataRetryAfter",{n:Math.ceil((n.retryAt-Date.now())/1000)})));}
     if(stale)target.append(el("p","news-feed-note warning",T("newsStale")));
-    if(data.partial)target.append(el("p","news-feed-note warning",T("newsPartial")));
-    renderNewsDelay(target,data);
-    const web=data.retrieval?.web_search;
-    if(web?.attempted&&web.status==="complete")target.append(el("p","news-feed-note",T("newsWebResults",{n:Number.isInteger(web.accepted_count)?web.accepted_count:0})));
-    if(web?.attempted&&web.error){const note=el("div","news-feed-note warning");note.append(el("p","",T("newsWebFailed")+" "+T(errorKey(web.error))));errorDetails(note,web.error);target.append(note);}
+    if(!loading&&!n.error){
+      if(data.partial)target.append(el("p","news-feed-note warning",T("newsPartial")));
+      renderNewsDelay(target,data);
+      const web=data.retrieval?.web_search;
+      if(web?.attempted&&web.status==="complete")target.append(el("p","news-feed-note",T("newsWebResults",{n:Number.isInteger(web.accepted_count)?web.accepted_count:0})));
+      if(web?.attempted&&web.error){const note=el("div","news-feed-note warning");note.append(el("p","",T("newsWebFailed")+" "+T(errorKey(web.error))));errorDetails(note,web.error);target.append(note);}
+    }
     const counts=el("div","news-feed-counts");counts.append(el("span","",T("newsShowing",{n:items.length})));
     const fetched=data.counts?.fetched??data.pagination?.raw_count;if(Number.isInteger(fetched)&&fetched>=0)counts.append(el("span","",T("newsFetched",{n:fetched})));
     if(items.length)counts.append(el("span","",T("newsPublishers",{n:new Set(items.map(item=>item.publisher).filter(Boolean)).size})));target.append(counts);
@@ -424,20 +460,25 @@
   }
   function acceptJob(id,job){
     const s=state(id);if(!job||job.generation_seq<(s.job?.generation_seq||0))return;
+    const changed=s.job?.job_id!==job.job_id;
+    if(activeJob(job)&&(changed||!activeJob(s.job)||s.errorScope==="poll"))clearReportFailure(s);
+    if(changed)s.joinedJobId=null;
     s.job=job;if(selectedId===id&&view==="workspace")renderProgress();
   }
   async function generateReport(id=selectedId){
     if(!ready||!id)return;const s=state(id);if(selectedId===id)$("research-tools").open=true;
-    if(s.submitting||s.retryAt>Date.now())return;s.tab="pack";
+    if(s.submitting||s.loadingWorkspace)return;s.tab="pack";
     const topic=(s.topic||defaultTopic(id)).trim(),language=lang;
-    if(sameRequest(s.job,topic,language)){s.pinned=false;if(s.latest)s.report=s.latest;renderWorkspace();pollJob(id,s.job.job_id);return;}
+    if(sameRequest(s.job,topic,language)){clearReportFailure(s);s.attempt=null;s.joinedJobId=s.job.job_id;s.pinned=false;if(s.latest)s.report=s.latest;renderWorkspace();pollJob(id,s.job.job_id);return;}
+    if(s.retryAt>Date.now())return;
     if(!s.attempt||s.attempt.topic!==topic||s.attempt.language!==language)s.attempt={topic,language,key:uuid()};
-    const attempt=s.attempt;s.submitting=true;s.notice=null;s.error=null;s.errorScope=null;s.retryAt=0;clearTimeout(s.retryTimer);s.retryTimer=null;s.pinned=false;
+    const attempt=s.attempt;s.submitting=true;clearReportFailure(s);s.pinned=false;
     if(s.latest)s.report=s.latest;if(selectedId===id)renderWorkspace();
     try{
       const data=await request("/v1/public/workspace/agents/"+encodeURIComponent(id)+"/reports",{method:"POST",body:{topic:attempt.topic,language:attempt.language},key:attempt.key});
-      acceptJob(id,data.job);s.attempt=null;pollJob(id,data.job.job_id);
-    }catch(error){reportFailure(s,error);if(!error.network)s.attempt=null;}finally{s.submitting=false;if(selectedId===id)renderWorkspace();}
+      if(!data.job?.job_id)throw {status:502,code:"invalid_response"};
+      acceptJob(id,data.job);s.joinedJobId=data.joined_existing?data.job.job_id:null;s.attempt=null;pollJob(id,data.job.job_id);
+    }catch(error){reportFailure(s,error,"submission");if(!error.network)s.attempt=null;}finally{s.submitting=false;if(selectedId===id)renderWorkspace();}
   }
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   function pollJob(id,jobId){
@@ -449,17 +490,19 @@
           const data=await request("/v1/public/workspace/jobs/"+encodeURIComponent(jobId));errors=0;
           acceptJob(id,data.job);if(data.report)acceptReport(id,data.report);
           const s=state(id);
-          s.lastCheckedAt=new Date().toISOString();
           if(s.job?.job_id===jobId){
-            if(["failed","interrupted","pdf_failed"].includes(data.job.status))reportFailure(s,jobFailure(data.job));
-            else if(data.job.status==="ready"){s.notice=null;s.error=null;s.errorScope=null;}
+            s.lastCheckedAt=new Date().toISOString();
+            if(s.errorScope!=="submission"){
+              if(["failed","interrupted","pdf_failed"].includes(data.job.status))reportFailure(s,jobFailure(data.job));
+              else if(data.job.status==="ready")clearReportFailure(s);
+            }
             if(selectedId===id)renderWorkspace();
           }
           if(!activeJob(data.job))return data;
-        }catch(error){if(++errors>=4){const s=state(id);reportFailure(s,error,"poll");if(selectedId===id)renderWorkspace();return null;}}
+        }catch(error){if(++errors>=4){const s=state(id);if(s.job?.job_id===jobId&&s.errorScope!=="submission"){reportFailure(s,error,"poll");if(selectedId===id)renderWorkspace();}return null;}}
         await pause(1800);
       }
-      const s=state(id);reportFailure(s,{network:true},"poll");if(selectedId===id)renderWorkspace();return null;
+      const s=state(id);if(s.job?.job_id===jobId&&s.errorScope!=="submission"){reportFailure(s,{network:true},"poll");if(selectedId===id)renderWorkspace();}return null;
     })().finally(()=>polls.delete(jobId));
     polls.set(jobId,promise);return promise;
   }
@@ -469,8 +512,12 @@
     if(s.submitting||s.loadingWorkspace){target.hidden=false;target.append(el("p","job-title",T(s.submitting?"submitting":"loadingWorkspace")));if(s.report)target.append(el("p","job-note",T("previousSnapshot")));return;}
     if(s.job?.status==="ready"){target.hidden=false;target.append(el("p","job-title",T("reportReady")));if(s.job.finished_at)target.append(el("p","job-note",moment(s.job.finished_at)));return;}
     if(!activeJob(s.job)){target.hidden=true;return;}
-    target.hidden=false;const stages=["searching","checking_sources","analyzing","saving","preparing_pdf","ready"],stage=["queued",...stages].includes(s.job.stage)?s.job.stage:"queued";
-    target.append(el("p","job-title",T(stage)),el("p","job-note",T("backgroundProgress")));
+    target.hidden=false;const stages=["searching","checking_sources","analyzing","saving","preparing_pdf","ready"],queued=s.job.status==="queued",stage=queued?"queued":["queued",...stages].includes(s.job.stage)?s.job.stage:"queued";
+    target.append(el("p","job-title",T(queued?(s.job.stage==="preparing_pdf"?"pdfQueued":"reportQueued"):stage)));
+    if(s.job.topic)target.append(el("p","job-note",T("requestTopic")+": "+s.job.topic));
+    if(queued){target.append(el("p","job-note",T("queueWaiting")));if(queuePosition(s.job))target.append(el("p","job-note",T("queuePosition",{n:queuePosition(s.job)})));}
+    if(s.joinedJobId===s.job.job_id)target.append(el("p","job-note",T("reportJoined")));
+    target.append(el("p","job-note",T("backgroundProgress")));
     const cutoff=s.job.research_window?.end;if(cutoff)target.append(el("p","job-note",T("frozenCutoff")+": "+moment(cutoff)));
     if(s.lastCheckedAt)target.append(el("p","job-note",T("statusUpdated")+": "+moment(s.lastCheckedAt)));
     const list=el("ol","stage-list"),index=stages.indexOf(stage);
@@ -484,19 +531,25 @@
     const actions=el("div","notice-actions");
     if(s.errorScope==="load")actions.append(button(T("reloadWorkspace"),"secondary-button",()=>openAgent(selectedId,false)));
     else if(s.errorScope==="pdf")actions.append(button(T("retryPdf"),"secondary-button",retryPdf));
-    else if(activeJob(s.job)&&(s.errorScope==="poll"||s.notice==="network"))actions.append(button(T("reconnect"),"secondary-button",()=>{s.notice=null;s.error=null;pollJob(selectedId,s.job.job_id);renderWorkspace();}));
     else if(s.attempt&&s.notice==="network")actions.append(button(T("reconnect"),"secondary-button",()=>generateReport()));
+    else if(activeJob(s.job)&&s.errorScope==="poll")actions.append(button(T("reconnect"),"secondary-button",()=>{clearReportFailure(s);pollJob(selectedId,s.job.job_id);renderWorkspace();}));
     else if(s.error?.retryable===true&&s.notice!=="pdfFailed"){const retry=button(T("retryReport"),"secondary-button",()=>generateReport());retry.disabled=s.retryAt>Date.now();actions.append(retry);}
     if(s.latest)actions.append(button(T("previousReport"),"quiet-button",()=>{s.report=s.latest;s.pinned=false;s.tab="pack";renderWorkspace();renderVisibleChat();syncNews();}));
     if(actions.childNodes.length)target.append(actions);
   }
   function empty(target,title,note){const box=el("div","empty-report");box.append(el("span","empty-glyph","▤"),el("h3","",T(title)),el("p","",T(note)));target.append(box);}
+  function renderGenerateControl(){
+    const s=current();if(!s)return;
+    const matching=sameRequest(s.job,(s.topic||defaultTopic(selectedId)).trim(),lang),control=$("generate-button");
+    (control.querySelector("[data-text]")||control).textContent=T(s.submitting?"submitting":matching?"viewProgress":"generate");
+    control.disabled=!ready||s.submitting||s.loadingWorkspace||(!matching&&s.retryAt>Date.now());
+  }
   function renderWorkspace(){
     if(!selectedId||!profile(selectedId))return;
     const s=current(),a=profile(selectedId);
     $("workspace-heading").textContent=nameOf(a);$("workspace-kicker").textContent=T(kindKey(a));
     if(document.activeElement!==$("topic-input"))$("topic-input").value=s.topic||defaultTopic(selectedId);
-    $("generate-button").disabled=!ready||s.submitting||s.loadingWorkspace||s.retryAt>Date.now();
+    renderGenerateControl();
     const views=a.views||[{id:"evidence",title_ar:"الأخبار",title_en:"News"},{id:"pack",title_ar:"ملف الإحاطة",title_en:"Briefing Pack"}];
     views.forEach(v=>{const tab=$("tab-"+v.id);tab.textContent=v.id==="evidence"&&newsEnabled(selectedId)?T("liveNews"):v["title_"+lang];tab.setAttribute("aria-selected",String(s.tab===v.id));tab.tabIndex=s.tab===v.id?0:-1;});
     const pdf=$("pdf-download"),retry=$("pdf-retry");pdf.hidden=s.report?.pdf?.status!=="ready";retry.hidden=s.report?.pdf?.status!=="failed";
@@ -624,7 +677,7 @@
   function chatKey(){return selectedId;}
   function validConversationId(value){return typeof value==="string"&&/^conv_[a-f0-9]{32}$/.test(value);}
   function chatState(key){
-    if(!chatStates.has(key))chatStates.set(key,{key,id:null,messages:[],draft:"",sending:false,loading:false,loaded:false,error:null,errorDetail:null,status:null,attempt:null,context:null,before:null,streamingText:""});
+    if(!chatStates.has(key))chatStates.set(key,{key,id:null,messages:[],draft:"",sending:false,loading:false,loaded:false,error:null,errorDetail:null,status:null,queuePosition:null,attempt:null,context:null,before:null,streamingText:""});
     return chatStates.get(key);
   }
   function visibleChat(c){return view==="workspace"&&chatKey()===c.key;}
@@ -673,7 +726,7 @@
       if(c.context.fresh_research&&c.context.report_id)note.append(button(T("viewUpdated"),"quiet-button",()=>openSaved(c.context.report_id,c.context.agent_ids?.[0])));scroll.append(note);}
     const composer=el("div","chat-composer-area");
     if(c.loading)composer.append(el("p","chat-status",T("chatLoading")));
-    if(c.status){const status=el("p","chat-status",T(c.status));status.setAttribute("role","status");composer.append(status);}
+    if(c.status){const status=el("p","chat-status",T(c.status)+(c.queuePosition?" "+T("queuePosition",{n:c.queuePosition}):""));status.setAttribute("role","status");composer.append(status);}
     if(c.error){const error=el("div","chat-error",T(c.error));error.setAttribute("role","alert");errorDetails(error,c.errorDetail);
       if(c.attempt&&!c.sending)error.append(button(T("retryMessage"),"quiet-button",()=>sendChat(c,true)));
       if(!c.loaded||c.errorDetail?.turn_id||c.error==="chatBusy")error.append(button(T("reloadConversation"),"quiet-button",()=>loadConversation(c)));composer.append(error);}
@@ -686,23 +739,28 @@
     if(atBottom)scroll.scrollTop=scroll.scrollHeight;else scroll.scrollTop=scrollTop;
     if(hadFocus&&!input.disabled){input.focus();if(selection!==null)input.setSelectionRange(selection,selection);}
   }
+  function chatResearchProgress(c,job){
+    c.status=job?.status==="queued"?(job.stage==="preparing_pdf"?"chatReportQueued":"chatResearchQueued"):["saving","preparing_pdf"].includes(job?.stage)?"chatReportFinishing":"chatResearch";
+    c.queuePosition=job?.status==="queued"?queuePosition(job):null;
+  }
   async function sendChat(c,retry=false){
     if(!ready||c.sending||c.loading||!c.loaded||!validConversationId(c.id))return;
     const text=c.draft.trim();if(!retry&&!text)return;
     if(!retry){const currentReport=state(c.key).report;c.attempt={key:uuid(),body:{message:text,language:lang,agent_id:c.key,report_id:currentReport?.report_id||null}};}
     const attempt=c.attempt;if(!attempt)return;
-    c.sending=true;c.error=null;c.errorDetail=null;c.status="chatThinking";c.streamingText="";
+    c.sending=true;c.error=null;c.errorDetail=null;c.status="chatSending";c.queuePosition=null;c.streamingText="";
     if(visibleChat(c))renderChat(c);
     try{
       let answer;
       for(;;){
         answer=await streamAnswer("/v1/public/workspace/conversations/"+encodeURIComponent(c.id)+"/messages/stream",{body:attempt.body,key:attempt.key},(event,value)=>{
-          if(event==="delta"){if(c.streamingText.length+value.length>500000)throw {status:502,code:"invalid_response"};c.streamingText+=value;c.status="chatWriting";}
-          else if(event==="status")c.status=value==="researching"?"chatResearch":"chatWriting";
+          if(event==="delta"){if(c.streamingText.length+value.length>500000)throw {status:502,code:"invalid_response"};c.streamingText+=value;c.status="chatWriting";c.queuePosition=null;}
+          else if(event==="status"){c.status=value==="researching"?"chatResearch":value==="queued"?"chatResearchQueued":"chatWriting";c.queuePosition=null;}
           if(visibleChat(c))renderChat(c);
         });
         if(answer.status!=="researching")break;
-        c.status="chatResearch";attempt.body.fresh_job_id=answer.job.job_id;
+        if(!answer.job?.job_id)throw {status:502,code:"invalid_response"};
+        chatResearchProgress(c,answer.job);attempt.body.fresh_job_id=answer.job.job_id;
         if(answer.agent_id){acceptJob(answer.agent_id,answer.job);pollJob(answer.agent_id,answer.job.job_id);}
         if(visibleChat(c))renderChat(c);
         let saved=false;
@@ -711,15 +769,16 @@
           const update=await request("/v1/public/workspace/jobs/"+encodeURIComponent(answer.job.job_id));
           if(update.report){acceptReport(answer.agent_id,update.report);saved=true;}
           else if(["failed","interrupted"].includes(update.job.status))throw jobFailure(update.job);
+          else{chatResearchProgress(c,update.job);if(visibleChat(c))renderChat(c);}
         }
-        c.status="chatThinking";if(visibleChat(c))renderChat(c);
+        c.status="chatThinking";c.queuePosition=null;if(visibleChat(c))renderChat(c);
       }
       if(!answer.message||answer.conversation_id&&answer.conversation_id!==c.id)throw {status:502,code:"invalid_response"};
       const seen=new Set(c.messages.map(message=>message.id));
       for(const message of [answer.user_message,answer.message])if(message&&!seen.has(message.id))c.messages.push(message);
       c.context=answer.context;c.draft="";c.attempt=null;c.streamingText="";memoryState.loaded=false;
     }catch(error){const key=errorKey(error);c.error=error?.network?"network":key==="reportError"?"chatError":key;c.errorDetail=error;if(!error?.network&&error?.code!=="chat_in_progress"&&error?.code!=="conversation_busy")c.attempt=null;}
-    finally{c.sending=false;c.status=null;if(visibleChat(c)){const input=chatRoot().querySelector("textarea");if(input)input.value=c.draft;renderChat(c);}}
+    finally{c.sending=false;c.status=null;c.queuePosition=null;if(visibleChat(c)){const input=chatRoot().querySelector("textarea");if(input)input.value=c.draft;renderChat(c);}}
   }
   function renderMemory(){
     const target=$("memory-items");if(!target)return;target.replaceChildren();
@@ -758,7 +817,7 @@
   $("language-ar").addEventListener("click",()=>setLanguage("ar"));$("language-en").addEventListener("click",()=>setLanguage("en"));
   $("agent-selector").addEventListener("change",()=>openAgent($("agent-selector").value));
   $("research-tools").addEventListener("toggle",()=>{if($("research-tools").open)renderReport();syncNews();});
-  $("topic-input").addEventListener("input",()=>{if(current())current().topic=$("topic-input").value;});
+  $("topic-input").addEventListener("input",()=>{if(current()){current().topic=$("topic-input").value;renderGenerateControl();}});
   $("topic-input").addEventListener("keydown",event=>{if(event.key==="Enter"&&!event.shiftKey&&!event.isComposing){event.preventDefault();$("topic-form").requestSubmit();}});
   $("topic-form").addEventListener("submit",event=>{event.preventDefault();if(current())current().topic=$("topic-input").value;generateReport();});
   $("history-menu").addEventListener("toggle",()=>{if($("history-menu").open)loadHistory();});

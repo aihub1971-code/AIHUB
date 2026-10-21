@@ -127,6 +127,7 @@ def test_passive_configuration_and_selection_require_explicit_generation(workspa
     job = value["job"]
     assert job["topic"] == get_profile(AGENT)["default_topic_en"]
     assert job["stage"] == job["status"] == "queued"
+    assert job["queue_position"] == 1
     assert job["research_cutoff"] == NOW.isoformat(timespec="microseconds")
     assert value["last_successful_report"] is None
     assert_workspace_public(value)
@@ -259,7 +260,9 @@ def test_key_body_agent_and_queue_bounds_reject_without_provider_work(workspace)
     assert submit(workspace, topic="Different content same key").status_code == 409
     assert submit(workspace, key="second", topic="Second").status_code == 202
     assert submit(workspace, key="third", topic="Third").status_code == 202
-    assert submit(workspace, key="fourth", topic="Fourth").status_code == 429
+    for number in range(4, 11):
+        assert submit(workspace, key=f"request-{number}", topic=f"Topic {number}").status_code == 202
+    assert submit(workspace, key="eleventh", topic="Eleventh").status_code == 429
     assert submit(workspace, key="join-at-cap").json()["joined_existing"] is True
     assert not workspace["estimate"] and not workspace["generate"]
     assert workspace["store"].base_store.usage_summary()["daily"]["attempts"] == 0

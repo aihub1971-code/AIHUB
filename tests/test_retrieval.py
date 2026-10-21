@@ -69,7 +69,9 @@ def test_explicit_feed_falls_back_once_with_real_reservation_and_passive_reads_n
     assert result["items"][0]["published_at_dubai"].endswith("+04:00")
     summary = database.usage_summary()
     assert summary["daily"]["attempts"] == 1 and summary["daily"]["estimated_cost_usd"] == .01
-    assert summary["provider_credits"]["newsdata"]["daily_accounted"] == 1
+    # A validated empty NewsData response releases only its NewsData credit;
+    # the separately reserved web discovery above still counts and costs .01.
+    assert summary["provider_credits"]["newsdata"]["daily_accounted"] == (0 if primary == "empty" else 1)
     if primary == "provider_error":
         assert result["retrieval"]["newsdata"]["error"]["code"] == "newsdata_provider_credit_limit"
         assert result["error"]["scope"] == "provider"

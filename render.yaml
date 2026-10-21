@@ -25,10 +25,10 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      # Existing NewsData values are preserved by omission. Version 2.1.0 supports
-      # NEWSDATA_API_KEY and OpenAI web search for all seven agents; retain the key and
-      # credit limit privately. Explicit refresh fallback and reports use bounded search.
-      # Keep secrets private; this release preserves build settings and budgets.
+      # Preserve the NewsData key and unverified plan/page settings by omission.
+      # This is AI HUB's application allowance, not a provider subscription change.
+      - key: NEWSDATA_DAILY_CREDIT_LIMIT
+        value: "500"
       - key: OPENAI_MODEL_NAME
         value: gpt-6.1-sol
       - key: OPENAI_REASONING_EFFORT
@@ -48,7 +48,7 @@ services:
       - key: AI_HUB_DATABASE_PATH
         value: /var/data/ai-hub/ai-hub.sqlite3
       - key: MAX_REPORTS_PER_DAY
-        value: "100"
+        value: "500"
       - key: DAILY_BUDGET_USD
         value: "900"
       - key: MONTHLY_BUDGET_USD
@@ -57,6 +57,10 @@ services:
         value: "true"
       - key: REPORT_JOB_WORKERS
         value: "2"
+      - key: REPORT_MAX_ACTIVE_PER_OWNER
+        value: "10"
+      - key: REPORT_MAX_ACTIVE_GLOBAL
+        value: "50"
       - key: SCHEDULER_ENABLED
         value: "false"
       - key: ENABLE_API_DOCS

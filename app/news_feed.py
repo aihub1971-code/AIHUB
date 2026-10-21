@@ -3,8 +3,9 @@
 This service collects at most 50 raw provider articles in a frozen 12-hour
 window, using a shared SQLite cache and the existing daily credit allowance.
 Explicit refreshes may add bounded, separately reserved native web discovery.
-Cache reads never run a model. Every attempted provider page is charged before
-I/O, including failures. Metadata and publisher-verified sources stay distinct.
+Cache reads never run a model. Every attempted provider page is reserved before
+I/O; only confirmed nonchargeable responses release that reservation. Metadata
+and publisher-verified sources stay distinct.
 """
 from __future__ import annotations
 
@@ -44,9 +45,19 @@ REFRESH_INTERVAL_SECONDS = 900
 REFRESH_MODE = "manual"
 MAX_REFRESH_SECONDS = 90
 LEASE_SECONDS = 420
+MAX_QUEUED_REFRESHES = 7
+MAX_QUEUE_WAIT_SECONDS = MAX_QUEUED_REFRESHES * LEASE_SECONDS
 QUERY_VERSION = "workspace-news-v2-raw50"
+# NewsData's documented validation errors, refundable only with a structured
+# HTTP 400/422 response. Auth, quota, pagination, transport and 5xx are excluded.
+_NONCHARGEABLE_VALIDATION_CODES = frozenset({"InvalidRequest", "UnsupportedFilter", "FilterLimitExceed",
+    "UnsupportedParameter", "TooManyQueryFilter", "TooManyFilter", "TooManyLogicalOperator",
+    "UnsupportedDateFormat", "UnsupportedQueryLength", "UnsupportedQInTitleLength", "UnsupportedQInMetaLength",
+    "MalformedUrl", "MalformedQuery"})
 # Inherit Uvicorn's configured INFO handler without enabling HTTP-client logs.
 LOGGER = logging.getLogger("uvicorn.error.aihub.news_feed")
+_WAITER_LOCK = threading.Lock()
+_WAITERS: dict[tuple[str, str], object] = {}
 
 # The filters are server-owned, bilingual and fit the documented 100-character
 # query allowance. Provider search supplies candidates; local checks decide
@@ -85,6 +96,31 @@ CREATE INDEX IF NOT EXISTS workspace_news_credits_date_idx
     ON workspace_news_credits(local_date);
 CREATE INDEX IF NOT EXISTS workspace_news_credits_month_idx
     ON workspace_news_credits(local_month);
+CREATE TABLE IF NOT EXISTS workspace_news_credit_adjustments (
+    charge_id TEXT PRIMARY KEY REFERENCES workspace_news_credits(charge_id),
+    created_at TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK(reason IN ('empty_success','invalid_request'))
+);
+CREATE TABLE IF NOT EXISTS workspace_news_requests (
+    request_id TEXT PRIMARY KEY,
+    cache_key TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    requested_at TEXT NOT NULL,
+    window_json TEXT NOT NULL,
+    allow_web_fallback INTEGER NOT NULL CHECK(allow_web_fallback IN (0,1)),
+    fallback_decided INTEGER NOT NULL DEFAULT 0 CHECK(fallback_decided IN (0,1)),
+    background INTEGER NOT NULL CHECK(background IN (0,1)),
+    queued_until TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('queued','running','completed','failed')),
+    started_at TEXT,
+    lease_until TEXT,
+    finished_at TEXT,
+    error_json TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workspace_news_requests_pending_agent_idx
+    ON workspace_news_requests(cache_key) WHERE state='queued';
+CREATE INDEX IF NOT EXISTS workspace_news_requests_queue_idx
+    ON workspace_news_requests(state,requested_at);
 CREATE TABLE IF NOT EXISTS workspace_news_provider (
     provider TEXT PRIMARY KEY,
     refresh_id TEXT,
@@ -173,8 +209,14 @@ def accounted_credits(connection: sqlite3.Connection, *, local_date: str | None 
     if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workspace_news_credits'").fetchone():
         return 0
     field, value = ("local_date", local_date) if local_date is not None else ("local_month", local_month)
-    return int(connection.execute(
+    reserved = int(connection.execute(
         f"SELECT COALESCE(SUM(accounted_credits),0) FROM workspace_news_credits WHERE {field}=?", (value,)).fetchone()[0])
+    if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workspace_news_credit_adjustments'").fetchone():
+        return reserved
+    released = int(connection.execute(f"""SELECT COUNT(*) FROM workspace_news_credit_adjustments AS adjustment
+        JOIN workspace_news_credits AS charge ON charge.charge_id=adjustment.charge_id
+        WHERE charge.{field}=?""", (value,)).fetchone()[0])
+    return reserved - released
 
 
 def _safe_error(error: Exception, *, retry_after: int = REFRESH_INTERVAL_SECONDS) -> dict[str, Any]:
@@ -190,7 +232,8 @@ def _safe_error(error: Exception, *, retry_after: int = REFRESH_INTERVAL_SECONDS
     result = {"code": code, "reference": "news_" + uuid4().hex[:16], "retryable": retryable,
               "retry_after_seconds": retry_after}
     local_limits = {"newsdata_daily_credit_limit", "daily_report_limit", "daily_budget_limit", "monthly_budget_limit"}
-    local_config = {"newsdata_not_configured", "newsdata_page_size_invalid", "runtime_not_configured"}
+    local_config = {"newsdata_not_configured", "newsdata_page_size_invalid", "runtime_not_configured",
+        "newsdata_refresh_queue_full", "newsdata_refresh_queue_timeout", "newsdata_refresh_interrupted"}
     result["scope"] = "application" if code in local_limits | local_config else "provider" if code.startswith(("newsdata_", "openai_", "provider_")) else "application"
     result["limit_kind"] = ({"newsdata_daily_credit_limit": "application_daily_credit",
         "daily_report_limit": "application_daily_reports", "daily_budget_limit": "application_daily_budget",
@@ -467,6 +510,9 @@ async def _request_page(client: httpx.AsyncClient, *, agent_id: str, size: int,
                                  headers={"X-ACCESS-KEY": key}, params=params) as response:
             def provider_error(data: Any) -> HTTPException:
                 error = newsdata._provider_error(response.status_code, data)
+                if (response.status_code in {400, 422} and isinstance(data, dict) and data.get("status") == "error"
+                        and error.detail.get("provider_code") in _NONCHARGEABLE_VALIDATION_CODES):
+                    error.detail["confirmed_nonchargeable_validation"] = True
                 delay = _retry_after(response.headers)
                 error.detail["retry_after_seconds"] = delay or REFRESH_INTERVAL_SECONDS
                 error.detail["retry_after_source"] = "provider" if delay else "application"
@@ -523,42 +569,191 @@ class FeedStore:
 
     def claim(self, agent_id: str, window: dict[str, Any] | None = None, *,
               explicit_retry: bool = False, allow_web_fallback: bool = False) -> tuple[str, dict[str, str]] | None:
-        key, moment = _key(agent_id), self.now()
-        stamp = _stamp(moment)
+        moment = self.now()
         frozen = _window(window, moment)
         with self.database._transaction() as connection:
+            return self._claim(connection, agent_id, frozen, moment,
+                explicit_retry=explicit_retry, allow_web_fallback=allow_web_fallback)
+
+    def _claim(self, connection: sqlite3.Connection, agent_id: str, frozen: dict[str, str], moment: datetime, *,
+               explicit_retry: bool, allow_web_fallback: bool, request_id: str | None = None) -> tuple[str, dict[str, str]] | None:
+        key = _key(agent_id)
+        stamp = _stamp(moment)
+        connection.execute("INSERT OR IGNORE INTO workspace_news_cache(cache_key,agent_id) VALUES (?,?)", (key, agent_id))
+        row = connection.execute("SELECT * FROM workspace_news_cache WHERE cache_key=?", (key,)).fetchone()
+        if row["refresh_id"] and row["lease_until"] and row["lease_until"] > stamp:
+            return None
+        # Cache age is useful display information, never a gate for an
+        # intentional click. The provider's independent cooldown remains below.
+        if row["next_refresh_at"] and row["next_refresh_at"] > stamp and not explicit_retry:
+            return None
+        connection.execute("INSERT OR IGNORE INTO workspace_news_provider(provider) VALUES ('newsdata')")
+        provider = connection.execute("SELECT * FROM workspace_news_provider WHERE provider='newsdata'").fetchone()
+        provider_error = _decode(provider["error_json"], {})
+        blocked = (provider["cooldown_until"] and provider["cooldown_until"] > stamp
+            and provider_error.get("code") != "newsdata_daily_credit_limit")
+        if blocked and not allow_web_fallback:
+            return None
+        if provider["refresh_id"] and provider["lease_until"] and provider["lease_until"] > stamp:
+            return None
+        refresh_id = request_id or "feed_" + uuid4().hex
+        until = _stamp(moment + timedelta(seconds=LEASE_SECONDS))
+        connection.execute("""UPDATE workspace_news_cache SET checked_at=?,next_refresh_at=?,
+            refresh_id=?,lease_until=?,error_json=NULL WHERE cache_key=?""",
+            (stamp, _stamp(moment + timedelta(seconds=REFRESH_INTERVAL_SECONDS)), refresh_id, until, key))
+        connection.execute("UPDATE workspace_news_provider SET refresh_id=?,lease_until=? WHERE provider='newsdata'",
+                           (refresh_id, until))
+        if request_id is None:
+            connection.execute("""INSERT INTO workspace_news_requests
+                (request_id,cache_key,agent_id,requested_at,window_json,allow_web_fallback,background,
+                 queued_until,state,started_at,lease_until) VALUES (?,?,?,?,?,?,0,?,'running',?,?)""",
+                (refresh_id, key, agent_id, stamp, _json(frozen), int(allow_web_fallback), until, stamp, until))
+        return refresh_id, frozen
+
+    def _expire_requests(self, connection: sqlite3.Connection, moment: datetime) -> None:
+        stamp = _stamp(moment)
+        for state, deadline, code in (("queued", "queued_until", "newsdata_refresh_queue_timeout"),
+                                     ("running", "lease_until", "newsdata_refresh_interrupted")):
+            error = _safe_error(StoreError(code, "The requested refresh did not complete.", 503), retry_after=1)
+            connection.execute(f"""UPDATE workspace_news_requests SET state='failed',finished_at=?,error_json=?
+                WHERE state=? AND {deadline}<=?""", (stamp, _json(error), state, stamp))
+
+    def request(self, agent_id: str, window: dict[str, Any] | None = None, *,
+                after: str | None = None, background: bool = False,
+                allow_web_fallback: bool = False, wait_until: str | None = None) -> tuple[dict[str, Any] | None, bool, bool]:
+        """Accept one explicit intent; return (request, launch_waiter, joined).
+
+        One queued intent per agent coalesces duplicate clicks. A newer report
+        may queue behind an already running older fetch. No read calls this.
+        """
+        key, moment = _key(agent_id), self.now()
+        stamp, frozen = _stamp(moment), _window(window, moment)
+        with self.database._transaction() as connection:
+            self._expire_requests(connection, moment)
             connection.execute("INSERT OR IGNORE INTO workspace_news_cache(cache_key,agent_id) VALUES (?,?)", (key, agent_id))
             row = connection.execute("SELECT * FROM workspace_news_cache WHERE cache_key=?", (key,)).fetchone()
-            if row["refresh_id"] and row["lease_until"] and row["lease_until"] > stamp:
-                return None
-            row_error = _decode(row["error_json"], {})
-            # App limits are re-evaluated by the ledger on each intentional
-            # retry. A fixed setting must not stay hidden behind yesterday's
-            # cached local error. Successful refreshes retain the shared guard.
-            local_retry = explicit_retry and row_error.get("scope") == "application"
-            if row["next_refresh_at"] and row["next_refresh_at"] > stamp and not local_retry:
-                return None
+            running = connection.execute("SELECT * FROM workspace_news_requests WHERE request_id=?", (row["refresh_id"],)).fetchone() if row["refresh_id"] else None
+            can_join = not (running and allow_web_fallback and not running["allow_web_fallback"] and running["fallback_decided"])
+            running_window = _decode(running["window_json"], {}) if running else {}
+            if (row["refresh_id"] and row["lease_until"] and row["lease_until"] > stamp
+                    and can_join and (after is None or (row["checked_at"] and row["checked_at"] >= after
+                        and running_window.get("end", "") >= frozen["end"]))):
+                # Also register a legacy/direct claim so its completion can be
+                # followed by request id without guessing from a retained cache.
+                connection.execute("""INSERT OR IGNORE INTO workspace_news_requests
+                    (request_id,cache_key,agent_id,requested_at,window_json,allow_web_fallback,background,
+                     queued_until,state,started_at,lease_until) VALUES (?,?,?,?,?,?,?,?,'running',?,?)""",
+                    (row["refresh_id"], key, agent_id, row["checked_at"], _json(frozen), int(allow_web_fallback),
+                     0, row["lease_until"], row["checked_at"], row["lease_until"]))
+                if allow_web_fallback:
+                    connection.execute("UPDATE workspace_news_requests SET allow_web_fallback=1 WHERE request_id=?", (row["refresh_id"],))
+                request = connection.execute("SELECT * FROM workspace_news_requests WHERE request_id=?", (row["refresh_id"],)).fetchone()
+                return dict(request), False, True
+            queued = connection.execute("SELECT * FROM workspace_news_requests WHERE cache_key=? AND state='queued'", (key,)).fetchone()
+            if queued:
+                # A fetch not yet started can cover the latest joined cutoff.
+                latest_window = frozen if frozen["end"] > _decode(queued["window_json"])["end"] else _decode(queued["window_json"])
+                launch = background and not queued["background"]
+                own_deadline = (_stamp(moment + timedelta(seconds=MAX_QUEUE_WAIT_SECONDS)) if background
+                    else wait_until or _stamp(moment + timedelta(seconds=MAX_REFRESH_SECONDS)))
+                until = max(queued["queued_until"], own_deadline)
+                connection.execute("""UPDATE workspace_news_requests SET window_json=?,allow_web_fallback=?,background=?,queued_until=?
+                    WHERE request_id=?""", (_json(latest_window), int(allow_web_fallback or queued["allow_web_fallback"]),
+                    int(background or queued["background"]), until, queued["request_id"]))
+                request = connection.execute("SELECT * FROM workspace_news_requests WHERE request_id=?", (queued["request_id"],)).fetchone()
+                return dict(request), launch, True
             connection.execute("INSERT OR IGNORE INTO workspace_news_provider(provider) VALUES ('newsdata')")
             provider = connection.execute("SELECT * FROM workspace_news_provider WHERE provider='newsdata'").fetchone()
             provider_error = _decode(provider["error_json"], {})
-            blocked = (provider["cooldown_until"] and provider["cooldown_until"] > stamp
-                and provider_error.get("code") != "newsdata_daily_credit_limit")
-            if blocked and not allow_web_fallback:
-                return None
-            # One shared provider refresh at a time also bounds thread/credit
-            # pressure when several agents are opened together.
-            if provider["refresh_id"] and provider["lease_until"] and provider["lease_until"] > stamp:
-                return None
-            refresh_id = "feed_" + uuid4().hex
-            until = _stamp(moment + timedelta(seconds=LEASE_SECONDS))
-            connection.execute("""UPDATE workspace_news_cache SET checked_at=?,next_refresh_at=?,
-                refresh_id=?,lease_until=?,error_json=NULL WHERE cache_key=?""",
-                (stamp, _stamp(moment + timedelta(seconds=REFRESH_INTERVAL_SECONDS)), refresh_id, until, key))
-            connection.execute("UPDATE workspace_news_provider SET refresh_id=?,lease_until=? WHERE provider='newsdata'",
-                               (refresh_id, until))
-        return refresh_id, frozen
+            if (provider["cooldown_until"] and provider["cooldown_until"] > stamp
+                    and provider_error.get("code") != "newsdata_daily_credit_limit" and not allow_web_fallback):
+                return None, False, False
+            if connection.execute("SELECT COUNT(*) FROM workspace_news_requests WHERE state='queued'").fetchone()[0] >= MAX_QUEUED_REFRESHES:
+                raise StoreError("newsdata_refresh_queue_full", "The manual news queue is full. Try again when a refresh completes.", 429)
+            request_id = "feed_" + uuid4().hex
+            until = (_stamp(moment + timedelta(seconds=MAX_QUEUE_WAIT_SECONDS)) if background
+                else wait_until or _stamp(moment + timedelta(seconds=MAX_REFRESH_SECONDS)))
+            connection.execute("""INSERT INTO workspace_news_requests
+                (request_id,cache_key,agent_id,requested_at,window_json,allow_web_fallback,background,queued_until,state)
+                VALUES (?,?,?,?,?,?,?,?,'queued')""", (request_id, key, agent_id, stamp, _json(frozen),
+                int(allow_web_fallback), int(background), until))
+            request = connection.execute("SELECT * FROM workspace_news_requests WHERE request_id=?", (request_id,)).fetchone()
+        return dict(request), background, False
 
-    def charge(self, agent_id: str, refresh_id: str) -> None:
+    def request_info(self, agent_id: str, request_id: str | None = None) -> dict[str, Any] | None:
+        stamp = _stamp(self.now())
+        with self.database._connect() as connection:
+            if request_id:
+                row = connection.execute("SELECT rowid AS queue_order,* FROM workspace_news_requests WHERE request_id=? AND cache_key=?",
+                    (request_id, _key(agent_id))).fetchone()
+            else:
+                row = connection.execute("""SELECT rowid AS queue_order,* FROM workspace_news_requests WHERE cache_key=?
+                    ORDER BY CASE WHEN state='queued' AND queued_until>? THEN 0
+                        WHEN state='running' AND lease_until>? THEN 1 ELSE 2 END,
+                        requested_at DESC,rowid DESC LIMIT 1""", (_key(agent_id), stamp, stamp)).fetchone()
+            if not row:
+                return None
+            result = dict(row)
+            if result["state"] in {"queued", "running"}:
+                deadline = result["queued_until"] if result["state"] == "queued" else result["lease_until"]
+                if deadline <= stamp:
+                    code = "newsdata_refresh_queue_timeout" if result["state"] == "queued" else "newsdata_refresh_interrupted"
+                    result.update(state="failed", error_json=_json(_safe_error(StoreError(code, "The requested refresh expired.", 503), retry_after=1)))
+            result["queue_position"] = int(connection.execute("""SELECT COUNT(*) FROM workspace_news_requests
+                WHERE state='queued' AND queued_until>? AND (requested_at<? OR (requested_at=? AND rowid<=?))""",
+                (stamp, result["requested_at"], result["requested_at"], result["queue_order"])).fetchone()[0]) if result["state"] == "queued" else None
+        return result
+
+    def claim_request(self, request_id: str, *, foreground_only: bool = False) -> tuple[str, dict[str, str]] | None:
+        moment = self.now()
+        with self.database._transaction() as connection:
+            self._expire_requests(connection, moment)
+            row = connection.execute("SELECT rowid AS queue_order,* FROM workspace_news_requests WHERE request_id=?", (request_id,)).fetchone()
+            if not row or row["state"] != "queued" or (foreground_only and row["background"]):
+                return None
+            first = connection.execute("SELECT request_id FROM workspace_news_requests WHERE state='queued' ORDER BY requested_at,rowid LIMIT 1").fetchone()
+            if not first or first[0] != request_id:
+                return None
+            provider = connection.execute("SELECT * FROM workspace_news_provider WHERE provider='newsdata'").fetchone()
+            provider_error = _decode(provider["error_json"], {}) if provider else {}
+            if (provider and provider["cooldown_until"] and provider["cooldown_until"] > _stamp(moment)
+                    and provider_error.get("code") != "newsdata_daily_credit_limit" and not row["allow_web_fallback"]):
+                connection.execute("UPDATE workspace_news_requests SET state='failed',finished_at=?,error_json=? WHERE request_id=?",
+                    (_stamp(moment), _json(provider_error), request_id))
+                return None
+            claim = self._claim(connection, row["agent_id"], _decode(row["window_json"]), moment,
+                explicit_retry=True, allow_web_fallback=bool(row["allow_web_fallback"]), request_id=request_id)
+            if claim:
+                connection.execute("UPDATE workspace_news_requests SET state='running',started_at=?,lease_until=? WHERE request_id=?",
+                    (_stamp(moment), _stamp(moment + timedelta(seconds=LEASE_SECONDS)), request_id))
+            return claim
+
+    def fail_queued(self, request_id: str, *, foreground_only: bool = False) -> None:
+        error = _safe_error(StoreError("newsdata_refresh_queue_timeout", "The queued refresh exceeded its wait limit.", 504), retry_after=1)
+        with self.database._transaction() as connection:
+            connection.execute("""UPDATE workspace_news_requests SET state='failed',finished_at=?,error_json=?
+                WHERE request_id=? AND state='queued' AND (?=0 OR (background=0 AND queued_until<=?))""",
+                (_stamp(self.now()), _json(error), request_id, int(foreground_only), _stamp(self.now())))
+
+    def pending_background(self) -> list[dict[str, Any]]:
+        with self.database._connect() as connection:
+            return [dict(row) for row in connection.execute("""SELECT request_id,agent_id FROM workspace_news_requests
+                WHERE state='queued' AND background=1 AND queued_until>? ORDER BY requested_at,rowid LIMIT ?""",
+                (_stamp(self.now()), MAX_QUEUED_REFRESHES)).fetchall()]
+
+    def decide_fallback(self, agent_id: str, request_id: str, requested: bool) -> bool:
+        """Seal the decision atomically with manual joins of a running report."""
+        with self.database._transaction() as connection:
+            cache = connection.execute("SELECT refresh_id,lease_until FROM workspace_news_cache WHERE cache_key=?", (_key(agent_id),)).fetchone()
+            if not cache or cache["refresh_id"] != request_id or not cache["lease_until"] or cache["lease_until"] <= _stamp(self.now()):
+                return False
+            row = connection.execute("SELECT allow_web_fallback FROM workspace_news_requests WHERE request_id=?", (request_id,)).fetchone()
+            enabled = requested or bool(row and row["allow_web_fallback"])
+            connection.execute("UPDATE workspace_news_requests SET allow_web_fallback=?,fallback_decided=1 WHERE request_id=?",
+                (int(enabled), request_id))
+            return enabled
+
+    def charge(self, agent_id: str, refresh_id: str) -> str:
         now = self.now()
         day, month = now.astimezone(DUBAI).date().isoformat(), now.astimezone(DUBAI).strftime("%Y-%m")
         with self.database._transaction() as connection:
@@ -568,9 +763,19 @@ class FeedStore:
             old = connection.execute("SELECT COALESCE(SUM(accounted_newsdata_credits),0) FROM runs WHERE local_date=?", (day,)).fetchone()[0]
             if old + accounted_credits(connection, local_date=day) + 1 > self.database.limits.newsdata_daily_credit_limit:
                 raise StoreError("newsdata_daily_credit_limit", "The shared daily NewsData credit allowance is exhausted.", 429)
+            charge_id = "credit_" + uuid4().hex
             connection.execute("""INSERT INTO workspace_news_credits
                 (charge_id,refresh_id,created_at,local_date,local_month,accounted_credits) VALUES (?,?,?,?,?,1)""",
-                ("credit_" + uuid4().hex, refresh_id, _stamp(now), day, month))
+                (charge_id, refresh_id, _stamp(now), day, month))
+        return charge_id
+
+    def reconcile(self, charge_id: str, refresh_id: str, reason: str) -> None:
+        if reason not in {"empty_success", "invalid_request"}:
+            raise ValueError("Unknown nonchargeable response")
+        with self.database._transaction() as connection:
+            connection.execute("""INSERT OR IGNORE INTO workspace_news_credit_adjustments(charge_id,created_at,reason)
+                SELECT charge_id,?,? FROM workspace_news_credits WHERE charge_id=? AND refresh_id=?""",
+                (_stamp(self.now()), reason, charge_id, refresh_id))
 
     def finish(self, agent_id: str, refresh_id: str, snapshot: dict[str, Any], error: dict[str, Any] | None) -> None:
         moment = self.now()
@@ -593,9 +798,13 @@ class FeedStore:
                 WHERE cache_key=?""", (_json(snapshot) if save_snapshot else row["snapshot_json"],
                 _stamp(moment) if complete else row["last_successful_refresh_at"], next_at,
                 _json({**error, "retrieval": snapshot.get("retrieval", {})}) if error else None, _key(agent_id)))
+            connection.execute("""UPDATE workspace_news_requests SET state=?,finished_at=?,error_json=?
+                WHERE request_id=? AND state='running'""", ("completed" if complete else "failed", _stamp(moment),
+                _json(error) if error else None, refresh_id))
             news_error = snapshot.get("retrieval", {}).get("newsdata", {}).get("error") or error
-            cooldown = news_error and news_error["code"] in {"newsdata_rate_limited", "newsdata_provider_credit_limit",
+            cooldown = news_error and (news_error["code"] in {"newsdata_rate_limited", "newsdata_provider_credit_limit",
                 "newsdata_auth_failed", "newsdata_access_denied", "newsdata_unavailable", "newsdata_timeout", "newsdata_connection_error"}
+                or news_error.get("retry_after_source") == "provider")
             quota = snapshot.get("quota", {})
             provider_error = news_error if cooldown else None
             if not provider_error and (quota.get("credits_remaining") == 0 or quota.get("rate_window_remaining") == 0):
@@ -632,9 +841,24 @@ async def _collect(store: FeedStore, agent_id: str, refresh_id: str, state: dict
             if remaining <= 0:
                 state["pagination"]["stop_reason"] = "raw_item_limit"
                 return
-            store.charge(agent_id, refresh_id)
+            charge_id = store.charge(agent_id, refresh_id)
             state["pagination"]["requests"] += 1
-            data, quota = await _request_page(client, agent_id=agent_id, size=min(size, remaining), cursor=cursor)
+            state["pagination"]["credits_reserved"] += 1
+            try:
+                data, quota = await _request_page(client, agent_id=agent_id, size=min(size, remaining), cursor=cursor)
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                if (detail.get("confirmed_nonchargeable_validation") is True and detail.get("provider_status") in {400, 422}
+                        and detail.get("provider_code") in _NONCHARGEABLE_VALIDATION_CODES):
+                    store.reconcile(charge_id, refresh_id, "invalid_request")
+                    state["pagination"]["credits_reconciled"] += 1
+                raise
+            # Both fields must agree that this was a successful no-results
+            # response. A malformed/contradictory empty page is not evidence
+            # that the provider charged nothing.
+            if data["totalResults"] == 0 and data["results"] == [] and not data.get("nextPage"):
+                store.reconcile(charge_id, refresh_id, "empty_success")
+                state["pagination"]["credits_reconciled"] += 1
             state["quota"] = quota
             state["pagination"]["provider_total_results"] = data["totalResults"]
             raw = data["results"]
@@ -760,9 +984,12 @@ def _add_web_sources(state: dict[str, Any], agent_id: str, sources: list[dict[st
 def _refresh(store: FeedStore, agent_id: str, claim: tuple[str, dict[str, str]], *,
              timeout_seconds: float | None = None, allow_web_fallback: bool = False) -> None:
     refresh_id, window = claim
+    row = store.read(agent_id) or {}
     state: dict[str, Any] = {"snapshot_id": refresh_id, "agent_id": agent_id, "provider": "newsdata",
+        "started_at": row.get("checked_at") if row.get("refresh_id") == refresh_id else _stamp(store.now()),
         "research_window": window, "items": [], "excluded": Counter(), "quota": {},
         "pagination": {"requests": 0, "raw_count": 0, "accepted_count": 0, "page_limit": MAX_PAGES,
+            "credits_reserved": 0, "credits_reconciled": 0,
             "raw_item_limit": MAX_RAW_ITEMS, "stop_reason": None, "provider_total_results": None},
         "provider_plan": plan_metadata(), "query_version": QUERY_VERSION,
         "retrieval": {"options": ["newsdata", "web_search"], "newsdata": {},
@@ -806,6 +1033,7 @@ def _refresh(store: FeedStore, agent_id: str, claim: tuple[str, dict[str, str]],
         state["provider_retry_at"] = _stamp(store.now() + timedelta(seconds=error["retry_after_seconds"]))
     state["retrieval"]["newsdata"] = {"status": "error" if error else "complete", "error": error,
         "raw_count": state["pagination"]["raw_count"], "accepted_count": len(state["items"])}
+    allow_web_fallback = store.decide_fallback(agent_id, refresh_id, allow_web_fallback)
     fallback_reason = _fallback_reason(state, error)
     if allow_web_fallback and fallback_reason:
         from app.retrieval import run_feed_discovery
@@ -836,6 +1064,7 @@ def _refresh(store: FeedStore, agent_id: str, claim: tuple[str, dict[str, str]],
         and not state["pagination"]["accepted_count"] and state["pagination"]["stop_reason"] == "window_exhausted")
     state["partial"] = bool(error or state["retrieval"]["web_search"].get("error")) or state["pagination"]["stop_reason"] in {"page_limit", "repeated_cursor", "deadline"}
     state["completed_at"] = _stamp(store.now())
+    state["pagination"]["accounted_credits"] = state["pagination"]["credits_reserved"] - state["pagination"]["credits_reconciled"]
     store.finish(agent_id, refresh_id, state, error)
     event = {"event": "news_feed_refresh_failed" if error else "news_feed_refresh_completed",
         "refresh_id": refresh_id, "agent_id": agent_id, "requests": state["pagination"]["requests"],
@@ -869,15 +1098,17 @@ def _display_items(store: FeedStore, agent_id: str, items: list[dict[str, Any]],
 
 
 def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = False,
-          requested_window: dict[str, Any] | None = None) -> dict[str, Any]:
+          requested_window: dict[str, Any] | None = None, request_id: str | None = None,
+          accepted: bool = False, joined: bool = False) -> dict[str, Any]:
     now, row = store.now(), store.read(agent_id) or {}
     now_text = _stamp(now)
     provider = store.provider_state()
     provider_saved_error = _decode(provider.get("error_json"), {})
     provider_blocked = bool(provider.get("cooldown_until") and provider["cooldown_until"] > now_text
         and provider_saved_error.get("code") != "newsdata_daily_credit_limit")
-    provider_busy = bool(provider.get("refresh_id") and provider.get("lease_until") and provider["lease_until"] > now_text)
     active = bool(row.get("refresh_id") and row.get("lease_until") and row["lease_until"] > now_text)
+    request = store.request_info(agent_id, request_id)
+    queued = bool(request and request["state"] == "queued")
     snapshot = _decode(row.get("snapshot_json"), {})
     completed = snapshot.get("completed_at")
     age = max(0, (now - newsdata._moment(completed)).total_seconds()) if completed else None
@@ -886,6 +1117,9 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
             and age is not None and age < REFRESH_INTERVAL_SECONDS):
         provider_error = None
     error = _decode(row.get("error_json")) or provider_error
+    if (request and request["state"] == "failed" and not request.get("started_at") and request.get("error_json")
+            and request["requested_at"] >= (row.get("checked_at") or "")):
+        error = _decode(request["error_json"])
     retrieval = (error.get("retrieval") if error else None) or snapshot.get("retrieval", {})
     if error:
         error = {key: value for key, value in error.items() if key not in {"after_snapshot_id", "retrieval"}}
@@ -912,13 +1146,14 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
     if relevance_excluded:
         excluded["irrelevant_cached"] = relevance_excluded
     items = _display_items(store, agent_id, relevant, language)
-    status = ("loading" if active or (not snapshot and provider_busy) else "provider_error" if error else
+    status = ("loading" if active or queued else "provider_error" if error else
               "empty" if snapshot and not items else "fresh" if snapshot and age < 2 else "cached" if snapshot else "empty")
     next_at = row.get("next_refresh_at")
     if provider_blocked:
         next_at = max(next_at or "", provider["cooldown_until"])
-    if error and next_at:
-        error = {**error, "retry_after_seconds": max(0, math.ceil((newsdata._moment(next_at) - now).total_seconds()))}
+    if error:
+        retry_at = provider["cooldown_until"] if provider_blocked else None if error.get("scope") == "provider" else next_at
+        error = {**error, "retry_after_seconds": max(0, math.ceil((newsdata._moment(retry_at) - now).total_seconds())) if retry_at else 0}
     verified_count = sum(item.get("publisher_text_verified") is True for item in items)
     limitations = ["coverage_not_guaranteed"]
     if verified_count < len(items) or not items:
@@ -939,12 +1174,22 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
         "refresh_mode": REFRESH_MODE,
         "refresh_interval_seconds": REFRESH_INTERVAL_SECONDS, "last_successful_refresh_at": row.get("last_successful_refresh_at"),
         "checked_at": row.get("checked_at"), "next_refresh_at": next_at, "snapshot_id": snapshot.get("snapshot_id"),
+        "snapshot_started_at": snapshot.get("started_at"),
         "research_window": snapshot.get("research_window"), "display_window": display_window,
         "cache_age_seconds": math.floor(age) if age is not None else None,
         "cached_article_count": len(snapshot.get("items", [])), "window_excluded_from_cache": window_excluded,
         "relevance_excluded_from_cache": relevance_excluded,
         "cached": bool(snapshot), "stale": stale, "partial": bool(snapshot.get("partial")), "error": error,
-        "refresh_started": started, "pagination": snapshot.get("pagination", {}), "excluded": excluded,
+        "refresh_started": started, "refresh_accepted": accepted, "refresh_joined": joined,
+        "refresh_state": "queued" if queued else "running" if active else "idle", "refresh_queued": queued,
+        "refresh_method": (("web_search" if provider_blocked else "newsdata_with_web_fallback")
+            if request and request["allow_web_fallback"] else "newsdata") if queued or active else None,
+        "refresh_request_id": request["request_id"] if request else row.get("refresh_id"),
+        "refresh_requested_at": request["requested_at"] if request else row.get("checked_at"),
+        "queue_position": request.get("queue_position") if queued else None,
+        "provider_retry_at": provider["cooldown_until"] if provider_blocked else None,
+        "provider_cooldown_scope": "newsdata" if provider_blocked else None,
+        "pagination": snapshot.get("pagination", {}), "excluded": excluded,
         "retrieval": retrieval, "retrieval_options": ["newsdata", "web_search"],
         "provider_plan": plan, "limitation_codes": limitations, "requested_language": language,
         "observed_latest_provider_publication_at": snapshot.get("observed_latest_provider_publication_at"),
@@ -958,26 +1203,85 @@ def _view(store: FeedStore, agent_id: str, language: str, *, started: bool = Fal
         "query": QUERIES[agent_id]}
 
 
+def _run_queued_refresh(store: FeedStore, agent_id: str, request_id: str) -> None:
+    """Finish one accepted click, without creating or scheduling more work."""
+    deadline = time.monotonic() + MAX_QUEUE_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        request = store.request_info(agent_id, request_id)
+        if not request or request["state"] != "queued":
+            return
+        claim = store.claim_request(request_id)
+        if claim:
+            # Read after the atomic claim: a report/manual join may have
+            # enabled fallback while this request was still queued.
+            request = store.request_info(agent_id, request_id)
+            _refresh(store, agent_id, claim, allow_web_fallback=bool(request["allow_web_fallback"]))
+            return
+        time.sleep(.2)
+    store.fail_queued(request_id)
+
+
+def _start_queued_refresh(store: FeedStore, agent_id: str, request_id: str) -> bool:
+    """Start at most one local waiter; an explicit click can recover an orphan.
+
+    A persisted background flag is intent, not proof of a living thread. Across
+    processes the existing SQLite claim still permits only one provider worker.
+    """
+    key, token = (str(store.database.path), request_id), object()
+    with _WAITER_LOCK:
+        if key in _WAITERS:
+            return False
+        _WAITERS[key] = token
+
+    def run() -> None:
+        try:
+            _run_queued_refresh(store, agent_id, request_id)
+        finally:
+            with _WAITER_LOCK:
+                if _WAITERS.get(key) is token:
+                    _WAITERS.pop(key, None)
+
+    try:
+        threading.Thread(target=run, args=(), name="aihub-news-" + agent_id, daemon=True).start()
+    except Exception:
+        with _WAITER_LOCK:
+            if _WAITERS.get(key) is token:
+                _WAITERS.pop(key, None)
+        raise
+    return True
+
+
+def _start_pending_refreshes(store: FeedStore) -> set[str]:
+    """An explicit action may resume accepted manual intents after a restart.
+
+    Waking all pending manual entries prevents an orphaned FIFO head from
+    blocking a different agent. This neither creates requests nor replays an
+    active/ambiguous provider attempt, and is never called from a passive read.
+    """
+    return {request["request_id"] for request in store.pending_background()
+        if _start_queued_refresh(store, request["agent_id"], request["request_id"])}
+
+
 def get_feed(agent_id: str, language: str = "ar", *, refresh: bool = False, force: bool = False,
              database: Store | None = None) -> dict[str, Any]:
     """Read the saved feed without provider work unless explicitly requested.
 
     Empty and expired snapshots stay cache-only on passive reads. ``refresh``
-    or ``force`` expresses an explicit action; an eligible refresh runs once in
-    a bounded shared thread. Neither bypasses the shared interval, provider
-    cooldown, or daily credit ledger. Failed application checks can be rechecked
-    explicitly after configuration changes. ``next_refresh_at`` is an eligibility
-    time, not a scheduled refresh.
+    or ``force`` expresses an explicit action and bypasses successful cache age.
+    Concurrent requests join or enter a bounded queue. Provider cooldowns and
+    daily credits remain enforced. ``next_refresh_at`` describes cache age or a
+    previous failure; it never schedules provider work.
     """
     _key(agent_id)
     _language(language)
     require_capability(agent_id, "tools", "newsdata")
     store = FeedStore(database)
-    claim = store.claim(agent_id, explicit_retry=True, allow_web_fallback=True) if refresh or force else None
-    if claim:
-        threading.Thread(target=_refresh, args=(store, agent_id, claim),
-                         kwargs={"allow_web_fallback": True}, name="aihub-news-" + agent_id, daemon=True).start()
-    return _view(store, agent_id, language, started=bool(claim))
+    request, _, joined = store.request(agent_id, background=True, allow_web_fallback=True) if refresh or force else (None, False, False)
+    launched = _start_pending_refreshes(store) if request else set()
+    launch = bool(request and request["request_id"] in launched)
+    current = store.request_info(agent_id, request["request_id"]) if request else None
+    return _view(store, agent_id, language, started=bool(launch and current and current.get("started_at")),
+        request_id=request["request_id"] if request else None, accepted=bool(request), joined=joined)
 
 
 def _topic_matches(item: dict[str, Any], topic: str, agent_id: str) -> bool:
@@ -995,12 +1299,11 @@ def _topic_matches(item: dict[str, Any], topic: str, agent_id: str) -> bool:
 def get_report_feed(agent_id: str, topic: str = "", research_window: dict[str, Any] | None = None,
                     language: str = "ar", progress: Callable[[str], None] | None = None, *,
                     database: Store | None = None, allow_web_fallback: bool = False) -> dict[str, Any]:
-    """Consume the shared snapshot, or synchronously perform its eligible refresh.
+    """Fetch for this generation, or join a fetch begun after its frozen cutoff.
 
-    A recent cached cutoff can precede the report cutoff; both are returned.
-    Expired snapshots wait for an eligible shared refresh within one deadline.
-    A provider failure is raised when no usable cache exists, rather than being
-    misrepresented as an empty successful news search.
+    A recent snapshot predating this report's request is insufficient. The
+    shared queue and synchronous fetch share one wait deadline. Provider failures
+    stay explicit even when qualifying older cached evidence is retained.
     """
     _key(agent_id)
     _language(language)
@@ -1010,27 +1313,46 @@ def get_report_feed(agent_id: str, topic: str = "", research_window: dict[str, A
     if progress:
         progress("searching")
     deadline = time.monotonic() + MAX_REFRESH_SECONDS
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise StoreError("newsdata_timeout", "The shared news refresh did not finish within the report's wait limit.", 504)
-        claim = store.claim(agent_id, requested, explicit_retry=True, allow_web_fallback=allow_web_fallback)
-        if claim:
-            _refresh(store, agent_id, claim, timeout_seconds=max(0.0, deadline - time.monotonic()),
-                **({"allow_web_fallback": True} if allow_web_fallback else {}))
-        view = _view(store, agent_id, language, requested_window=requested)
-        recent = bool(view["snapshot_id"]) and view["cache_age_seconds"] < REFRESH_INTERVAL_SECONDS
-        next_at = view["next_refresh_at"]
-        due = not next_at or newsdata._moment(next_at) <= store.now()
-        # A dashboard refresh may still be replacing an expired snapshot. A
-        # different topic can also hold the shared provider lease while this
-        # topic remains due. Neither old snapshot is a completed fresh check.
-        # Future retry deadlines retain the existing provider-cooldown behavior.
-        if recent or (view["status"] != "loading" and not due):
-            break
-        remaining = deadline - time.monotonic()
-        if remaining > 0:
-            time.sleep(min(.2, remaining))
+    wait_until = _stamp(store.now() + timedelta(seconds=MAX_REFRESH_SECONDS))
+    view = _view(store, agent_id, language, requested_window=requested)
+    fresh_for_request = bool(view["snapshot_started_at"] and view["snapshot_started_at"] >= requested["end"]
+        and (view["research_window"] or {}).get("end", "") >= requested["end"] and not view["error"])
+    request = None
+    if not fresh_for_request:
+        request, _, _ = store.request(agent_id, requested, after=requested["end"],
+            allow_web_fallback=allow_web_fallback, wait_until=wait_until)
+        if request:
+            _start_pending_refreshes(store)
+        if request is None:
+            # A valid previous empty snapshot does not turn a newly blocked
+            # request into a successful fresh check. Preserve that distinction
+            # for the report's own independently reserved web-search fallback.
+            provider_error = _decode(store.provider_state().get("error_json"), {})
+            if provider_error:
+                view["error"] = {key: value for key, value in provider_error.items() if key != "after_snapshot_id"}
+                view["partial"] = True
+        while request is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                store.fail_queued(request["request_id"], foreground_only=True)
+                raise StoreError("newsdata_timeout", "The shared news refresh did not finish within the report's wait limit.", 504)
+            # A report may follow a manual request but must not take over its
+            # background work with the report's shorter remaining deadline.
+            claim = store.claim_request(request["request_id"], foreground_only=True)
+            if claim:
+                current = store.request_info(agent_id, request["request_id"])
+                _refresh(store, agent_id, claim, timeout_seconds=max(0.0, deadline - time.monotonic()),
+                    **({"allow_web_fallback": True} if current["allow_web_fallback"] else {}))
+            current = store.request_info(agent_id, request["request_id"])
+            view = _view(store, agent_id, language, requested_window=requested, request_id=request["request_id"])
+            if current and current["state"] in {"completed", "failed"}:
+                if current["state"] == "failed" and current.get("error_json"):
+                    view["error"] = _decode(current["error_json"])
+                    view["partial"] = True
+                break
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(.2, remaining))
     if not view["snapshot_id"] and (view["error"] or view["status"] == "loading"):
         code = view["error"]["code"] if view["error"] else "newsdata_refresh_in_progress"
         error = StoreError(code, "No usable shared news snapshot is available; see the feed status.", 503)
@@ -1058,6 +1380,9 @@ def get_report_feed(agent_id: str, topic: str = "", research_window: dict[str, A
     return {**view, "items": items, "sources": sources, "actual_count": len(items),
         "requested_research_window": requested, "freshness": {"window_start": requested["start"],
             "window_end": requested["end"], "snapshot_window": view["research_window"],
+            "retrieval_started_at": view["snapshot_started_at"],
+            "checked_after_request": bool(view["snapshot_started_at"] and view["snapshot_started_at"] >= requested["end"]
+                and (view["research_window"] or {}).get("end", "") >= requested["end"] and not view["error"]),
             "coverage_complete": False, "timestamp_basis": view["publication_basis"],
             "publisher_text_verified": bool(items) and all(item.get("publisher_text_verified") is True for item in items),
             "observed_latest_provider_publication_at": view["observed_latest_provider_publication_at"],

@@ -24,7 +24,7 @@ from app.config import PROJECT_ROOT, get_setting
 from app.newsdata import MAX_NEWSDATA_RESULTS
 
 DUBAI = ZoneInfo("Asia/Dubai")
-MAX_DAILY_REPORTS = 100
+MAX_DAILY_REPORTS = 500
 # Increasing the manual/shared report allowance must not expand scheduled work.
 MAX_DAILY_SCHEDULE_SLOTS = 50
 MISSED_OCCURRENCE_GRACE_SECONDS = 300

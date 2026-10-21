@@ -250,7 +250,7 @@ test("manual refresh preserves cached articles during loading and provider failu
   }});
   const first = byClass(ui.elements.get("report-content"), "news-refresh")[0].click(); await ui.settle();
   let home = ui.elements.get("report-content");
-  assert.match(home.textContent, /Refreshing news/); assert.match(home.textContent, /Live article 1/);
+  assert.match(home.textContent, /Submitting news refresh/); assert.match(home.textContent, /Live article 1/);
   assert.equal(byClass(home, "news-refresh")[0].disabled, true);
   await byClass(home, "news-refresh")[0].click();
   assert.equal(ui.newsRequests().filter(r => r.options.method === "POST").length, 1);
@@ -478,7 +478,7 @@ test("agent total follows configuration without hardcoded removed cards", async 
 
 test("the public workspace has no credential, cost, admin, or upload controls", async () => {
   assert.doesNotMatch(html, /type="(?:password|file)"|id="(?:username|password)"|\/admin|dailyCost|monthlyCost|accountOverview|usage-details|loginBox/);
-  assert.match(html, /workspace\.js\?v=2\.1\.0"/);
+  assert.match(html, /workspace\.js\?v=2\.1\.1"/);
   assert.doesNotMatch(html, /src="\/static\/(?:app|public)\.js/);
   const ui = await start();
   await assert.rejects(ui.request("/v1/usage"));
@@ -802,8 +802,8 @@ test("chat evidence counts read naturally for one or multiple saved reports in b
   }
 });
 
-test("fresh chat waits for the saved report then answers with the same request key", async () => {
-  const newer = report(A, 2), freshJob = job(A, 2);
+test("fresh chat distinguishes queued research from running work and resumes the same request when its report is saved", async () => {
+  const newer = report(A, 2), freshJob = job(A, 2, {queue_position: 3});
   let messageRequests = 0;
   const ui = await start({fetch: (url, request, respond) => {
     if (request.method === "POST" && url.endsWith("/messages/stream")) {
@@ -819,9 +819,15 @@ test("fresh chat waits for the saved report then answers with the same request k
   const input = await typeChat(ui, "What has happened since this briefing?");
   await input.emit("keydown", {key: "Enter"}); await ui.settle();
   assert.equal(ui.messages().length, 1); assert.equal(ui.chatState(A).sending, true);
-  assert.match(ui.elements.get("discussion-panel").textContent, /Researching fresh evidence/);
+  assert.match(ui.elements.get("discussion-panel").textContent, /Your question is accepted.*research is queued.*Queue position: 3/);
+  assert.doesNotMatch(ui.elements.get("discussion-panel").textContent, /Researching fresh evidence/);
   await ui.elements.get("discussion-panel").querySelector("textarea").emit("keydown", {key: "Enter"}); await ui.settle();
   assert.equal(ui.messages().length, 1, "While research is in flight, repeated Enter must not issue another answer request.");
+  ui.server.jobs.set(freshJob.job_id, {job: {...freshJob, status: "running", stage: "searching", queue_position: null}, report: null});
+  await ui.advance();
+  assert.match(ui.elements.get("discussion-panel").textContent, /Researching fresh evidence/);
+  assert.doesNotMatch(ui.elements.get("discussion-panel").textContent, /research is queued|Queue position/);
+  assert.equal(ui.messages().length, 1);
   ui.server.jobs.set(freshJob.job_id, {job: {...freshJob, status: "running", stage: "preparing_pdf"}, report: {...newer, pdf: {status: "pending"}}});
   await ui.advance();
   assert.equal(ui.messages().length, 2);
@@ -1249,4 +1255,326 @@ test("application news blocks permit an explicit recheck while provider cooldown
   await ui.advance(900000);assert.equal(ui.newsRequests().length,1,"A cleared UI retry gate must not start any automatic provider work.");
   await button.click();await ui.settle();assert.equal(ui.newsRequests().filter(request=>request.options.method==="POST").length,1);
   assert.equal(ui.newsState(A).data.status,"fresh");
+});
+
+test("each intentional news refresh can run immediately after success despite a future cache-age timestamp", async () => {
+  for (const language of ["en", "ar"]) {
+    let refreshes = 0;
+    const ui = await startNews({language, now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":" + language, newsFeed()]],
+      fetch: (url, request, respond) => {
+        if (url.endsWith("/news/refresh")) return respond(newsFeed({snapshot_id: "refresh_" + (++refreshes),
+          items: [newsItem(refreshes, {headline: "Intentional refresh " + refreshes})]}));
+      }});
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const button = byClass(ui.elements.get("report-content"), "news-refresh")[0];
+      assert.equal(button.disabled, false);
+      await button.click(); await ui.settle();
+      assert.match(ui.elements.get("report-content").textContent, new RegExp("Intentional refresh " + attempt));
+    }
+    assert.equal(refreshes, 2);
+    assert.deepEqual(ui.newsRequests().map(request => request.options.method), ["GET", "POST", "POST"]);
+    assert.deepEqual(JSON.parse(ui.newsRequests().at(-1).options.body), {language});
+    await ui.advance(900000);
+    assert.equal(refreshes, 2, "Only an intentional click may submit another refresh.");
+  }
+});
+
+test("news refresh shows submitting, queued and running states without presenting an older fallback error as the new result", async () => {
+  for (const language of ["en", "ar"]) {
+    let accept;
+    const staleError = newsFeed({status: "provider_error", error: {code: "newsdata_daily_credit_limit", scope: "application"},
+      retrieval: {web_search: {attempted: true, status: "failed", error: {code: "search_call_limit_exceeded", reference: "old_fallback"}}}});
+    const queued = {...staleError, status: "loading", refresh_state: "queued", refresh_queued: true,
+      refresh_joined: true, refresh_requested_at: "2026-10-20T12:00:00Z", queue_position: 2};
+    const ui = await startNews({language, now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":" + language, staleError]],
+      fetch: (url, request, respond, server) => {
+        if (url.endsWith("/news/refresh")) return new Promise(resolve => {
+          accept = () => {server.feeds.set(A + ":" + language, queued); resolve(respond(queued));};
+        });
+      }});
+    assert.match(ui.elements.get("report-content").textContent, /old_fallback/);
+    const request = byClass(ui.elements.get("report-content"), "news-refresh")[0].click(); await ui.settle();
+    assert.match(ui.elements.get("report-content").textContent, language === "en" ? /Submitting news refresh/ : /جارٍ إرسال طلب التحديث/);
+    assert.doesNotMatch(ui.elements.get("report-content").textContent, /old_fallback/);
+    accept(); await request; await ui.settle();
+    let content = ui.elements.get("report-content");
+    assert.match(content.textContent, language === "en" ? /Refresh accepted · queued.*Queue position: 2.*Request accepted/ : /قُبل التحديث · بانتظار البدء.*قائمة الانتظار: 2.*وقت قبول الطلب/);
+    assert.match(content.textContent, language === "en" ? /following this agent's existing refresh/ : /تتابع طلب التحديث الجاري/);
+    assert.match(content.textContent, /UTC\+04:00/); assert.doesNotMatch(content.textContent, /old_fallback/);
+    assert.equal(byClass(content, "news-refresh")[0].disabled, false, "A queued request can be explicitly resumed after a service restart.");
+    for (let step = 1; step <= 211; step++) {ui.setNow(NEWS_NOW + step * 2000); await ui.advance(2000);}
+    assert.equal(ui.newsState(A, language).pollPaused, false, "Time waiting in the queue must not exhaust the running-refresh polling window.");
+    ui.server.feeds.set(A + ":" + language, {...queued, refresh_state: "running", refresh_queued: false, queue_position: null});
+    await ui.advance(2000); content = ui.elements.get("report-content");
+    assert.match(byClass(content, "news-feed-status")[0].textContent, language === "en" ? /Refreshing news/ : /جارٍ تحديث الأخبار/);
+    assert.doesNotMatch(content.textContent, /Queue position|قائمة الانتظار|old_fallback/);
+    ui.server.feeds.set(A + ":" + language, newsFeed({last_successful_refresh_at: new Date(NEWS_NOW + 424000).toISOString()}));
+    await ui.advance(2000);
+    assert.equal(byClass(ui.elements.get("report-content"), "news-refresh")[0].disabled, false);
+    assert.equal(ui.newsRequests().filter(request => request.options.method === "POST").length, 1);
+    assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
+  }
+});
+
+test("an absolute provider retry time gates refresh while a successful cache timestamp does not", async () => {
+  const blocked = newsFeed({status: "provider_error", provider_retry_at: new Date(NEWS_NOW + 30000).toISOString(),
+    error: {code: "newsdata_rate_limited", scope: "provider"}});
+  const ui = await startNews({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", blocked]]});
+  assert.equal(byClass(ui.elements.get("report-content"), "news-refresh")[0].disabled, true);
+  assert.match(ui.elements.get("report-content").textContent, /Retry after 30 seconds/);
+  ui.setNow(NEWS_NOW + 30000); await ui.advance(30000);
+  assert.equal(byClass(ui.elements.get("report-content"), "news-refresh")[0].disabled, false);
+  assert.equal(ui.newsRequests().length, 1, "Cooldown expiry must only update the UI, not start provider work.");
+});
+
+test("accepted report and PDF queues display waiting positions before any active stage in both languages", async () => {
+  for (const language of ["en", "ar"]) for (const stage of ["queued", "preparing_pdf"]) {
+    const ui = await start({language, fetch: (url, request, respond, server) => {
+      if (request.method === "POST" && url.endsWith("/reports")) {
+        const input = JSON.parse(request.body), queued = job(A, 2, {...input, stage, queue_position: 4});
+        server.jobs.set(queued.job_id, {job: queued, report: null});
+        return respond({job: queued, joined_existing: true}, 202);
+      }
+    }});
+    const saved = seed(ui); await ui.openAgent(A); await ui.generateReport(A); await ui.settle();
+    const progress = ui.elements.get("job-progress");
+    assert.match(progress.textContent, language === "en" ? /request accepted · queued.*Queue position: 4/ : /قُبل طلب.*بانتظار البدء.*قائمة الانتظار: 4/);
+    assert.match(progress.textContent, language === "en" ? /following the same job without creating a duplicate/ : /تتابع المهمة نفسها دون إنشاء تقرير مكرر/);
+    assert.equal(byClass(progress, "current").length, 0, "A queued PDF must not imply PDF rendering has started.");
+    assert.equal(ui.current().report.report_id, saved.report_id); assert.equal(ui.current().attempt, null);
+    assert.match(ui.elements.get("generate-button").textContent, language === "en" ? /View report progress/ : /متابعة تقدم التقرير/);
+    const queued = ui.current().job;
+    ui.server.jobs.set(queued.job_id, {job: {...queued, status: "running", stage: "preparing_pdf", queue_position: null}, report: null});
+    await ui.advance();
+    assert.equal(byClass(progress, "job-title")[0].textContent, language === "en" ? "Preparing PDF" : "تجهيز PDF");
+    assert.doesNotMatch(progress.textContent, /Queue position|قائمة الانتظار/);
+    assert.equal(ui.generations().length, 1);
+  }
+});
+
+test("following a matching active report clears an obsolete polling error without another generation or cooldown gate", async () => {
+  let failPoll = false;
+  const ui = await start({now: NEWS_NOW, fetch: (url, request, respond) => {
+    if (failPoll && url.includes("/jobs/")) return respond({detail: {code: "openai_rate_limited", retry_after_seconds: 300}}, 429);
+  }});
+  await ui.openAgent(A); await ui.generateReport(A); await ui.settle(); failPoll = true;
+  for (let attempt = 0; attempt < 4; attempt++) await ui.advance();
+  assert.equal(ui.current().errorScope, "poll"); assert.match(ui.elements.get("report-notice").textContent, /rate-limiting.*Retry after 300/);
+  assert.equal(ui.elements.get("generate-button").disabled, false, "Viewing a matching accepted job does not spend or retry research.");
+  failPoll = false; await topicKey(ui);
+  assert.equal(ui.current().error, null); assert.equal(ui.elements.get("report-notice").hidden, true);
+  assert.match(ui.elements.get("job-progress").textContent, /already in progress.*same job/);
+  assert.equal(ui.generations().length, 1);
+});
+
+test("a completed report permits a new intentional generation with a new key and independent active topics remain submit-able", async () => {
+  const ui = await start(); await ui.openAgent(A); await ui.generateReport(A); await ui.settle();
+  const first = ui.current().job, firstKey = ui.generations()[0].options.headers["Idempotency-Key"];
+  ui.server.jobs.set(first.job_id, {job: {...first, status: "ready", stage: "ready"}, report: report(A, first.generation_seq)});
+  await ui.advance();
+  assert.match(ui.elements.get("generate-button").textContent, /Generate fresh report/);
+  await topicKey(ui);
+  assert.equal(ui.generations().length, 2); assert.notEqual(ui.generations()[1].options.headers["Idempotency-Key"], firstKey);
+  const input = ui.elements.get("topic-input"); input.value = "A separate intentional topic"; await input.emit("input");
+  assert.match(ui.elements.get("generate-button").textContent, /Generate fresh report/); assert.equal(ui.elements.get("generate-button").disabled, false);
+  await topicKey(ui);
+  assert.equal(ui.generations().length, 3); assert.equal(ui.current().job.topic, input.value);
+  assert.match(ui.elements.get("job-progress").textContent, /Requested topic: A separate intentional topic/);
+  await ui.elements.get("language-ar").click(); await ui.settle();
+  assert.equal(ui.generations().length, 3, "Changing language must remain a passive action even when other reports are queued.");
+  await topicKey(ui);
+  assert.equal(ui.generations().length, 4); assert.equal(JSON.parse(ui.generations()[3].options.body).language, "ar");
+  assert.equal(new Set(ui.generations().map(request => request.options.headers["Idempotency-Key"])).size, 4);
+});
+
+test("a late older-job polling failure cannot overwrite a newer accepted report", async () => {
+  let failOlder;
+  const ui = await start({fetch: (url, request, respond) => {
+    if (url.endsWith("/jobs/" + job(A, 1).job_id)) {
+      if (!failOlder) return new Promise(resolve => {failOlder = () => resolve(respond({detail: {code: "openai_unavailable", reference: "older_job_error"}}, 503));});
+      return respond({detail: {code: "openai_unavailable", reference: "older_job_error"}}, 503);
+    }
+  }});
+  await ui.openAgent(A); await ui.generateReport(A); await ui.settle();
+  const input = ui.elements.get("topic-input"); input.value = "Newer accepted topic"; await input.emit("input"); await topicKey(ui);
+  failOlder(); await ui.settle();
+  for (let check = 0; check < 3; check++) await ui.advance();
+  assert.equal(ui.current().job.generation_seq, 2); assert.equal(ui.current().error, null);
+  assert.equal(ui.elements.get("report-notice").hidden, true);
+  assert.match(ui.elements.get("job-progress").textContent, /Newer accepted topic/);
+  assert.doesNotMatch(ui.body.textContent, /older_job_error/); assert.equal(ui.generations().length, 2);
+});
+
+test("a rejected newer request stays visible when an older report completes and clears after a later request is accepted", async () => {
+  for (const [code, language] of [["report_queue_full", "en"], ["report_queue_session_limit", "ar"]]) {
+    let blocked = true;
+    const ui = await start({language, fetch: (url, request, respond) => {
+      if (request.method === "POST" && url.endsWith("/reports") && JSON.parse(request.body).topic === "Second topic" && blocked)
+        return respond({detail: {code, message: "PRIVATE queue diagnostics", retryable: true}}, 429);
+    }});
+    await ui.openAgent(A); await ui.generateReport(A); await ui.settle(); const first = ui.current().job;
+    const input = ui.elements.get("topic-input"); input.value = "Second topic"; await input.emit("input"); await topicKey(ui);
+    const expected = language === "en" ? /service's queue is currently full.*request was not accepted/ : /مساحة عملك.*لم يُقبل هذا الطلب/;
+    assert.match(ui.elements.get("report-notice").textContent, expected);
+    ui.server.jobs.set(first.job_id, {job: {...first, status: "ready", stage: "ready"}, report: report(A, first.generation_seq)});
+    await ui.advance();
+    assert.match(ui.elements.get("report-notice").textContent, expected);
+    assert.equal(ui.current().report.report_id, report(A, first.generation_seq).report_id);
+    assert.doesNotMatch(ui.body.textContent, /PRIVATE/); assert.equal(ui.generations().length, 2);
+    blocked = false; await topicKey(ui);
+    assert.equal(ui.elements.get("report-notice").hidden, true); assert.equal(ui.generations().length, 3);
+  }
+});
+
+test("an uncertain independent generation reconnects with its own key while another report is active", async () => {
+  let attempts = 0;
+  const ui = await start({fetch: (url, request) => {
+    if (request.method === "POST" && url.endsWith("/reports") && JSON.parse(request.body).topic === "Independent request" && ++attempts === 1)
+      throw new Error("Network response lost");
+  }});
+  await ui.openAgent(A); await ui.generateReport(A); await ui.settle();
+  const input = ui.elements.get("topic-input"); input.value = "Independent request"; await input.emit("input"); await topicKey(ui);
+  assert.equal(ui.current().job.generation_seq, 1);
+  const retry = byTag(ui.elements.get("report-notice"), "button").find(button => button.textContent === "Reconnect to job");
+  assert.ok(retry); await retry.click(); await ui.settle();
+  assert.equal(ui.generations().length, 3); assert.equal(ui.current().job.generation_seq, 2);
+  assert.equal(ui.generations()[1].options.headers["Idempotency-Key"], ui.generations()[2].options.headers["Idempotency-Key"]);
+  assert.equal(ui.elements.get("report-notice").hidden, true);
+});
+
+test("Arabic chat shows queued local report completion and its position without claiming research is running", async () => {
+  const queued = job(A, 2, {language: "ar", stage: "preparing_pdf", queue_position: 2});
+  const ui = await start({language: "ar", fetch: (url, request, respond) => {
+    if (request.method === "POST" && url.endsWith("/messages/stream")) return respond({status: "researching", job: queued, agent_id: A}, 202);
+  }});
+  seed(ui); ui.server.jobs.set(queued.job_id, {job: queued, report: null}); await ui.openAgent(A); await ui.settle();
+  const input = await typeChat(ui, "ما الذي حدث منذ هذا التقرير؟"); await input.emit("keydown", {key: "Enter"}); await ui.settle();
+  assert.match(ui.elements.get("discussion-panel").textContent, /قُبل سؤالك.*ينتظر استكمال الحفظ.*قائمة الانتظار: 2/);
+  assert.doesNotMatch(ui.elements.get("discussion-panel").textContent, /يجري بحث جديد/);
+  await ui.elements.get("language-en").click(); await ui.settle();
+  assert.match(ui.elements.get("discussion-panel").textContent, /report is queued for completion.*Queue position: 2/);
+  assert.equal(ui.messages().length, 1); assert.equal(ui.generations().length, 0);
+  ui.server.jobs.set(queued.job_id, {job: {...queued, status: "running", queue_position: null}, report: null});
+  await ui.advance();
+  assert.match(ui.elements.get("discussion-panel").textContent, /Saving the report and preparing its file/);
+  assert.doesNotMatch(ui.elements.get("discussion-panel").textContent, /Queue position/);
+  assert.equal(ui.messages().length, 1);
+});
+
+test("an intentional refresh can use web search during NewsData cooldown and identifies queued versus running web work", async () => {
+  for (const language of ["en", "ar"]) {
+    const blocked = newsFeed({status: "provider_error", retrieval_options: ["newsdata", "web_search"],
+      provider_cooldown_scope: "newsdata", provider_retry_at: new Date(NEWS_NOW + 600000).toISOString(),
+      error: {code: "newsdata_rate_limited", scope: "provider", retry_after_seconds: 600, reference: "newsdata_wait"}});
+    const queued = {...blocked, status: "loading", error: null, refresh_state: "queued", refresh_method: "web_search", queue_position: 1};
+    const ui = await startNews({language, now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":" + language, blocked]],
+      fetch: (url, request, respond, server) => {
+        if (url.endsWith("/news/refresh")) {server.feeds.set(A + ":" + language, queued); return respond(queued);}
+      }});
+    let content = ui.elements.get("report-content");
+    assert.match(content.textContent, language === "en" ? /NewsData requests are paused.*still refresh manually through web search.*NewsData can be requested again in 600 seconds/ : /طلبات NewsData متوقفة.*تحديث الأخبار يدويًا عبر بحث الويب.*NewsData مجددًا بعد 600 ثانية/);
+    assert.doesNotMatch(content.textContent, /Retry after 600 seconds|يمكن إعادة المحاولة بعد 600/);
+    assert.equal(byClass(content, "news-refresh")[0].disabled, false);
+    await ui.advance(10000); assert.equal(ui.newsRequests().length, 1);
+    await byClass(content, "news-refresh")[0].click(); await ui.settle();
+    content = ui.elements.get("report-content");
+    assert.match(content.textContent, language === "en" ? /web-search refresh is accepted and waiting to start/ : /قُبل طلبك لاستخدام بحث الويب.*ينتظر بدء التنفيذ/);
+    assert.doesNotMatch(byClass(content, "news-feed-status")[0].textContent, /with web search|عبر بحث الويب/);
+    ui.server.feeds.set(A + ":" + language, {...queued, refresh_state: "running", queue_position: null});
+    await ui.advance(2000); content = ui.elements.get("report-content");
+    assert.match(byClass(content, "news-feed-status")[0].textContent, language === "en" ? /Refreshing news with web search/ : /جارٍ تحديث الأخبار عبر بحث الويب/);
+    assert.match(content.textContent, language === "en" ? /checking publisher pages and publication times/ : /فحص صفحات الناشرين وأوقات النشر/);
+    assert.equal(ui.newsRequests().filter(request => request.options.method === "POST").length, 1);
+    assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
+  }
+});
+
+test("news queue admission, expiry and interruption show actionable bilingual errors and never restart automatically", async () => {
+  for (const [code, english, arabic] of [
+    ["newsdata_refresh_queue_full", /news refresh queue is currently full.*request was not accepted/, /قائمة انتظار تحديث الأخبار ممتلئة.*لم يُقبل هذا الطلب/],
+    ["newsdata_refresh_queue_timeout", /exceeded its waiting time before work could start/, /انتهت مهلة انتظار طلب التحديث قبل بدء التنفيذ/],
+    ["newsdata_refresh_interrupted", /news refresh stopped before completion.*No automatic retry/, /توقفت محاولة تحديث الأخبار قبل اكتمالها.*لم تبدأ إعادة محاولة تلقائية/]
+  ]) {
+    const error = {code, scope: "application", retryable: true, retry_after_seconds: 1, reference: "news_queue_reference"};
+    const ui = await startNews({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", newsFeed()],
+      [A + ":ar", newsFeed({status: "provider_error", error})]], fetch: (url, request, respond) => {
+        if (url.endsWith("/news/refresh")) return code.endsWith("_full") ? respond({detail: {error}}, 429) : respond(newsFeed({status: "provider_error", error}));
+      }});
+    await byClass(ui.elements.get("report-content"), "news-refresh")[0].click(); await ui.settle();
+    assert.match(ui.elements.get("report-content").textContent, english);
+    assert.match(ui.elements.get("report-content").textContent, /news_queue_reference/);
+    assert.equal(byClass(ui.elements.get("report-content"), "news-refresh")[0].disabled, false);
+    await ui.elements.get("language-ar").click(); await ui.settle();
+    assert.match(ui.elements.get("report-content").textContent, arabic);
+    await ui.advance(900000);
+    assert.equal(ui.newsRequests().filter(request => request.options.method === "POST").length, 1);
+    assert.doesNotMatch(ui.elements.get("report-content").textContent, new RegExp(code));
+  }
+});
+
+test("report snapshot recovery failure offers a fresh intentional report instead of a PDF-only retry in both languages", async () => {
+  const ui = await start(); seed(ui); await ui.openAgent(A); await ui.generateReport(A); await ui.settle();
+  const original = ui.current().job, key = ui.generations()[0].options.headers["Idempotency-Key"];
+  ui.server.jobs.set(original.job_id, {job: {...original, status: "interrupted", stage: "saving",
+    error: {code: "report_recovery_failed", retryable: true, reference: "report_recovery_reference"}}, report: null});
+  await ui.advance();
+  let notice = ui.elements.get("report-notice");
+  assert.match(notice.textContent, /could not be saved after recovery attempts.*submit a new report request/);
+  assert.doesNotMatch(notice.textContent, /Retry PDF|service restart/);
+  await ui.elements.get("language-ar").click(); await ui.settle(); notice = ui.elements.get("report-notice");
+  assert.match(notice.textContent, /تعذّر حفظ التقرير بعد محاولات الاستعادة.*إرسال طلب تقرير جديد/);
+  assert.doesNotMatch(notice.textContent, /إعادة تجهيز PDF|إعادة تشغيل الخدمة/);
+  assert.equal(ui.generations().length, 1);
+  const retry = byTag(notice, "button").find(button => button.textContent === "إعادة محاولة التقرير");
+  assert.ok(retry); await retry.click(); await ui.settle();
+  assert.equal(ui.generations().length, 2); assert.notEqual(ui.generations()[1].options.headers["Idempotency-Key"], key);
+  assert.equal(ui.elements.get("report-notice").hidden, true);
+});
+
+test("a failed newer news check keeps its start time separate from an older successful snapshot even when web search finds zero items", async () => {
+  const cached = newsFeed({status: "provider_error", last_successful_refresh_at: "2026-10-19T12:00:00Z",
+    checked_at: "2026-10-20T11:59:30Z", error: {code: "newsdata_daily_credit_limit", scope: "application"},
+    retrieval: {web_search: {attempted: true, status: "complete", accepted_count: 0}}});
+  const ui = await startNews({now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":en", cached], [A + ":ar", cached]]});
+  let content = ui.elements.get("report-content");
+  assert.match(content.textContent, /Last successful refresh: 19 Oct 2026, 16:00 · UTC\+04:00.*Last check started: 20 Oct 2026, 15:59 · UTC\+04:00/);
+  assert.match(content.textContent, /News refresh failed.*daily NewsData allowance.*Additional web research: 0 qualifying articles/);
+  assert.doesNotMatch(content.textContent, /Last successful refresh: 20 Oct|Last check completed/);
+  await ui.elements.get("language-ar").click(); await ui.settle(); content = ui.elements.get("report-content");
+  assert.match(content.textContent, /آخر تحديث ناجح:.*UTC\+04:00.*بدأ آخر تحقق:.*UTC\+04:00/);
+  assert.match(content.textContent, /بحث الويب الإضافي: 0/);
+  assert.equal(ui.newsRequests().every(request => request.options.method === "GET"), true);
+});
+
+test("a queued refresh can be explicitly resumed after restart while passive checks and running work cannot send duplicate POSTs", async () => {
+  for (const language of ["en", "ar"]) {
+    let finishResume;
+    const queued = newsFeed({status: "loading", refresh_state: "queued", refresh_queued: true,
+      refresh_request_id: "feed_existing_request", refresh_requested_at: "2026-10-20T11:58:00Z", queue_position: 1});
+    const running = {...queued, refresh_state: "running", refresh_queued: false, queue_position: null, refresh_joined: true, refresh_started: true};
+    const ui = await startNews({language, now: NEWS_NOW, newsAgents: [A], feeds: [[A + ":" + language, queued]],
+      fetch: (url, request, respond, server) => {
+        if (url.endsWith("/news/refresh")) return new Promise(resolve => {
+          finishResume = () => {server.feeds.set(A + ":" + language, running); resolve(respond(running));};
+        });
+      }});
+    for (let check = 0; check < 3; check++) await ui.advance(2000);
+    assert.equal(ui.newsRequests().every(request => request.options.method === "GET"), true);
+    let control = byClass(ui.elements.get("report-content"), "news-refresh")[0];
+    assert.equal(control.textContent, language === "en" ? "Resume queued refresh" : "متابعة التحديث المنتظر");
+    assert.equal(control.disabled, false);
+    const resume = control.click(); await ui.settle();
+    control = byClass(ui.elements.get("report-content"), "news-refresh")[0];
+    assert.equal(control.disabled, true); await control.click();
+    assert.equal(ui.newsRequests().filter(request => request.options.method === "POST").length, 1);
+    finishResume(); await resume; await ui.settle();
+    assert.equal(ui.newsState(A, language).data.refresh_request_id, queued.refresh_request_id);
+    assert.match(ui.elements.get("report-content").textContent, language === "en" ? /following this agent's existing refresh request/ : /تتابع طلب التحديث الجاري لهذا الوكيل/);
+    control = byClass(ui.elements.get("report-content"), "news-refresh")[0];
+    assert.equal(control.disabled, true, "Running work stays protected from duplicate refresh clicks.");
+    await control.click(); await ui.advance(2000);
+    assert.equal(ui.newsRequests().filter(request => request.options.method === "POST").length, 1);
+    assert.deepEqual(JSON.parse(ui.newsRequests().find(request => request.options.method === "POST").options.body), {language});
+    assert.equal(ui.generations().length, 0); assert.equal(ui.messages().length, 0);
+  }
 });

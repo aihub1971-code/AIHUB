@@ -94,7 +94,7 @@ def test_queue_limits_allow_reconnect_but_bound_distinct_topics_languages_and_se
     reports.max_active_per_owner, reports.max_active_global = 2, 3
     first = reports.submit(OWNER, AGENT, "Topic", language="en")
     assert not reports.submit(OWNER, AGENT, "Topic", language="ar")["joined_existing"]
-    assert reports.submit(OWNER, AGENT, "Topic", language="en", idempotency_key="alias")["job"] == first["job"]
+    assert reports.submit(OWNER, AGENT, "Topic", language="en", idempotency_key="alias")["job"]["job_id"] == first["job"]["job_id"]
     with pytest.raises(StoreError) as owned_limit:
         reports.submit(OWNER, AGENT, "Another topic")
     assert owned_limit.value.code == "report_queue_session_limit"
@@ -102,6 +102,130 @@ def test_queue_limits_allow_reconnect_but_bound_distinct_topics_languages_and_se
     with pytest.raises(StoreError) as total_limit:
         reports.submit("public:charlie", AGENT, "Fourth")
     assert total_limit.value.code == "report_queue_full"
+
+
+def test_default_queue_admits_ten_per_visitor_and_fifty_globally(reports, monkeypatch):
+    monkeypatch.delenv("REPORT_MAX_ACTIVE_PER_OWNER", raising=False)
+    monkeypatch.delenv("REPORT_MAX_ACTIVE_GLOBAL", raising=False)
+    reports = ReportStore(reports.base_store)
+    assert (reports.max_active_per_owner, reports.max_active_global) == (10, 50)
+    for visitor in range(5):
+        owner = f"public:visitor-{visitor}"
+        for index in range(10):
+            reports.submit(owner, AGENT, f"Independent question {index}", idempotency_key=f"click-{index}")
+        with pytest.raises(StoreError) as owned:
+            reports.submit(owner, AGENT, "Eleventh question")
+        assert owned.value.code == "report_queue_session_limit"
+        assert "10" in owned.value.message
+    with pytest.raises(StoreError) as global_limit:
+        reports.submit("public:visitor-6", AGENT, "Another question")
+    assert global_limit.value.code == "report_queue_full"
+    assert "50" in global_limit.value.message
+    # Reconnection and duplicate active work still join when every slot is full.
+    joined = reports.submit("public:visitor-0", AGENT, "Independent question 0", idempotency_key="reconnect")
+    assert joined["joined_existing"]
+    assert len(reports.list_jobs("public:visitor-0", active_only=True)) == 10
+    assert reports.base_store.usage_summary()["daily"]["attempts"] == 0
+
+
+def test_queue_configuration_is_environment_backed_with_explicit_override(reports, monkeypatch):
+    monkeypatch.setenv("REPORT_MAX_ACTIVE_PER_OWNER", "8")
+    monkeypatch.setenv("REPORT_MAX_ACTIVE_GLOBAL", "40")
+    configured = get_report_store(reports.base_store)
+    assert (configured.max_active_per_owner, configured.max_active_global) == (8, 40)
+    overridden = ReportStore(reports.base_store, max_active_per_owner=2, max_active_global=3)
+    assert (overridden.max_active_per_owner, overridden.max_active_global) == (2, 3)
+
+
+@pytest.mark.parametrize("name,value", [
+    ("REPORT_MAX_ACTIVE_PER_OWNER", "zero"), ("REPORT_MAX_ACTIVE_PER_OWNER", "0"),
+    ("REPORT_MAX_ACTIVE_PER_OWNER", "21"), ("REPORT_MAX_ACTIVE_GLOBAL", "0"),
+    ("REPORT_MAX_ACTIVE_GLOBAL", "101"), ("REPORT_MAX_ACTIVE_GLOBAL", "1.5"),
+])
+def test_invalid_queue_environment_fails_with_specific_configuration_name(reports, monkeypatch, name, value):
+    monkeypatch.setenv(name, value)
+    with pytest.raises(StoreError) as failure:
+        ReportStore(reports.base_store)
+    assert failure.value.code == "invalid_job_configuration"
+    assert failure.value.status_code == 503 and name in failure.value.message
+
+
+def test_queue_position_tracks_fifo_without_revealing_other_visitor_jobs(reports):
+    jobs = [reports.submit(owner, AGENT, topic, now=NOW + timedelta(seconds=index))["job"]
+            for index, (owner, topic) in enumerate(((OWNER, "Alice first"),
+                ("public:bob", "Private Bob topic"), (OWNER, "Alice second")))]
+    assert [job["queue_position"] for job in jobs] == [1, 2, 3]
+    running = reports.claim("worker", concurrency=2)
+    assert running["job_id"] == jobs[0]["job_id"]
+    assert reports.get_job(OWNER, jobs[0]["job_id"])["queue_position"] is None
+    assert reports.get_job("public:bob", jobs[1]["job_id"])["queue_position"] == 1
+    last = reports.get_job(OWNER, jobs[2]["job_id"])
+    assert last["queue_position"] == 2
+    assert "public:bob" not in json.dumps(last) and "Private Bob topic" not in json.dumps(last)
+    assert jobs[1]["job_id"] not in json.dumps(reports.list_jobs(OWNER))
+    with pytest.raises(StoreError) as denied:
+        reports.get_job(OWNER, jobs[1]["job_id"])
+    assert denied.value.status_code == 404
+
+
+def test_new_manual_key_after_completion_creates_fresh_generation_but_same_key_replays(reports):
+    first = reports.submit(OWNER, AGENT, "Same intentional topic", idempotency_key="first-click")["job"]
+    claim = reports.claim("worker")
+    saved = save_for_job(reports, claim)
+    reports.finish_pdf(claim["job_id"], claim["lease_token"],
+        fake_pdf(reports.pdf_attempt_path(saved["report_id"], claim["lease_token"])))
+    reports.base_store.clock = lambda: NOW + timedelta(minutes=10)
+    replay = reports.submit(OWNER, AGENT, "Same intentional topic", idempotency_key="first-click")
+    assert replay["joined_existing"] and replay["job"]["job_id"] == first["job_id"]
+    assert replay["job"]["status"] == "ready" and replay["job"]["queue_position"] is None
+    fresh = reports.submit(OWNER, AGENT, "Same intentional topic", idempotency_key="second-click")
+    assert not fresh["joined_existing"]
+    assert fresh["job"]["job_id"] != first["job_id"]
+    assert fresh["job"]["generation_seq"] == first["generation_seq"] + 1
+    assert datetime.fromisoformat(fresh["job"]["research_cutoff"]) == NOW + timedelta(minutes=10)
+    assert fresh["job"]["previous_report_id"] == saved["report_id"]
+    assert reports.submit(OWNER, AGENT, "Same intentional topic", idempotency_key="second-click-reconnect")["job"]["job_id"] == fresh["job"]["job_id"]
+    assert reports.base_store.usage_summary()["daily"]["attempts"] == 1
+
+
+def test_expired_reserved_job_is_recovered_before_new_queue_admission(reports):
+    reports.max_active_per_owner = 1
+    reports.submit(OWNER, AGENT, "Interrupted attempt")
+    expired = reports.claim("dead-worker", lease_seconds=30)
+    reserved = reserve_for_job(reports, expired)
+    reports.base_store.clock = lambda: NOW + timedelta(seconds=31)
+    next_job = reports.submit(OWNER, AGENT, "New manual attempt", idempotency_key="new-click")["job"]
+    assert next_job["status"] == "queued" and next_job["queue_position"] == 1
+    assert reports.get_job(OWNER, expired["job_id"])["status"] == "interrupted"
+    assert reports.base_store.get_report(reserved)["status"] == "interrupted"
+    assert reports.base_store.usage_summary()["daily"]["attempts"] == 1
+    assert reports.claim("new-worker")["job_id"] == next_job["job_id"]
+
+
+def test_expired_unspent_work_retains_its_queue_slot_and_original_cutoff(reports):
+    reports.max_active_per_owner = 1
+    first = reports.submit(OWNER, AGENT, "Still authorized work")["job"]
+    reports.claim("dead-worker", lease_seconds=30)
+    reports.base_store.clock = lambda: NOW + timedelta(seconds=31)
+    with pytest.raises(StoreError) as full:
+        reports.submit(OWNER, AGENT, "Additional work")
+    assert full.value.code == "report_queue_session_limit"
+    resumed = reports.get_job(OWNER, first["job_id"])
+    assert resumed["status"] == "queued" and resumed["research_cutoff"] == first["research_cutoff"]
+    assert reports.base_store.usage_summary()["daily"]["attempts"] == 0
+
+
+def test_existing_database_adds_private_local_recovery_counter_without_losing_jobs(reports):
+    original = reports.submit(OWNER, AGENT, "Saved queue entry")["job"]
+    with reports.base_store._connect() as connection:
+        connection.execute("ALTER TABLE research_jobs DROP COLUMN local_recovery_attempts")
+    reopened = get_report_store(reports.base_store)
+    with reports.base_store._connect() as connection:
+        row = connection.execute("SELECT local_recovery_attempts FROM research_jobs WHERE job_id=?",
+                                 (original["job_id"],)).fetchone()
+    assert row["local_recovery_attempts"] == 0
+    assert reopened.get_job(OWNER, original["job_id"])["status"] == "queued"
+    assert "local_recovery_attempts" not in reopened.get_job(OWNER, original["job_id"])
 
 
 def test_newer_generation_remains_current_when_older_job_finishes_later(reports):

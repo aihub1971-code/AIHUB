@@ -15,13 +15,15 @@ import sqlite3
 from typing import Any
 from uuid import uuid4
 
+from app.config import get_setting
 from app.permissions import require_capability
 from app.registry import get_agent
 from app.storage import Store, StoreError, _aware, _json, _stamp, get_store
 
 
-MAX_ACTIVE_PER_OWNER = 3
-MAX_ACTIVE_GLOBAL = 20
+MAX_ACTIVE_PER_OWNER = 10
+MAX_ACTIVE_GLOBAL = 50
+MAX_LOCAL_RECOVERY_ATTEMPTS = 2
 # A bounded 100-article multilingual inventory includes both report items and
 # immutable source references. Keep the same input ceiling as the PDF worker.
 MAX_REPORT_BYTES = 5_000_000
@@ -59,6 +61,7 @@ CREATE TABLE IF NOT EXISTS research_jobs (
     report_id TEXT REFERENCES runs(report_id),
     previous_report_id TEXT REFERENCES runs(report_id),
     error_code TEXT,
+    local_recovery_attempts INTEGER NOT NULL DEFAULT 0,
     UNIQUE(owner_id,agent_id,generation_seq)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS research_active_request_idx
@@ -129,15 +132,27 @@ def _validate_owner(owner_id: str) -> None:
 
 
 class ReportStore:
-    def __init__(self, base_store: Store, *, max_active_per_owner: int = MAX_ACTIVE_PER_OWNER,
-                 max_active_global: int = MAX_ACTIVE_GLOBAL):
-        if (type(max_active_per_owner) is not int or not 1 <= max_active_per_owner <= 20
-                or type(max_active_global) is not int or not 1 <= max_active_global <= 100):
-            raise StoreError("invalid_job_configuration", "Invalid research queue limits.", 503)
+    def __init__(self, base_store: Store, *, max_active_per_owner: int | None = None,
+                 max_active_global: int | None = None):
+        max_active_per_owner = self._queue_limit(max_active_per_owner, "REPORT_MAX_ACTIVE_PER_OWNER",
+                                                MAX_ACTIVE_PER_OWNER, 20)
+        max_active_global = self._queue_limit(max_active_global, "REPORT_MAX_ACTIVE_GLOBAL",
+                                             MAX_ACTIVE_GLOBAL, 100)
         self.base_store = base_store
         self.max_active_per_owner = max_active_per_owner
         self.max_active_global = max_active_global
         self.pdf_directory = base_store.path.parent / "reports"
+
+    @staticmethod
+    def _queue_limit(value: int | None, name: str, default: int, maximum: int) -> int:
+        if value is None:
+            try:
+                value = int(get_setting(name, str(default)) or str(default))
+            except (TypeError, ValueError):
+                value = None
+        if type(value) is not int or not 1 <= value <= maximum:
+            raise StoreError("invalid_job_configuration", f"{name} must be an integer from 1 to {maximum}.", 503)
+        return value
 
     def initialize(self) -> None:
         self.base_store.initialize()
@@ -147,6 +162,8 @@ class ReportStore:
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(research_jobs)")}
             if "error_diagnostics_json" not in columns:
                 connection.execute("ALTER TABLE research_jobs ADD COLUMN error_diagnostics_json TEXT")
+            if "local_recovery_attempts" not in columns:
+                connection.execute("ALTER TABLE research_jobs ADD COLUMN local_recovery_attempts INTEGER NOT NULL DEFAULT 0")
         self.pdf_directory.mkdir(parents=True, exist_ok=True)
 
     def _now(self, now: datetime | None = None) -> datetime:
@@ -167,6 +184,14 @@ class ReportStore:
         result["research_window"] = _window(row["window_start"], row["window_end"])
         result["research_cutoff"] = row["window_end"]
         result["pdf_status"] = None
+        result["queue_position"] = None
+        if connection is not None and row["status"] == "queued":
+            # Only an aggregate position is public; no other visitor's job,
+            # topic, identity or report is exposed by the shared queue.
+            ahead = connection.execute("""SELECT COUNT(*) FROM research_jobs WHERE status='queued'
+                AND (created_at<? OR (created_at=? AND job_id<?))""",
+                (row["created_at"], row["created_at"], row["job_id"])).fetchone()[0]
+            result["queue_position"] = ahead + 1
         if connection is not None and row["report_id"]:
             saved = connection.execute("SELECT pdf_status FROM research_reports WHERE report_id=?",
                                        (row["report_id"],)).fetchone()
@@ -205,6 +230,9 @@ class ReportStore:
         key_hash = hashlib.sha256(idempotency_key.encode()).hexdigest() if idempotency_key is not None else None
         moment = self._now(now)
         timestamp = _stamp(moment)
+        # Expired paid work becomes terminal before queue admission. This
+        # housekeeping never replays a provider call or changes a frozen window.
+        self.recover_expired(now=moment)
         with self.base_store._transaction() as connection:
             row = None
             if key_hash:
@@ -247,9 +275,11 @@ class ReportStore:
         active = connection.execute("""SELECT COUNT(*) AS total,COALESCE(SUM(owner_id=?),0) AS owned
             FROM research_jobs WHERE status IN ('queued','running')""", (owner_id,)).fetchone()
         if active["owned"] >= self.max_active_per_owner:
-            raise StoreError("report_queue_session_limit", "This session already has several reports in progress.", 429)
+            raise StoreError("report_queue_session_limit",
+                f"This visitor already has {self.max_active_per_owner} reports queued or running. Wait for one to finish.", 429)
         if active["total"] >= self.max_active_global:
-            raise StoreError("report_queue_full", "The report queue is full. Try again after a current report finishes.", 429)
+            raise StoreError("report_queue_full",
+                f"The report queue has {self.max_active_global} reports queued or running. Try again after one finishes.", 429)
 
     @staticmethod
     def _latest_row(connection: sqlite3.Connection, owner_id: str, agent_id: str) -> sqlite3.Row | None:
@@ -495,7 +525,9 @@ class ReportStore:
 
     def retry_pdf(self, owner_id: str, report_id: str) -> dict[str, Any]:
         _validate_owner(owner_id)
-        timestamp = _stamp(self._now())
+        moment = self._now()
+        timestamp = _stamp(moment)
+        self.recover_expired(now=moment)
         with self.base_store._transaction() as connection:
             report = connection.execute("SELECT * FROM research_reports WHERE owner_id=? AND report_id=?", (owner_id, report_id)).fetchone()
             if report is None:
@@ -529,12 +561,16 @@ class ReportStore:
                 lease_token=NULL,lease_owner=NULL,lease_expires_at=NULL WHERE job_id=?""",
                 (status, code, _json(diagnostics or {}), timestamp, timestamp, job_id))
 
-    def defer_saved_report(self, job_id: str, token: str) -> None:
-        """Only local persistence/PDF work can be requeued after a saved result."""
+    def defer_saved_report(self, job_id: str, token: str) -> bool:
+        """Bound local persistence recovery after a saved result; never repeat research."""
         with self.base_store._transaction() as connection:
-            self._leased(connection, job_id, token)
+            job = self._leased(connection, job_id, token)
+            if job["local_recovery_attempts"] >= MAX_LOCAL_RECOVERY_ATTEMPTS:
+                return False
             connection.execute("""UPDATE research_jobs SET status='queued',stage='preparing_pdf',updated_at=?,
+                local_recovery_attempts=local_recovery_attempts+1,
                 lease_token=NULL,lease_owner=NULL,lease_expires_at=NULL WHERE job_id=?""", (_stamp(self._now()), job_id))
+            return True
 
     def recover_expired(self, *, now: datetime | None = None) -> int:
         """Requeue unspent/local work; never replay an ambiguous paid operation."""

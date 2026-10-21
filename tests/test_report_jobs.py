@@ -1,6 +1,7 @@
 """Offline end-to-end worker execution, quota gates and local PDF recovery."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+import sqlite3
 import threading
 
 from fastapi import HTTPException
@@ -160,6 +161,75 @@ def test_restart_after_saved_paid_result_only_renders_pdf(reports, engine):
     assert not engine["estimate"] and not engine["generate"] and len(engine["pdf"]) == 1
     assert reports.get_job(OWNER, job["job_id"])["status"] == "ready"
     assert reports.base_store.usage_summary()["daily"]["attempts"] == 1
+
+
+def test_transient_snapshot_save_failure_recovers_locally_without_repeating_research(reports, engine, monkeypatch):
+    job = reports.submit(OWNER, AGENT, "Recover local persistence")["job"]
+    original_save = reports.save_report
+    attempts = []
+    def save(*args, **kwargs):
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return original_save(*args, **kwargs)
+    monkeypatch.setattr(reports, "save_report", save)
+    assert engine["worker"].run_once()
+    waiting = reports.get_job(OWNER, job["job_id"])
+    assert waiting["status"] == "queued" and waiting["stage"] == "preparing_pdf"
+    assert waiting["queue_position"] == 1 and waiting["pdf_status"] is None
+    assert reports.base_store.get_report(waiting["report_id"])["status"] == "succeeded"
+    assert engine["worker"].run_once()
+    assert reports.get_job(OWNER, job["job_id"])["status"] == "ready"
+    assert [len(engine[part]) for part in ("estimate", "generate", "pdf")] == [1, 1, 1]
+    assert reports.base_store.usage_summary()["daily"]["attempts"] == 1
+    assert len(attempts) == 2
+
+
+@pytest.mark.parametrize("failure", [sqlite3.OperationalError("database is locked"), OSError("disk temporarily unavailable")])
+def test_persistent_local_save_failure_is_bounded_and_frees_active_queue_slot(reports, engine, monkeypatch, failure):
+    job = reports.submit(OWNER, AGENT, "Bound local recovery", idempotency_key="original-click")["job"]
+    def save(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(reports, "save_report", save)
+    for _ in range(2):
+        assert engine["worker"].run_once()
+        assert reports.get_job(OWNER, job["job_id"])["status"] == "queued"
+    assert engine["worker"].run_once()
+    failed = reports.get_job(OWNER, job["job_id"])
+    assert failed["status"] == "failed" and failed["error_code"] == "report_recovery_failed"
+    assert failed["pdf_status"] is None and failed["queue_position"] is None
+    assert failed["error"]["retryable"] is True
+    assert not engine["worker"].run_once()
+    assert [len(engine[part]) for part in ("estimate", "generate", "pdf")] == [1, 1, 0]
+    ledger = reports.base_store.get_report(failed["report_id"])
+    assert ledger["status"] == "succeeded" and ledger["result"]["response"]
+    assert reports.base_store.usage_summary()["daily"]["attempts"] == 1
+    assert reports.submit(OWNER, AGENT, "Bound local recovery", idempotency_key="original-click")["job"]["status"] == "failed"
+    fresh = reports.submit(OWNER, AGENT, "Bound local recovery", idempotency_key="new-click")
+    assert fresh["job"]["job_id"] != job["job_id"] and fresh["job"]["status"] == "queued"
+
+
+def test_permanent_snapshot_validation_failure_is_not_requeued_or_mislabelled_pdf_failure(reports, engine, monkeypatch):
+    job = reports.submit(OWNER, AGENT, "Invalid snapshot persistence")["job"]
+    def invalid(*args, **kwargs):
+        raise StoreError("invalid_research_report", "The stored snapshot is invalid.", 502)
+    monkeypatch.setattr(reports, "save_report", invalid)
+    assert engine["worker"].run_once()
+    failed = reports.get_job(OWNER, job["job_id"])
+    assert failed["status"] == "failed" and failed["error_code"] == "invalid_research_report"
+    assert failed["pdf_status"] is None
+    assert not engine["worker"].run_once()
+    assert reports.base_store.get_report(failed["report_id"])["status"] == "succeeded"
+    assert [len(engine[part]) for part in ("estimate", "generate", "pdf")] == [1, 1, 0]
+
+
+@pytest.mark.parametrize("workers", [0, 3, True])
+def test_larger_waiting_queue_does_not_raise_sqlite_worker_concurrency(reports, workers):
+    with pytest.raises(StoreError) as invalid:
+        ReportWorker(reports, workers=workers)
+    assert invalid.value.code == "invalid_job_configuration"
+    with pytest.raises(StoreError):
+        reports.claim("worker", concurrency=workers)
 
 
 def test_lifecycle_worker_completes_without_an_open_browser_and_start_is_idempotent(reports, engine, monkeypatch):

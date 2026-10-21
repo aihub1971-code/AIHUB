@@ -31,8 +31,8 @@ def inline_feed_threads(monkeypatch):
 
 def credits(database):
     with database._connect() as connection:
-        return connection.execute(
-            "SELECT COALESCE(SUM(accounted_credits),0) FROM workspace_news_credits").fetchone()[0]
+        return news_feed.accounted_credits(connection,
+            local_date=database._now().astimezone(news_feed.DUBAI).date().isoformat())
 
 
 @pytest.mark.parametrize("cache_age_hours", [None, 0, .5, 13],
@@ -115,7 +115,7 @@ def test_feed_default_is_cache_only_even_without_a_saved_snapshot(
     assert credits(base) == 0
 
 
-def test_explicit_refresh_fetches_then_reuses_cache_until_the_shared_cooldown(
+def test_each_completed_manual_refresh_can_be_followed_by_an_immediate_fresh_request(
         workspace, monkeypatch, inline_feed_threads):
     base = workspace["store"].base_store
     clock = [NOW]
@@ -139,22 +139,22 @@ def test_explicit_refresh_fetches_then_reuses_cache_until_the_shared_cooldown(
     assert len(calls) == len(inline_feed_threads) == credits(base) == 1
 
     repeated = client.post(path + "/refresh", json={"language": "ar"}).json()
-    assert repeated["snapshot_id"] == first.json()["snapshot_id"]
-    assert repeated["refresh_started"] is False
-    assert len(calls) == 1
+    assert repeated["snapshot_id"] != first.json()["snapshot_id"]
+    assert repeated["refresh_started"] is True
+    assert len(calls) == len(inline_feed_threads) == credits(base) == 2
 
     clock[0] += timedelta(seconds=news_feed.REFRESH_INTERVAL_SECONDS + 1)
     passive = client.get(path, params={"language": "ar"}).json()
-    assert passive["snapshot_id"] == first.json()["snapshot_id"]
-    assert passive["stale"] and len(calls) == 1
+    assert passive["snapshot_id"] == repeated["snapshot_id"]
+    assert passive["stale"] and len(calls) == 2
     updated = client.post(path + "/refresh", json={"language": "ar"}).json()
     assert updated["refresh_started"] is True
-    assert updated["snapshot_id"] != first.json()["snapshot_id"]
-    assert len(calls) == len(inline_feed_threads) == credits(base) == 2
+    assert updated["snapshot_id"] != repeated["snapshot_id"]
+    assert len(calls) == len(inline_feed_threads) == credits(base) == 3
     assert base.usage_summary()["daily"]["attempts"] == 0
 
 
-def test_user_requested_report_retrieval_still_refreshes_an_empty_or_expired_feed(workspace, monkeypatch):
+def test_a_new_generation_fetches_again_even_inside_the_previous_cache_interval(workspace, monkeypatch):
     base = workspace["store"].base_store
     clock = [NOW]
     base.clock = lambda: clock[0]
@@ -168,9 +168,11 @@ def test_user_requested_report_retrieval_still_refreshes_an_empty_or_expired_fee
     mock_http(monkeypatch, handler)
     first = news_feed.get_report_feed("iran-news", language="en", database=base)
     assert first["actual_count"] == 1 and len(calls) == 1
-    cached = news_feed.get_report_feed("iran-news", language="ar", database=base)
-    assert cached["snapshot_id"] == first["snapshot_id"] and len(calls) == 1
-    clock[0] += timedelta(seconds=news_feed.REFRESH_INTERVAL_SECONDS + 1)
+    clock[0] += timedelta(seconds=1)
+    second = news_feed.get_report_feed("iran-news", language="ar", database=base)
+    assert second["snapshot_id"] != first["snapshot_id"] and len(calls) == 2
+    assert second["freshness"]["checked_after_request"] is True
+    clock[0] += timedelta(seconds=60)
     updated = news_feed.get_report_feed("iran-news", language="en", database=base)
-    assert updated["snapshot_id"] != first["snapshot_id"]
-    assert updated["actual_count"] == 1 and len(calls) == credits(base) == 2
+    assert updated["snapshot_id"] != second["snapshot_id"]
+    assert updated["actual_count"] == 1 and len(calls) == credits(base) == 3
