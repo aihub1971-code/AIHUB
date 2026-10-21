@@ -846,6 +846,7 @@ def test_referenced_moodboard_keeps_original_scenes_separate_from_cited_inspirat
     raw = structured_pack(profile, [source], items=False)
     raw["sections"][0].update(attribution="original_creative", source_ids=[],
                               body="An imagined archivist follows fictional memories carried by an invented tide.")
+    Draft202012Validator(research._schema(profile, [source])).validate(raw)
     result, _ = research._validated_pack(json.dumps(raw), profile, [source], research._window(WINDOW), language=language)
     original, reference = result["sections"][:2]
     assert original["attribution"] == "original_creative" and original["source_ids"] == []
@@ -878,6 +879,52 @@ def test_noncreative_factual_sections_still_require_their_own_source_ids(agent):
     with pytest.raises(HTTPException) as error:
         research._validated_pack(json.dumps(raw), profile, [source], research._window(WINDOW))
     assert error.value.detail["code"] == "invalid_research_report"
+
+
+@pytest.mark.parametrize("agent,title", [
+    ("iran-news", TITLE),
+    ("historical-reading-companion", TITLE),
+    ("economic-cultural-briefing", "Synthetic central bank economic announcement"),
+])
+def test_source_backed_section_schema_rejects_omitted_or_invented_citations(agent, title):
+    profile = get_profile(agent)
+    source, reason = verify(page_record(title=title), agent)
+    assert source and reason is None
+    raw = structured_pack(profile, [source])
+    validator = Draft202012Validator(research._schema(profile, [source]))
+    # A one-source development needs no additional supporting citation.
+    assert raw["items"][0]["supporting_source_ids"] == []
+    validator.validate(raw)
+    for index in range(len(raw["sections"])):
+        for ids in ([], ["src_not_in_the_supplied_evidence"]):
+            invalid = deepcopy(raw)
+            invalid["sections"][index]["source_ids"] = ids
+            assert not validator.is_valid(invalid)
+
+
+@pytest.mark.parametrize("agent", ["iran-news", "economic-cultural-briefing", "historical-reading-companion", "story-moodboard"])
+def test_empty_source_schema_still_allows_empty_section_citations(agent):
+    profile = get_profile(agent)
+    raw = structured_pack(profile, [], items=False)
+    Draft202012Validator(research._schema(profile, [])).validate(raw)
+
+
+def test_brief_factual_task_keeps_required_sections_and_source_backed_analysis_rules():
+    profile = get_profile("economic-cultural-briefing")
+    source, _ = verify(page_record(title="Synthetic central bank economic announcement"), profile["id"])
+    topic = "Who leads this synthetic central bank? Give a brief answer with an official source."
+    payload, selected = research._synthesis_payload("gpt-6.1-sol", profile, topic, "en",
+                                                   research._window(WINDOW), [source], None)
+    prompt = payload["input"][0]["content"]
+    assert json.loads(payload["input"][1]["content"])["topic"] == topic
+    assert "brief answer changes prose length, not the required sections" in prompt
+    assert "every factual and analytical section" in prompt
+    assert "cite an unrelated source merely to fill a section" in prompt
+    schema = payload["text"]["format"]["schema"]
+    assert schema["properties"]["sections"]["minItems"] == len(profile["sections"])
+    citation_schema = schema["properties"]["sections"]["items"]["properties"]["source_ids"]
+    assert citation_schema["minItems"] == 1
+    assert citation_schema["items"]["enum"] == [source["id"] for source in selected]
 
 
 def test_source_free_schema_forces_empty_reference_arrays_and_exposes_validator_bounds():
