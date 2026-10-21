@@ -261,7 +261,9 @@ def test_owner_workspace_requires_auth_and_keeps_public_threads_separate(client,
     assert streaming_provider["requests"] == []
 
 
-@pytest.mark.parametrize("message", ["Hello", "How should we work together?", "Remember that I prefer short paragraphs.",
+@pytest.mark.parametrize("message", ["Hello", "How should we work together?", "What can you do?", "كيف حالك؟", "من أنت؟",
+    "ماذا تستطيع أن تفعل؟", "هل يمكنك مساعدتي؟", "كيف تساعدني؟",
+    "Remember that I prefer short paragraphs.",
     "What did we discuss about employment programmes?", "What did we discuss about research costs?",
     "I work on education policy.", "I am preparing a briefing."])
 def test_greeting_preference_and_memory_question_do_not_start_unrequested_research(message):
@@ -309,3 +311,11 @@ def test_arabic_other_agent_memory_question_streams_approved_memory_without_rese
 ])
 def test_substantive_evidence_questions_retrieve_when_no_report_is_available(agent_id, message):
     assert workspace_chat.needs_fresh_research(message, agent_id, False) is True
+
+
+@pytest.mark.parametrize("message", [
+    "I am preparing a briefing: who is the president of the European Central Bank?",
+    "I work on a briefing. Tell me about the European Central Bank's governing council.",
+])
+def test_self_description_does_not_hide_an_independent_factual_question(message):
+    assert workspace_chat.needs_fresh_research(message, "economic-cultural-briefing", False) is True

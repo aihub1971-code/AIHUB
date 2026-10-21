@@ -42,7 +42,12 @@ _SINCE = re.compile(r"\bsince\b|منذ", re.I)
 _REPORT_MENTION = re.compile(r"\breports?\b|تقرير", re.I)
 _DISCUSS_REPORT = re.compile(
     r"\bsummari[sz]e\b|\bexplain\b|\btranslate\b|\bdescribe\b|\bcritique\b|"
-    r"\b(?:sources?|cutoff|conclusion|assessment)\b|لخص|لخّص|اشرح|فسر|فسّر|ترجم|ناقش|تقييم|مصادر", re.I)
+    r"\b(?:sources?|cutoff|conclusion|assessment)\b|"
+    r"\b(?:this|that|the|my|our|saved|selected|current|previous) report\b[^.!?\n]{0,100}"
+    r"\b(?:say|says|said|contain|contains)\b|"
+    r"\b(?:in|from) (?:this|that|the|my|our|saved|selected|current|latest|previous) report\b|"
+    r"(?:يقول|يتضمن|يحتوي|ورد)[^.!?؟\n]{0,80}(?:هذا التقرير|ذلك التقرير|التقرير المحفوظ|التقرير المحدد)|"
+    r"لخص|لخّص|اشرح|فسر|فسّر|ترجم|ناقش|تقييم|مصادر", re.I)
 _EXPLICIT_RESEARCH = re.compile(
     r"\bsearch\b|\blook up\b|\brefresh\b|\bregenerate\b|\bcheck for\b|"
     r"^\s*research\b|\b(?:please|can you|could you|would you|let us|let's)\s+research\b|"
@@ -55,10 +60,25 @@ _PLATFORM = re.compile(
     r"كيف (?:أولد|اولد|أنشئ|انشئ|أصدر|اصدر) (?:تقرير|التقرير)|زر التحويل|تغيير اللغة|language (?:switch|button)", re.I)
 _MEMORY_DISCUSS = re.compile(r"\bremember\b|\bmy preference|\bour conversation|\bwe discuss(?:ed)?\b|\bI (?:prefer|told|mentioned|said)\b|\b(?:another|other) agent\b|تذكر|تذكّر|أفضل أن|افضل ان|ناقشنا|محادثتنا|تفضيلاتي|تفضيلي|التفضيل الذي اعتمد|(?:الوكيل|المساعد) (?:الآخر|الاخر)", re.I)
 _NO_RESEARCH = re.compile(
+    r"\b(?:without|no)\s+(?:(?:doing|running|performing|conducting|using)\s+)?"
+    r"(?:(?:a|any|new|fresh|additional|further|live|web|online|external)\s+)*"
+    r"(?:search(?:ing|es)?|research(?:ing)?|brows(?:e|ing))\b|"
+    r"\b(?:do\s+not|don['’]?t|never|avoid)\s+(?:(?:do|run|conduct|perform|use)\s+)?"
+    r"(?:(?:a|any|new|fresh|additional|further|live|web|online|external)\s+)*"
+    r"(?:search(?:ing|es)?|research(?:ing)?|brows(?:e|ing)|look\s+up|go\s+online)\b|"
+    r"\b(?:do\s+not|don['’]?t|never|avoid)\s+(?:use|access|consult)\s+(?:the\s+)?(?:web|internet)\b|"
+    r"\bwithout\s+using\s+(?:the\s+)?(?:web|internet)\b|"
+    r"\bno\s+need\s+to\s+(?:search|research|browse|look\s+up)\b|"
     r"(?:دون|بدون)\s+(?:(?:إجراء|اجراء|عمل)\s+)?(?:(?:أي|اي)\s+)?(?:بحث|البحث)\b|"
     r"لا\s+تبحث\b", re.I)
 _SELF_DESCRIPTION = re.compile(r"\bI (?:am|work)\b|أنا أعمل|انا اعمل|أعمل في|اعمل في", re.I)
 _QUESTION_INTENT = re.compile(r"\b(?:what|which|how|why|when|where|compare|evaluate|assess|explain)\b|[?؟]|ما هي|ما الذي|كيف|قارن|قيّم", re.I)
+_INFORMATION_REQUEST = re.compile(
+    r"\b(?:what|which|who|when|where|why|how|explain|describe|compare|evaluate|assess|verify)\b|"
+    r"^\s*(?:is|are|was|were|do|does|did|has|have|had|will|can|could|would|should|may|might)\s+(?!you\b|we\b)|"
+    r"\btell (?:me|us) about\b|\b(?:give|show) (?:me|us) (?:information|facts|details|sources)\b|"
+    r"(?:^|[.!?؟]\s*)(?:ما|ماذا|من|متى|أين|اين|لماذا|كيف|هل)\b|"
+    r"أخبرني|اخبرني|حدثني|حدّثني|اشرح|وضح|وضّح|قارن|تحقق|تحقّق", re.I)
 _EVIDENCE_QUERY = re.compile(
     r"\bevidence\b|\bresearch\b|\bstud(?:y|ies)\b|\bprogrammes?\b|\bprograms?\b|\bevaluat|"
     r"\bscholar|\bhistori|\bhistory\b|\babbasid\b|\bbooks?\b|\bauthors?\b|\binterpretation|"
@@ -75,7 +95,8 @@ _CONTEXTUAL_FOLLOWUP = re.compile(
     r"stud(?:y|ies)|programmes?|programs?|trials?|pilots?|assessments?|reports?|interventions?)\b|"
     r"هذه (?:الأدلة|الادلة|الدراسة|النتائج|التجربة)|هذا (?:التقرير|التقييم|البرنامج)|آثارها|تكلفتها", re.I)
 _PRONOUN_FOLLOWUP = re.compile(r"\b(?:its|their)\b", re.I)
-_QUESTION_WORDS = set("""what which when where why how does did can could would should are was were has have
+_QUESTION_WORDS = set("""what which who when where why how do does did can could would should is am are was were has have
+    be been being will may might must me us it of to on in at as by or not
     the and for from with about into than that this these those their its them our your you they there
     please explain discuss describe compare summarize summarise evidence research scholarship analysis assessment finding findings
     result results implication implications limit limits limitation limitations report reports saved selected
@@ -85,6 +106,10 @@ _QUESTION_WORDS = set("""what which when where why how does did can could would 
     ما ماذا كيف متى أين اين لماذا هل الذي التي هذا هذه ذلك تلك عن على إلى الى من في مع بين
     اشرح شرح ناقش قارن لخص لخّص أدلة الادلة الأدلة تحليل التقييم تقرير التقرير المحفوظ
     خلفية الخلفية قديمة القديم المؤرخ المؤرخة النتائج وحدودها حدودها آثارها تكلفتها""".split())
+_CONVERSATION_WORDS = """work together doing name yourself capabilities capable hello hi hey thanks thank
+    conclusion conclusions arabic english
+    مرحبا مرحباً أهلا اهلا شكرا شكراً حالك حالكم اسمك قدراتك إمكاناتك امكاناتك مساعدتي نعمل معا معاً
+    أنت انت تستطيع تفعل أن يمكننا يمكنك العمل تساعدني المساعدة"""
 _TOPIC_FACETS = """programme programs trial trials pilot pilots study studies evaluation evaluations evaluated
     funding funded cost costs employment unemployment effect effects impact impacts outcome outcomes finding findings
     policy policies evidence research assessment analysis result results intervention interventions experiment experiments
@@ -93,7 +118,9 @@ _TOPIC_FACETS = """programme programs trial trials pilot pilots study studies ev
     reading questions question framework lessons implementation design funding budget budgets summary brief briefing
     preparing looking want interested issue issues detail details additional further publication published original
     تكاليف تكلفة تكلفه تمويل توظيف آثار اثار أثر اثر نتائج برامج برنامج تجارب تجربة تجريبي تقييم
-    دراسة دراسات أدلة الادلة بحث أبحاث ابحاث سياسات سياسة تغير تغيرات تطورات آثارها تكلفتها"""
+    دراسة دراسات أدلة الادلة بحث أبحاث ابحاث سياسات سياسة تغير تغيرات تطورات آثارها تكلفتها
+    مستجد مستجدات المستجدات مستجداته مستجداتها تطوراته تطوراتها جديد الجديد آخر اخر الأحدث الاحدث
+    الآن الان اليوم حاليا حالياً وما وماذا بشأنه بشأنها"""
 _DOMAIN_TERMS = {
     "iran-news": ["iran", "iranian", "tehran", "hormuz", "irgc", "إيران", "ايران", "طهران", "هرمز", "إيراني", "ايراني"],
     "geopolitical-morning": ["geopolit", "global conflict", "global assessment", "world news", "international affairs", "جيوسياس", "جيو سياس", "الأخبار العالمية", "اخبار العالم", "التقييم العالمي"],
@@ -147,7 +174,9 @@ def _dump(value: Any) -> str:
 
 
 def _tokens(value: str) -> set[str]:
-    return {part.casefold() for part in re.findall(r"[\w\u0600-\u06ff]+", value) if len(part) > 2}
+    # Unicode word characters include Arabic letters without swallowing the
+    # Arabic question mark/comma as part of the preceding word.
+    return {part.casefold() for part in re.findall(r"\w+", value) if len(part) > 2}
 
 
 def route_agents(message: str, selected_agent: str | None = None) -> list[str]:
@@ -182,7 +211,9 @@ def needs_fresh_research(message: str, agent_id: str | None, has_report: bool) -
     if _MEMORY_DISCUSS.search(message) and not _EXPLICIT_RESEARCH.search(message):
         return False
     if (_SELF_DESCRIPTION.search(message) and not _EXPLICIT_RESEARCH.search(message)
-            and not (_QUESTION_INTENT.search(message) and (_FRESH.search(message) or _EVIDENCE_QUERY.search(message)))):
+            and not ((_QUESTION_INTENT.search(message) or _INFORMATION_REQUEST.search(message))
+                     and (_FRESH.search(message) or _EVIDENCE_QUERY.search(message)
+                          or _independent_information_request(message)))):
         return False
     if _SINCE.search(message):
         return True
@@ -192,7 +223,7 @@ def needs_fresh_research(message: str, agent_id: str | None, has_report: bool) -
             and not _EXPLICIT_RESEARCH.search(message)):
         return False
     return bool(_FRESH.search(message) or _EXPLICIT_RESEARCH.search(message)
-                or (not has_report and _EVIDENCE_QUERY.search(message)))
+                or (not has_report and (_EVIDENCE_QUERY.search(message) or _independent_information_request(message))))
 
 
 def _concepts(value: str) -> set[str]:
@@ -213,6 +244,17 @@ def _concepts(value: str) -> set[str]:
                 term = term[2:]
         result.add(term)
     return result
+
+
+def _independent_information_request(message: str) -> bool:
+    """Research ordinary substantive questions without requiring magic keywords.
+
+    A question about a named subject can need sources even when it never says
+    "latest", "search" or one of the agent's specialist evidence terms. Pure
+    conversational/help turns and content-free follow-ups stay in the chat.
+    """
+    return bool(_INFORMATION_REQUEST.search(message)
+                and (_concepts(message) - _concepts(_CONVERSATION_WORDS)))
 
 
 def _report_covers_question(report: dict[str, Any] | None, message: str, agent_id: str,
@@ -306,7 +348,8 @@ def _make_plan(database: Store, reports: ReportStore, owner_id: str, conversatio
     if selected is None and primary_agent:
         selected = reports.latest_report(owner_id, primary_agent)
     if (primary_agent and primary_agent not in RETIRED_AGENT_IDS
-            and _EVIDENCE_QUERY.search(body.message) and not _MEMORY_DISCUSS.search(body.message)
+            and (_EVIDENCE_QUERY.search(body.message) or _independent_information_request(body.message))
+            and not _MEMORY_DISCUSS.search(body.message)
             and not _report_covers_question(selected, body.message, primary_agent, database.clock())):
         # The UI attaches its displayed report automatically. An independent
         # question can instead use a relevant dated background from this owner.
@@ -506,7 +549,7 @@ def platform_context() -> dict[str, Any]:
         "news": {"coverage_hours": 12, "maximum_items_after_validation_and_dedup": research.MAX_NEWS_ITEMS,
                  "source_scope": "NewsData and OpenAI live web search are available to every active agent. NewsData collection is capped at 50 raw articles per intentional refresh; web search supplements empty, insufficient or unavailable coverage and retrieves official documents and scholarship.",
                  "refresh": "On demand; exact cutoff is frozen at job creation. Not continuous monitoring."},
-        "chat": "Each agent has its own restored conversation. Relevant conversations, reviewed memory and cited reports are automatically shared across agents for this visitor only. Questions about now or explicit requests for research can start a fresh research job; saved snapshots remain unchanged. Responses stream as the model writes them.",
+        "chat": "Each agent has its own restored conversation. Relevant conversations, reviewed memory and cited reports are automatically shared across agents for this visitor only. Substantive questions can start fresh web research when saved evidence does not cover the subject; no search keyword or report attachment is required. Current questions request a new check. Explicit no-search requests and discussion of saved reports use existing context. Saved snapshots remain unchanged. Responses stream as the model writes them.",
         "memory": "Visitors review preferences, corrections and knowledge notes before these become persistent shared memory. Approval records the visitor's decision; it does not turn a claim into independently verified evidence. Personal memory is retrieval context, not model training. Proposed or rejected notes are excluded.",
         "archives": "Saved reports from retired agents remain available for reading, PDF download and discussion. Retired agents cannot generate new reports or fresh research; discussions use the saved evidence and its original cutoff.",
         "language": "Use the Arabic/English switch in the header. UI switching does not generate or rewrite a report. New reports follow the chosen language. Chat can explain any saved report in either language.",

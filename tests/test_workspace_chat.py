@@ -221,6 +221,64 @@ def test_current_relevant_evidence_can_answer_without_duplicate_research(discuss
     assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
 
 
+@pytest.mark.parametrize("with_report", [False, True])
+@pytest.mark.parametrize("language,question", [
+    ("en", "Who is the president of the European Central Bank?"),
+    ("ar", "من يرأس البنك المركزي الأوروبي؟"),
+    ("en", "Tell me about the European Central Bank's governing council."),
+    ("ar", "أخبرني عن مجلس إدارة البنك المركزي الأوروبي."),
+    ("en", "Has the European Central Bank changed its rate?"),
+    ("ar", "هل غير البنك المركزي الأوروبي سعر الفائدة؟"),
+])
+def test_ordinary_factual_question_researches_beyond_displayed_report(
+        discussion, provider, with_report, language, question):
+    """A normal question must not require specialist keywords or a manual attachment."""
+    agent_id = "economic-cultural-briefing"
+    previous = save_report(discussion, agent_id, label="unrelated-tourism") if with_report else None
+    response = send(discussion["client"], conversation(discussion["client"]), question,
+                    agent_id=agent_id, language=language,
+                    report_id=previous["report_id"] if previous else None,
+                    topic=previous["topic"] if previous else "")
+    assert response.status_code == 202, response.text
+    assert response.json()["status"] == "researching"
+    assert response.json()["job"]["topic"] == question
+    assert provider["calls"] == []
+    assert len(discussion["reports"].list_jobs(discussion["owner"], active_only=True)) == 1
+
+
+@pytest.mark.parametrize("language,question", [
+    ("en", "What is the latest on that?"),
+    ("ar", "ما آخر مستجداته الآن؟"),
+])
+def test_current_followup_retains_displayed_subject_for_new_research(discussion, provider, language, question):
+    previous = save_report(discussion, "economic-cultural-briefing", label="European-Central-Bank")
+    response = send(discussion["client"], conversation(discussion["client"]), question,
+                    agent_id="economic-cultural-briefing", language=language, report_id=previous["report_id"])
+    assert response.status_code == 202, response.text
+    topic = response.json()["job"]["topic"]
+    assert previous["topic"] in topic and question in topic
+    assert provider["calls"] == []
+
+
+@pytest.mark.parametrize("question", [
+    "Who is the president of the European Central Bank? Do not search the web.",
+    "Without doing any new research, explain the latest information in this report.",
+    "Don't browse; explain the current report's conclusion.",
+    "Don't use the web. Who is the president of the European Central Bank?",
+    "Do not use the internet. Who is the president of the European Central Bank?",
+    "No need to search. Who is the president of the European Central Bank?",
+    "من يرأس البنك المركزي الأوروبي؟ أجب بدون بحث جديد.",
+])
+def test_explicit_no_search_keeps_factual_questions_in_saved_context(discussion, provider, question):
+    previous = save_report(discussion, "economic-cultural-briefing", label="saved-background")
+    response = send(discussion["client"], conversation(discussion["client"]), question,
+                    agent_id="economic-cultural-briefing", report_id=previous["report_id"])
+    assert response.status_code == 200, response.text
+    assert response.json()["context"]["fresh_research"] is False
+    assert evidence(provider["calls"][0])["report_ids"] == [previous["report_id"]]
+    assert discussion["reports"].list_jobs(discussion["owner"], active_only=True) == []
+
+
 @pytest.mark.parametrize("question", [
     "What are Finland programme costs and employment effects?",
     "What are Finland programme costs and their employment effects?",
@@ -282,6 +340,9 @@ def test_explicit_dated_background_finds_relevant_older_owned_report(discussion,
 @pytest.mark.parametrize("question", [
     "Hello", "What did we discuss about research costs and employment effects?",
     "Summarize the saved report and explain its employment effects.",
+    "What does this report say about Iran?",
+    "What are the findings in this report about Iran?",
+    "ماذا يقول هذا التقرير عن إيران؟",
     "Remember that I prefer clear comparisons of programme costs.",
     "I am an adviser. What did we discuss about research costs?",
     "ما الذي ناقشنا بشأن الأبحاث وتكاليف البرامج؟",
@@ -531,6 +592,7 @@ def test_questions_about_saved_report_do_not_trigger_unrequested_research(messag
 
 
 @pytest.mark.parametrize("message", ["What is happening in Iran now?", "What changed since this report?",
+                                     "What do recent reports say about Iran?",
                                      "ما آخر المستجدات منذ التقرير؟", "ابحث عن تطورات إيران اليوم",
                                      "What are the new developments?", "Summarize the latest developments", "ما الجديد؟"])
 def test_genuinely_fresh_questions_request_new_research(message):
