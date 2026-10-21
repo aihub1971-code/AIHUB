@@ -1,6 +1,7 @@
 """Explicit discovery is reserved, bounded and separate from passive cache reads."""
 from copy import deepcopy
 from datetime import timedelta
+import json
 
 from fastapi import HTTPException
 import httpx
@@ -9,6 +10,7 @@ import pytest
 from app import news_feed, research, retrieval, runtime
 from app.storage import QuotaLimits, StoreError
 from tests.test_news_feed import NOW, article, database, mock_http, page, refresh
+from tests.test_research import install_transport, native_call, page_record, provider_response
 
 
 def source(number=1, **changes):
@@ -175,5 +177,80 @@ def test_discovery_estimate_removes_synthesis_and_enforces_one_bounded_native_st
     monkeypatch.setattr(research, "_verified_sources", verify)
     result = retrieval.discover_sources("iran-news", estimate)
     assert len(observed) == 1 and observed[0][1] == observed[0][0]["max_tool_calls"] == 2
+    request = json.loads(observed[0][0]["input"][1]["content"])
+    assert request["fresh_only"] is True and request["native_tool_action_limit"] == 2
+    assert observed[0][0]["tool_choice"] == "auto"
     assert result["sources"][0]["publisher_text_verified"] is True
     assert result["cost_tracking_complete"] and result["web_search"]["request_count"] == 1
+
+
+@pytest.mark.parametrize("agent", ["education-observatory", "historical-reading-companion", "uae-eu-trade-talks"])
+def test_feed_discovery_does_not_spend_its_small_budget_on_report_background(monkeypatch, agent):
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-research-key-not-sent")
+    estimate = retrieval.estimate_discovery(agent, research_window=news_feed._window(None, NOW))
+    observed = []
+    def call(key, payload, *, actions):
+        observed.append(payload)
+        raise HTTPException(503, {"code": "openai_unavailable"})
+    monkeypatch.setattr(research, "_call_response", call)
+    with pytest.raises(HTTPException):
+        retrieval.discover_sources(agent, estimate)
+    assert len(observed) == 1
+    instructions = observed[0]["input"][0]["content"]
+    assert "FRESH FEED DISCOVERY" in instructions and "Do not research older background" in instructions
+    assert "BACKGROUND EVIDENCE" not in instructions and "STRATEGY:" not in instructions
+    assert "Do not use open_page or find_in_page" in instructions
+
+
+def test_real_bounded_discovery_response_is_independently_verified_and_accounted_once(monkeypatch, database):
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-research-key-not-sent")
+    database._limits = QuotaLimits(max_reports_per_day=100, daily_budget_usd="100", monthly_budget_usd="1000")
+    fresh_url, old_url = source()["url"], "https://original-fixture.example/story/old"
+    requests, downloads = [], []
+    def handler(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        assert payload["max_tool_calls"] == 2 and payload["tool_choice"] == "auto"
+        return httpx.Response(200, json=provider_response("Observed publisher candidates.", native=[
+            native_call(url=fresh_url), {**native_call(url=old_url), "id": "ws_second_search"}]))
+    install_transport(monkeypatch, handler)
+    def download(url, allowed):
+        assert url in allowed
+        downloads.append(url)
+        return page_record(url=url, published=(NOW - timedelta(hours=1 if url == fresh_url else 13)).isoformat())
+    monkeypatch.setattr(research, "_download_page", download)
+    result = retrieval.run_feed_discovery(database, "iran-news", "bounded-search-fixture", news_feed._window(None, NOW))
+    assert len(requests) == 1 and set(downloads) == {fresh_url, old_url}
+    assert result["verified_source_count"] == 1 and result["sources"][0]["url"] == fresh_url
+    assert result["sources"][0]["publication_verification"]["verified"] is True
+    assert result["excluded"]["outside_window"] == 1
+    assert result["web_search"]["request_count"] == 1 and result["web_search"]["search_call_count"] == 2
+    assert result["cost_tracking_complete"] is True
+    with pytest.raises(StoreError) as captured:
+        retrieval.run_feed_discovery(database, "iran-news", "bounded-search-fixture", news_feed._window(None, NOW))
+    assert captured.value.code == "retrieval_already_attempted" and len(requests) == 1
+
+
+@pytest.mark.parametrize("native,code", [([], "native_search_not_used"),
+    ([native_call(), native_call("open_page"), native_call("find_in_page")], "search_call_limit_exceeded")])
+def test_actual_native_validation_failure_retains_feed_reservation_without_retry(monkeypatch, database, native, code):
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-research-key-not-sent")
+    database._limits = QuotaLimits(max_reports_per_day=100, daily_budget_usd="100", monthly_budget_usd="1000")
+    requests = []
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json=provider_response("No acceptable discovery.", native=native))
+    install_transport(monkeypatch, handler)
+    monkeypatch.setattr(research, "_download_page", lambda *a, **kw: pytest.fail("Rejected response cannot reach publisher verification"))
+    window = news_feed._window(None, NOW)
+    estimate = retrieval.estimate_discovery("iran-news", research_window=window)
+    with pytest.raises(HTTPException) as captured:
+        retrieval.run_feed_discovery(database, "iran-news", "failed-bounded-search-fixture", window)
+    assert captured.value.detail["code"] == code and len(requests) == 1
+    failed = database.list_reports(status="failed")
+    assert len(failed) == 1 and failed[0]["error_code"] == code
+    assert failed[0]["cost_basis"] == "reservation_retained"
+    assert failed[0]["estimated_cost_usd"] == estimate["estimated_cost_usd"]
+    with pytest.raises(StoreError) as duplicate:
+        retrieval.run_feed_discovery(database, "iran-news", "failed-bounded-search-fixture", window)
+    assert duplicate.value.code == "retrieval_already_attempted" and len(requests) == 1

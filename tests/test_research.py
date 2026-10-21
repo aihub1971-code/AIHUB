@@ -157,6 +157,22 @@ def test_current_discovery_uses_remaining_bounded_actions_without_calendar_query
     assert research.runtime._json_bytes(payload) <= research.MAX_RESEARCH_INPUT_BYTES
 
 
+@pytest.mark.parametrize("actions", [1, 2, 3, 6])
+def test_discovery_prompt_uses_its_total_search_budget_and_leaves_page_checks_to_server(actions):
+    payload = research._research_payload("gpt-6.1-sol", get_profile("iran-news"), "Synthetic topic", "en",
+                                        research._window(WINDOW), actions)
+    instructions = payload["input"][0]["content"]
+    request = json.loads(payload["input"][1]["content"])
+    assert f"total budget is {actions} native tool actions" in instructions
+    assert "Do not use open_page or find_in_page" in instructions
+    assert "up to three complementary" not in instructions and "then open/find" not in instructions
+    assert "application independently fetches and verifies" in instructions
+    assert payload["tool_choice"] == "auto" and payload["max_tool_calls"] == actions
+    assert payload["parallel_tool_calls"] is False
+    assert request["native_tool_action_limit"] == actions and request["discovery_actions"] == ["search"]
+    assert request["fresh_only"] is False and request["window"]["end"] == WINDOW["end"]
+
+
 @pytest.mark.parametrize("published,reason", [("2026-10-19T23:59:59Z", "outside_window"), ("2026-10-20T12:00:01Z", "future_publication"),
     ("2026-10-20", "unverified_publication_timestamp"), (None, "unverified_publication_timestamp"),
     ("2026-10-20T25:30:00Z", "unverified_publication_timestamp")])

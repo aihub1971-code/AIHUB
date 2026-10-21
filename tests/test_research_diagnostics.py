@@ -161,6 +161,37 @@ def test_native_action_overflow_captures_counts_without_relaxing_the_bound(provi
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("extra_status", ["completed", "failed", "incomplete", "private prose " + KEY])
+def test_action_limit_failure_logs_safe_status_buckets_without_treating_failed_attempts_as_free(
+        provider, caplog, extra_status):
+    extra = native("open_page")
+    extra["status"] = extra_status
+    extra["action"].update(url="https://private.example/?key=" + KEY, query="private user topic " + KEY)
+    data = completed(native("search"), native("search"), native("open_page"), extra, max_tool_calls=3)
+    calls = provider(httpx.Response(200, json=data, headers={"x-request-id": "req_action_overflow"}))
+    with pytest.raises(HTTPException) as captured:
+        research._call_response(KEY, {**PAYLOAD, "max_tool_calls": 3}, actions=3)
+    assert captured.value.detail["code"] == "search_call_limit_exceeded" and len(calls) == 1
+    event = json.loads(next(message.split(" ", 1)[1] for message in caplog.messages
+                           if message.startswith("research_response_rejected ")))
+    assert event["native_action_count"] == 4 and event["search_call_count"] == 2
+    assert event["allowed_native_actions"] == event["provider_tool_limit"] == 3
+    assert event["provider_status"] == 200 and event["response_status"] == "completed"
+    assert {"action": "search", "status": "completed", "count": 2} in event["native_actions"]
+    expected_status = extra_status if extra_status in {"completed", "failed", "incomplete"} else "unknown"
+    assert {"action": "open_page", "status": expected_status,
+            "count": 2 if extra_status == "completed" else 1} in event["native_actions"]
+    assert KEY not in caplog.text and "private.example" not in caplog.text
+    assert "private user topic" not in caplog.text and "private prose" not in caplog.text
+
+
+def test_auto_discovery_still_requires_a_real_search_without_retry(provider):
+    calls = provider(httpx.Response(200, json=completed()))
+    with pytest.raises(HTTPException) as captured:
+        research._call_response(KEY, {**PAYLOAD, "tool_choice": "auto", "max_tool_calls": 2}, actions=2)
+    assert captured.value.detail["code"] == "native_search_not_used" and len(calls) == 1
+
+
 def test_allowed_search_open_and_find_keep_separate_native_and_search_counts(provider):
     calls = provider(httpx.Response(200, json=completed(native("search"), native("open_page"), native("find_in_page"))))
     payload = {**PAYLOAD, "max_tool_calls": 3}
