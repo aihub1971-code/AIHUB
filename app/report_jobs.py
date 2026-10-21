@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import json
 import re
+import sqlite3
 import threading
 import time
 from typing import Any, Callable
@@ -168,6 +169,11 @@ class ReportWorker:
                     reports.fail(job_id, token, "execution_interrupted", interrupted=True)
                     return
                 ledger_saved = True
+                # Restoring the immutable snapshot is still persistence work,
+                # even when a recovered job was queued for its eventual PDF.
+                # A failure here must not advertise a PDF retry for a report
+                # that has not yet been saved in research_reports.
+                pdf_phase = False
                 saved = reports.save_report(job_id, token, report_id, existing["result"])
             else:
                 if pdf_phase:
@@ -221,10 +227,13 @@ class ReportWorker:
             if code == "report_job_lease_lost":
                 return
             try:
-                if ledger_saved and not pdf_phase:
+                if ledger_saved and not pdf_phase and isinstance(error, (sqlite3.OperationalError, OSError)):
                     # A saved paid result is recoverable from runs.result_json;
-                    # only persistence and PDF work may run again.
-                    reports.defer_saved_report(job_id, token)
+                    # only transient local persistence can be attempted again.
+                    # Bound recovery without advertising a misleading PDF-only
+                    # retry. Paid research is not repeated.
+                    if not reports.defer_saved_report(job_id, token):
+                        reports.fail(job_id, token, "report_recovery_failed", diagnostics=diagnostics)
                 else:
                     if report_id is not None and not ledger_saved:
                         base.fail_run(report_id, code)

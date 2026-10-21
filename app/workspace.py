@@ -25,7 +25,7 @@ REPORT_FIELDS = ("schema_version", "report_kind", "report_id", "agent_id", "agen
                  "actual_article_count", "analyzed_article_count", "requested_article_target", "status", "factual_basis")
 JOB_FIELDS = ("job_id", "agent_id", "topic", "language", "generation_seq", "status", "stage", "research_window",
               "research_cutoff", "created_at", "updated_at", "started_at", "finished_at", "report_id",
-              "previous_report_id", "error_code", "error", "pdf_status")
+              "previous_report_id", "error_code", "error", "pdf_status", "queue_position")
 
 
 class GenerateRequest(BaseModel):

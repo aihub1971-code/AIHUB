@@ -34,7 +34,7 @@ class Server:
         path, method = request.url.path, request.method
         cookie = request.headers.get("cookie", "")
         if path == "/health":
-            return httpx.Response(200, json={"status": "ok", "version": "2.1.0"})
+            return httpx.Response(200, json={"status": "ok", "version": "2.1.1"})
         if path == "/v1/public/bootstrap":
             assert request.headers["origin"] == BASE
             if cookie:
